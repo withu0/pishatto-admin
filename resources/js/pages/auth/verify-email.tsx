@@ -17,23 +17,23 @@ export default function VerifyEmail({ status }: { status?: string }) {
     };
 
     return (
-        <AuthLayout title="Verify email" description="Please verify your email address by clicking on the link we just emailed to you.">
-            <Head title="Email verification" />
+        <AuthLayout title="メールアドレスの確認" description="ご登録のメールアドレス宛に確認メールを送信しました。メール内のリンクをクリックして認証を完了してください。">
+            <Head title="メールアドレスの確認" />
 
             {status === 'verification-link-sent' && (
                 <div className="mb-4 text-center text-sm font-medium text-green-600">
-                    A new verification link has been sent to the email address you provided during registration.
+                    新しい確認メールを送信しました。
                 </div>
             )}
 
             <form onSubmit={submit} className="space-y-6 text-center">
                 <Button disabled={processing} variant="secondary">
                     {processing && <LoaderCircle className="h-4 w-4 animate-spin" />}
-                    Resend verification email
+                    確認メールを再送信
                 </Button>
 
                 <TextLink href={route('logout')} method="post" className="mx-auto block text-sm">
-                    Log out
+                    ログアウト
                 </TextLink>
             </form>
         </AuthLayout>
