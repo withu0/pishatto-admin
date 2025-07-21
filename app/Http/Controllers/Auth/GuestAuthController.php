@@ -1,0 +1,313 @@
+<?php
+
+namespace App\Http\Controllers\Auth;
+
+use App\Http\Controllers\Controller;
+use App\Models\Guest;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Facades\Storage;
+use App\Models\Reservation;
+
+class GuestAuthController extends Controller
+{
+    public function register(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'phone' => 'required|string|unique:guests,phone',
+            'verification_code' => 'required|string',
+            'nickname' => 'required|string|max:50',
+            'location' => 'required|string|max:50',
+            'profile_photo' => 'nullable|image|mimes:jpeg,png,jpg,gif|max:2048',
+            'interests' => 'nullable|string',
+            'age' => 'nullable|string',
+            'shiatsu' => 'nullable|string',
+            'alcohol' => 'nullable|string',
+            'tobacco' => 'nullable|string',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'message' => 'Validation failed',
+                'errors' => $validator->errors()
+            ], 422);
+        }
+
+        if (empty($request->verification_code)) {
+            return response()->json(['message' => 'Invalid verification code'], 422);
+        }
+
+        $data = [
+            'phone' => $request->phone,
+            'nickname' => $request->nickname,
+            'location' => $request->location,
+        ];
+
+        // Handle avatar upload
+        if ($request->hasFile('profile_photo')) {
+            $file = $request->file('profile_photo');
+            $fileName = time() . '_' . $file->getClientOriginalName();
+            $path = $file->storeAs('avatars', $fileName, 'public');
+            $data['avatar'] = 'avatars/' . $fileName;
+        }
+
+        // Save interests as JSON
+        if ($request->has('interests')) {
+            $interests = json_decode($request->input('interests'), true);
+            if (is_array($interests)) {
+                $data['interests'] = $interests;
+            }
+        }
+
+        // Create the guest
+        $guest = Guest::create($data);
+
+        return response()->json([
+            'message' => 'Guest registered successfully',
+            'guest' => $guest,
+            'token' => base64_encode('guest|'.$guest->id.'|'.now()), // placeholder token
+        ], 201);
+    }
+
+    public function login(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'phone' => 'required|string',
+        ]);
+        if ($validator->fails()) {
+            return response()->json(['message' => 'Invalid credentials'], 422);
+        }
+        $guest = Guest::where('phone', $request->phone)->first();
+        if (!$guest) {
+            $guest = Guest::create(['phone' => $request->phone]);
+        }
+        return response()->json([
+            'guest' => $guest,
+            'token' => base64_encode('guest|' . $guest->id . '|' . now()), // placeholder token
+        ]);
+    }
+
+    public function getProfile($phone)
+    {
+        $guest = Guest::where('phone', $phone)->first();
+        
+        if (!$guest) {
+            return response()->json(['message' => 'Guest not found'], 404);
+        }
+        
+        return response()->json([
+            'guest' => $guest,
+            'interests' => $guest->interests ?? [],
+        ]);
+    }
+
+    public function updateProfile(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'phone' => 'required|string|exists:guests,phone',
+            'nickname' => 'nullable|string|max:50',
+            'location' => 'nullable|string|max:50',
+            'profile_photo' => 'nullable|image|mimes:jpeg,png,jpg,gif|max:2048',
+            'birth_year' => 'nullable|integer|min:1900|max:' . (date('Y') - 18),
+            'height' => 'nullable|integer|min:100|max:250',
+            'residence' => 'nullable|string|max:100',
+            'birthplace' => 'nullable|string|max:100',
+            'annual_income' => 'nullable|string|max:100',
+            'education' => 'nullable|string|max:100',
+            'occupation' => 'nullable|string|max:100',
+            'alcohol' => 'nullable|in:未選択,飲まない,飲む,ときどき飲む',
+            'tobacco' => 'nullable|in:未選択,吸わない,吸う（電子タバコ）,吸う（紙巻きたばこ）,ときどき吸う',
+            'siblings' => 'nullable|string|max:100',
+            'cohabitant' => 'nullable|string|max:100',
+            'pressure' => 'nullable|in:weak,medium,strong',
+            'favorite_area' => 'nullable|string|max:100',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'message' => 'Validation failed',
+                'errors' => $validator->errors()
+            ], 422);
+        }
+
+        $data = $request->only([
+            'phone', 'line_id', 'nickname', 'birth_year', 'height', 'residence', 'birthplace','location',
+            'annual_income', 'education', 'occupation', 'alcohol', 'tobacco', 'siblings', 'cohabitant',
+            'pressure', 'favorite_area'
+        ]);
+        
+        // Handle avatar upload
+        if ($request->hasFile('profile_photo')) {
+            $file = $request->file('profile_photo');
+            $fileName = time() . '_' . $file->getClientOriginalName();
+            $path = $file->storeAs('avatars', $fileName, 'public');
+            $data['avatar'] = 'avatars/' . $fileName;
+        }
+        
+        // Remove null values to avoid overwriting existing data with null
+        $data = array_filter($data, function($value) {
+            return $value !== null && $value !== '';
+        });
+        
+        $guest = Guest::updateOrCreate(
+            ['phone' => $data['phone']],
+            $data
+        );
+        
+        return response()->json([
+            'message' => 'Profile updated successfully',
+            'guest' => $guest
+        ]);
+    }
+
+    public function getAvatar($filename)
+    {
+        // Use the public storage path where avatars should be stored
+        $path = storage_path('app/public/avatars/' . $filename);
+        
+        if (!file_exists($path)) {
+            // Fallback to the private path for existing files
+            $path = storage_path('app/private/public/avatars/' . $filename);
+            
+            if (!file_exists($path)) {
+                abort(404);
+            }
+        }
+        
+        return response()->file($path);
+    }
+
+    public function createReservation(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'guest_id' => 'required|exists:guests,id',
+            'cast_id' => 'nullable|exists:casts,id',
+            'type' => 'nullable|in:free,pishatto',
+            'scheduled_at' => 'required|date',
+            'location' => 'nullable|string|max:255',
+            'duration' => 'nullable|integer',
+            'details' => 'nullable|string',
+            'time' => 'nullable|string|max:10', // accept time
+        ]);
+        if ($validator->fails()) {
+            return response()->json([
+                'message' => 'Validation failed',
+                'errors' => $validator->errors()
+            ], 422);
+        }
+        $reservation = Reservation::create($request->only([
+            'guest_id', 'cast_id', 'type', 'scheduled_at', 'location', 'duration', 'details', 'time' // save time
+        ]));
+        return response()->json(['reservation' => $reservation], 201);
+    }
+
+    public function listReservations($guest_id)
+    {
+        $reservations = \App\Models\Reservation::where('guest_id', $guest_id)->orderBy('scheduled_at', 'desc')->get();
+        return response()->json(['reservations' => $reservations]);
+    }
+
+    public function matchReservation(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'reservation_id' => 'required|exists:reservations,id',
+            'cast_id' => 'required|exists:casts,id',
+        ]);
+        if ($validator->fails()) {
+            return response()->json([
+                'message' => 'Validation failed',
+                'errors' => $validator->errors()
+            ], 422);
+        }
+
+        $reservation = \App\Models\Reservation::find($request->reservation_id);
+        $reservation->cast_id = $request->cast_id;
+        $reservation->active = false;
+        $reservation->save();
+
+        // Only create a chat if one does not already exist for this reservation
+        $chat = \App\Models\Chat::where('reservation_id', $reservation->id)->first();
+        if (!$chat) {
+            $chat = \App\Models\Chat::create([
+                'guest_id' => $reservation->guest_id,
+                'cast_id' => $reservation->cast_id,
+                'reservation_id' => $reservation->id,
+            ]);
+        }
+
+        return response()->json([
+            'message' => 'Reservation matched and group chat created',
+            'chat' => $chat,
+        ]);
+    }
+
+    public function getUserChats($userType, $userId)
+    {
+        if ($userType === 'guest') {
+            $chats = \App\Models\Chat::where('guest_id', $userId)->get();
+            return response()->json(['chats' => $chats]);
+        } else {
+            // For cast, join reservation and guest to get guest avatar
+            $chats = \App\Models\Chat::where('cast_id', $userId)->with(['guest', 'reservation.guest'])->get();
+            $result = $chats->map(function ($chat) {
+                $guest = $chat->guest;
+                if (!$guest && $chat->reservation && $chat->reservation->guest) {
+                    $guest = $chat->reservation->guest;
+                }
+                return [
+                    'id' => $chat->id,
+                    'avatar' => $guest ? $guest->avatar : null,
+                    'guest_id' => $guest ? $guest->id : null,
+                    'guest_nickname' => $guest ? $guest->nickname : null,
+                    'last_message' => $chat->messages->last()->message ?? '',
+                    'updated_at' => $chat->updated_at ?? null,
+                    'unread' => false, // You can implement unread logic if needed
+                ];
+            });
+            return response()->json(['chats' => $result]);
+        }
+    }
+
+    public function allChats()
+    {
+        $chats = \App\Models\Chat::all();
+        return response()->json(['chats' => $chats]);
+    }
+
+    public function getReservationById($id)
+    {
+        $reservation = \App\Models\Reservation::find($id);
+        if (!$reservation) {
+            return response()->json(['message' => 'Reservation not found'], 404);
+        }
+        return response()->json(['reservation' => $reservation]);
+    }
+
+    public function repeatGuests(Request $request)
+    {
+        $guests = \App\Models\Guest::withCount('reservations')
+            ->having('reservations_count', '>', 1)
+            ->get(['id', 'nickname', 'avatar']);
+        
+        $result = $guests->map(function ($guest) {
+            return [
+                'id' => $guest->id,
+                'nickname' => $guest->nickname,
+                'avatar' => $guest->avatar,
+                'reservations_count' => $guest->reservations_count,
+            ];
+        });
+        return response()->json(['guests' => $result]);
+    }
+
+    public function getProfileById($id)
+    {
+        $guest = \App\Models\Guest::find($id);
+        if (!$guest) {
+            return response()->json(['message' => 'Guest not found'], 404);
+        }
+        return response()->json(['guest' => $guest]);
+    }
+} 

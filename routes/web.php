@@ -2,6 +2,8 @@
 
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
+use App\Http\Controllers\Auth\GuestAuthController;
+use App\Http\Controllers\Auth\CastAuthController;
 
 Route::get('/', function () {
     return Inertia::render('welcome');
@@ -26,6 +28,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::get('admin/payment-details', fn() => Inertia::render('admin/payment-details'))->name('admin.payment-details');
     Route::get('admin/notifications', fn() => Inertia::render('admin/notifications'))->name('admin.notifications');
 });
+
 
 require __DIR__.'/settings.php';
 require __DIR__.'/auth.php';
