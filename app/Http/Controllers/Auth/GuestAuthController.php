@@ -44,6 +44,8 @@ class GuestAuthController extends Controller
             'phone' => $request->phone,
             'nickname' => $request->nickname,
             'location' => $request->location,
+            'age' => $request->age,
+            'shiatsu' => $request->shiatsu,
         ];
         // Map location to favorite_area for backward compatibility
         if ($request->has('favorite_area')) {
@@ -197,13 +199,12 @@ class GuestAuthController extends Controller
     {
         $validator = Validator::make($request->all(), [
             'guest_id' => 'required|exists:guests,id',
-            'cast_id' => 'nullable|exists:casts,id',
             'type' => 'nullable|in:free,pishatto',
             'scheduled_at' => 'required|date',
             'location' => 'nullable|string|max:255',
             'duration' => 'nullable|integer',
             'details' => 'nullable|string',
-            'time' => 'nullable|string|max:10', // accept time
+            'time' => 'nullable|string|max:10',
         ]);
         if ($validator->fails()) {
             return response()->json([
@@ -211,30 +212,11 @@ class GuestAuthController extends Controller
                 'errors' => $validator->errors()
             ], 422);
         }
+        // Only create the reservation, do not attach casts here
         $reservation = Reservation::create($request->only([
-            'guest_id', 'cast_id', 'type', 'scheduled_at', 'location', 'duration', 'details', 'time' // save time
+            'guest_id', 'type', 'scheduled_at', 'location', 'duration', 'details', 'time'
         ]));
-        // Notify cast(s)
-        if ($reservation->type === 'pishatto' && $reservation->cast_id) {
-            Notification::create([
-                'user_id' => $reservation->cast_id,
-                'user_type' => 'cast',
-                'type' => 'order_created',
-                'reservation_id' => $reservation->id,
-                'message' => '新しい指名予約が入りました',
-                'read' => false,
-            ]);
-        } else {
-            // フリー: notify all casts (for demo, notify cast_id = 1)
-            Notification::create([
-                'user_id' => 1,
-                'user_type' => 'cast',
-                'type' => 'order_created',
-                'reservation_id' => $reservation->id,
-                'message' => '新しいフリー予約が入りました',
-                'read' => false,
-            ]);
-        }
+        // Eager load casts for consistency (will be empty on creation)
         return response()->json(['reservation' => $reservation], 201);
     }
 
@@ -256,22 +238,22 @@ class GuestAuthController extends Controller
                 'errors' => $validator->errors()
             ], 422);
         }
-
-        $reservation = \App\Models\Reservation::find($request->reservation_id);
-        $reservation->cast_id = $request->cast_id;
+        $reservation = Reservation::find($request->reservation_id);
+        // Attach the cast to the reservation (pivot table)
+        // $reservation->casts()->syncWithoutDetaching([$request->cast_id]);
         $reservation->active = false;
         $reservation->save();
-
-        // Only create a chat if one does not already exist for this reservation
-        $chat = \App\Models\Chat::where('reservation_id', $reservation->id)->first();
+        // Only create a chat if one does not already exist for this reservation and cast
+        $chat = \App\Models\Chat::where('reservation_id', $reservation->id)
+            ->where('cast_id', $request->cast_id)
+            ->first();
         if (!$chat) {
             $chat = \App\Models\Chat::create([
                 'guest_id' => $reservation->guest_id,
-                'cast_id' => $reservation->cast_id,
+                'cast_id' => $request->cast_id,
                 'reservation_id' => $reservation->id,
             ]);
         }
-
         // Notify guest
         Notification::create([
             'user_id' => $reservation->guest_id,
@@ -281,10 +263,11 @@ class GuestAuthController extends Controller
             'message' => '予約がキャストにマッチされました',
             'read' => false,
         ]);
-
+        // Return reservation with attached casts
         return response()->json([
             'message' => 'Reservation matched and group chat created',
             'chat' => $chat,
+            'reservation' => $reservation->load('casts')->toArray(),
         ]);
     }
 
@@ -384,5 +367,12 @@ class GuestAuthController extends Controller
             $notification->save();
         }
         return response()->json(['success' => true]);
+    }
+
+    // Add this method to fetch all guest phone numbers
+    public function allPhones()
+    {
+        $phones = Guest::pluck('phone');
+        return response()->json(['phones' => $phones]);
     }
 } 

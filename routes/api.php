@@ -63,3 +63,4 @@ Route::get('/tweets', [\App\Http\Controllers\TweetController::class, 'index']);
 Route::get('/tweets/{userType}/{userId}', [\App\Http\Controllers\TweetController::class, 'userTweets']);
 Route::post('/tweets', [\App\Http\Controllers\TweetController::class, 'store']);
 Route::delete('/tweets/{id}', [\App\Http\Controllers\TweetController::class, 'destroy']); 
+Route::get('/guests/phones', [\App\Http\Controllers\Auth\GuestAuthController::class, 'allPhones']); 

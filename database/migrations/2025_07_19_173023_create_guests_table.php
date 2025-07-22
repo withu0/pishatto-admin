@@ -16,6 +16,8 @@ return new class extends Migration
             $table->string('phone', 20)->unique()->nullable();
             $table->string('line_id', 50)->unique()->nullable();
             $table->string('nickname', 50)->nullable();
+            $table->string('age', 50)->nullable();
+            $table->string('shiatsu', 50)->nullable();
             $table->string('location', 50)->nullable();
             $table->string('avatar', 255)->nullable();
             $table->integer('birth_year')->nullable();

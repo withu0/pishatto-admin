@@ -13,7 +13,6 @@ class Reservation extends Model
     public $timestamps = false;
     protected $fillable = [
         'guest_id',
-        'cast_id',
         'type',
         'scheduled_at',
         'location',
@@ -29,8 +28,8 @@ class Reservation extends Model
         return $this->belongsTo(Guest::class, 'guest_id');
     }
 
-    public function cast()
-    {
-        return $this->belongsTo(Cast::class, 'cast_id');
-    }
+    // public function casts()
+    // {
+    //     return $this->belongsToMany(Cast::class, 'cast_reservation', 'reservation_id', 'cast_id');
+    // }
 } 

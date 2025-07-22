@@ -26,6 +26,6 @@ class Cast extends Model
 
     public function reservations()
     {
-        return $this->hasMany(\App\Models\Reservation::class, 'cast_id');
+        return $this->belongsToMany(Reservation::class, 'cast_reservation', 'cast_id', 'reservation_id');
     }
 } 

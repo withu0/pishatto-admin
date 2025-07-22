@@ -15,7 +15,6 @@ return new class extends Migration
             $table->id();
             $table->boolean('active')->default(true);
             $table->unsignedBigInteger('guest_id')->nullable();
-            $table->unsignedBigInteger('cast_id')->nullable();
             $table->enum('type', ['free','pishatto'])->nullable();
             $table->dateTime('scheduled_at')->nullable();
             $table->string('time',10)->nullable();
@@ -25,9 +24,6 @@ return new class extends Migration
             $table->timestamp('created_at')->useCurrent();
 
             $table->index('guest_id');
-            $table->index('cast_id');
-            $table->foreign('guest_id')->references('id')->on('guests')->onDelete('cascade')->onUpdate('restrict');
-            $table->foreign('cast_id')->references('id')->on('casts')->onDelete('cascade')->onUpdate('restrict');
         });
     }
 

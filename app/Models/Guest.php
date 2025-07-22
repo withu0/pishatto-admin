@@ -14,6 +14,8 @@ class Guest extends Model
         'phone',
         'line_id',
         'nickname',
+        'age',
+        'shiatsu',
         'avatar',
         'location',
         'birth_year',
