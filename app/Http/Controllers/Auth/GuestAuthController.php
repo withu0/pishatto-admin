@@ -10,6 +10,7 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\Storage;
 use App\Models\Reservation;
+use App\Models\Notification;
 
 class GuestAuthController extends Controller
 {
@@ -44,6 +45,12 @@ class GuestAuthController extends Controller
             'nickname' => $request->nickname,
             'location' => $request->location,
         ];
+        // Map location to favorite_area for backward compatibility
+        if ($request->has('favorite_area')) {
+            $data['favorite_area'] = $request->favorite_area;
+        } elseif ($request->has('location')) {
+            $data['favorite_area'] = $request->location;
+        }
 
         // Handle avatar upload
         if ($request->hasFile('profile_photo')) {
@@ -151,6 +158,13 @@ class GuestAuthController extends Controller
             return $value !== null && $value !== '';
         });
         
+        // Map location to favorite_area for backward compatibility
+        if (isset($data['favorite_area'])) {
+            $data['favorite_area'] = $data['favorite_area'];
+        } elseif (isset($data['location'])) {
+            $data['favorite_area'] = $data['location'];
+        }
+        
         $guest = Guest::updateOrCreate(
             ['phone' => $data['phone']],
             $data
@@ -200,6 +214,27 @@ class GuestAuthController extends Controller
         $reservation = Reservation::create($request->only([
             'guest_id', 'cast_id', 'type', 'scheduled_at', 'location', 'duration', 'details', 'time' // save time
         ]));
+        // Notify cast(s)
+        if ($reservation->type === 'pishatto' && $reservation->cast_id) {
+            Notification::create([
+                'user_id' => $reservation->cast_id,
+                'user_type' => 'cast',
+                'type' => 'order_created',
+                'reservation_id' => $reservation->id,
+                'message' => '新しい指名予約が入りました',
+                'read' => false,
+            ]);
+        } else {
+            // フリー: notify all casts (for demo, notify cast_id = 1)
+            Notification::create([
+                'user_id' => 1,
+                'user_type' => 'cast',
+                'type' => 'order_created',
+                'reservation_id' => $reservation->id,
+                'message' => '新しいフリー予約が入りました',
+                'read' => false,
+            ]);
+        }
         return response()->json(['reservation' => $reservation], 201);
     }
 
@@ -237,6 +272,16 @@ class GuestAuthController extends Controller
             ]);
         }
 
+        // Notify guest
+        Notification::create([
+            'user_id' => $reservation->guest_id,
+            'user_type' => 'guest',
+            'type' => 'order_matched',
+            'reservation_id' => $reservation->id,
+            'message' => '予約がキャストにマッチされました',
+            'read' => false,
+        ]);
+
         return response()->json([
             'message' => 'Reservation matched and group chat created',
             'chat' => $chat,
@@ -247,11 +292,21 @@ class GuestAuthController extends Controller
     {
         if ($userType === 'guest') {
             $chats = \App\Models\Chat::where('guest_id', $userId)->get();
-            return response()->json(['chats' => $chats]);
+            $result = $chats->map(function ($chat) use ($userId) {
+                return [
+                    'id' => $chat->id,
+                    'avatar' => $chat->cast ? $chat->cast->avatar : null,
+                    'cast_id' => $chat->cast ? $chat->cast->id : null,
+                    'cast_nickname' => $chat->cast ? $chat->cast->nickname : null,
+                    'last_message' => $chat->messages->last()->message ?? '',
+                    'updated_at' => $chat->updated_at ?? null,
+                ];
+            });
+            return response()->json(['chats' => $result]);
         } else {
             // For cast, join reservation and guest to get guest avatar
-            $chats = \App\Models\Chat::where('cast_id', $userId)->with(['guest', 'reservation.guest'])->get();
-            $result = $chats->map(function ($chat) {
+            $chats = \App\Models\Chat::where('cast_id', $userId)->with(['guest', 'reservation.guest', 'messages'])->get();
+            $result = $chats->map(function ($chat) use ($userId) {
                 $guest = $chat->guest;
                 if (!$guest && $chat->reservation && $chat->reservation->guest) {
                     $guest = $chat->reservation->guest;
@@ -262,8 +317,7 @@ class GuestAuthController extends Controller
                     'guest_id' => $guest ? $guest->id : null,
                     'guest_nickname' => $guest ? $guest->nickname : null,
                     'last_message' => $chat->messages->last()->message ?? '',
-                    'updated_at' => $chat->updated_at ?? null,
-                    'unread' => false, // You can implement unread logic if needed
+                    'updated_at' => $chat->created_at ?? null,
                 ];
             });
             return response()->json(['chats' => $result]);
@@ -309,5 +363,26 @@ class GuestAuthController extends Controller
             return response()->json(['message' => 'Guest not found'], 404);
         }
         return response()->json(['guest' => $guest]);
+    }
+
+    // Fetch notifications for a user
+    public function getNotifications($userType, $userId)
+    {
+        $notifications = Notification::where('user_type', $userType)
+            ->where('user_id', $userId)
+            ->orderBy('created_at', 'desc')
+            ->get();
+        return response()->json(['notifications' => $notifications]);
+    }
+
+    // Mark a notification as read
+    public function markNotificationRead($id)
+    {
+        $notification = Notification::find($id);
+        if ($notification) {
+            $notification->read = true;
+            $notification->save();
+        }
+        return response()->json(['success' => true]);
     }
 } 

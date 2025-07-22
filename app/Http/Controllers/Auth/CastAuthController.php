@@ -55,11 +55,19 @@ class CastAuthController extends Controller
 
     public function getProfile($id)
     {
-        $cast = \App\Models\Cast::with('reservations')->find($id);
+        $cast = \App\Models\Cast::with(['reservations', 'badges', 'titles'])->find($id);
         if (!$cast) {
             return response()->json(['message' => 'Cast not found'], 404);
         }
-        return response()->json(['cast' => $cast, 'reservations' => $cast->reservations]);
+        // Get recommended casts (top 3 by recent, excluding self)
+        $recommended = \App\Models\Cast::where('id', '!=', $id)->orderBy('created_at', 'desc')->limit(3)->get();
+        return response()->json([
+            'cast' => $cast,
+            'reservations' => $cast->reservations,
+            'badges' => $cast->badges ?? [],
+            'titles' => $cast->titles ?? [],
+            'recommended' => $recommended,
+        ]);
     }
 
     public function register(Request $request)
@@ -92,5 +100,68 @@ class CastAuthController extends Controller
             'cast' => $cast,
             'token' => base64_encode('cast|' . $cast->id . '|' . now()),
         ], 201);
+    }
+
+    // List all casts (with optional filters)
+    public function list(Request $request)
+    {
+        $query = Cast::query();
+        // Optional filter: area (favorite_area or location)
+        if ($request->has('area')) {
+            $query->where('location', $request->area);
+        }
+        // Optional sort
+        if ($request->has('sort')) {
+            if ($request->sort === 'newest') {
+                $query->orderBy('created_at', 'desc');
+            } elseif ($request->sort === 'oldest') {
+                $query->orderBy('created_at', 'asc');
+            } elseif ($request->sort === 'most_liked') {
+                $query->withCount('likes')->orderBy('likes_count', 'desc');
+            } elseif ($request->sort === 'most_active') {
+                $query->orderBy('updated_at', 'desc');
+            }
+        }
+        $casts = $query->get();
+        return response()->json(['casts' => $casts]);
+    }
+
+    // Like or unlike a cast
+    public function like(Request $request)
+    {
+        $guestId = $request->input('guest_id');
+        $castId = $request->input('cast_id');
+        $like = \App\Models\Like::where('guest_id', $guestId)->where('cast_id', $castId)->first();
+        if ($like) {
+            $like->delete();
+            return response()->json(['liked' => false]);
+        } else {
+            \App\Models\Like::create(['guest_id' => $guestId, 'cast_id' => $castId]);
+            return response()->json(['liked' => true]);
+        }
+    }
+
+    // Get all liked casts for a guest
+    public function likedCasts($guestId)
+    {
+        $castIds = \App\Models\Like::where('guest_id', $guestId)->pluck('cast_id');
+        $casts = \App\Models\Cast::whereIn('id', $castIds)->get();
+        return response()->json(['casts' => $casts]);
+    }
+
+    // Record a visit to a cast profile
+    public function recordVisit(Request $request)
+    {
+        $guestId = $request->input('guest_id');
+        $castId = $request->input('cast_id');
+        \App\Models\VisitHistory::create(['guest_id' => $guestId, 'cast_id' => $castId]);
+        return response()->json(['success' => true]);
+    }
+
+    // Get visit history for a guest
+    public function visitHistory($guestId)
+    {
+        $history = \App\Models\VisitHistory::where('guest_id', $guestId)->orderBy('created_at', 'desc')->with('cast')->get();
+        return response()->json(['history' => $history]);
     }
 } 

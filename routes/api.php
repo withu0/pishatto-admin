@@ -33,14 +33,33 @@ Route::get('/cast/profile/{id}', [CastAuthController::class, 'getProfile']);
 Route::get('/guest/reservations/{guest_id}', [GuestAuthController::class, 'listReservations']);
 Route::get('/reservations/all', [CastAuthController::class, 'allReservations']);
 Route::post('/reservation/match', [GuestAuthController::class, 'matchReservation']);
+Route::get('/chats/{chatId}/messages', [ChatController::class, 'messages']);
 Route::get('/chats/{userType}/{userId}', [GuestAuthController::class, 'getUserChats']);
 Route::get('/chats/all', [GuestAuthController::class, 'allChats']);
 Route::get('/chats', [ChatController::class, 'index']);
 Route::post('/messages', [ChatController::class, 'store']);
 Route::get('/reservations/{id}', [GuestAuthController::class, 'getReservationById']);
-Route::get('/chats/{chatId}/messages', [ChatController::class, 'messages']);
 Route::get('/guests/repeat', [GuestAuthController::class, 'repeatGuests']);
 Route::get('/guest/profile/id/{id}', [GuestAuthController::class, 'getProfileById']);
+Route::get('/casts', [CastAuthController::class, 'list']);
+Route::post('/casts/like', [CastAuthController::class, 'like']);
+Route::get('/casts/liked/{guestId}', [CastAuthController::class, 'likedCasts']);
+Route::post('/casts/visit', [CastAuthController::class, 'recordVisit']);
+Route::get('/casts/visit-history/{guestId}', [CastAuthController::class, 'visitHistory']);
+Route::get('/notifications/{userType}/{userId}', [GuestAuthController::class, 'getNotifications']);
+Route::post('/notifications/read/{id}', [GuestAuthController::class, 'markNotificationRead']);
 
 // Avatar serving route
-Route::get('/avatars/{filename}', [GuestAuthController::class, 'getAvatar']); 
+Route::get('/avatars/{filename}', [GuestAuthController::class, 'getAvatar']);
+Route::post('/payments/purchase', [\App\Http\Controllers\PaymentController::class, 'purchase']);
+Route::get('/payments/history/{userType}/{userId}', [\App\Http\Controllers\PaymentController::class, 'history']);
+Route::get('/receipts/{userType}/{userId}', [\App\Http\Controllers\PaymentController::class, 'receipts']);
+Route::post('/payments/info', [\App\Http\Controllers\PaymentController::class, 'registerPaymentInfo']);
+Route::get('/payments/info/{userType}/{userId}', [\App\Http\Controllers\PaymentController::class, 'getPaymentInfo']);
+Route::post('/payouts/request', [\App\Http\Controllers\PaymentController::class, 'requestPayout']); 
+
+// Tweet routes
+Route::get('/tweets', [\App\Http\Controllers\TweetController::class, 'index']);
+Route::get('/tweets/{userType}/{userId}', [\App\Http\Controllers\TweetController::class, 'userTweets']);
+Route::post('/tweets', [\App\Http\Controllers\TweetController::class, 'store']);
+Route::delete('/tweets/{id}', [\App\Http\Controllers\TweetController::class, 'destroy']); 
