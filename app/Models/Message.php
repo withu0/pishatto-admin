@@ -34,4 +34,9 @@ class Message extends Model
     {
         return $this->belongsTo(\App\Models\Cast::class, 'sender_cast_id');
     }
+
+    public function gift()
+    {
+        return $this->belongsTo(\App\Models\Gift::class, 'gift_id');
+    }
 } 

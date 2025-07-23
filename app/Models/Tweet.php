@@ -15,6 +15,7 @@ class Tweet extends Model
         'guest_id',
         'cast_id',
         'content',
+        'image',
         'created_at',
     ];
 

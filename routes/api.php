@@ -64,3 +64,6 @@ Route::get('/tweets/{userType}/{userId}', [\App\Http\Controllers\TweetController
 Route::post('/tweets', [\App\Http\Controllers\TweetController::class, 'store']);
 Route::delete('/tweets/{id}', [\App\Http\Controllers\TweetController::class, 'destroy']); 
 Route::get('/guests/phones', [\App\Http\Controllers\Auth\GuestAuthController::class, 'allPhones']); 
+Route::get('/gifts', [\App\Http\Controllers\ChatController::class, 'gifts']); 
+// Gift box: received gifts for cast
+Route::get('/cast/{castId}/received-gifts', [\App\Http\Controllers\ChatController::class, 'receivedGifts']); 

@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use Illuminate\Http\Request;
 use App\Models\Chat;
 use App\Models\Message;
+use App\Models\Gift;
 
 class ChatController extends Controller
 {
@@ -36,19 +37,30 @@ class ChatController extends Controller
         $validated = $request->validate([
             'chat_id' => 'required|exists:chats,id',
             'message' => 'nullable|string',
-            'image' => 'nullable|string',
+            'image' => 'nullable|image|mimes:jpeg,png,jpg,gif,webp|max:4096',
             'gift_id' => 'nullable|exists:gifts,id',
             'sender_guest_id' => 'nullable|exists:guests,id',
             'sender_cast_id' => 'nullable|exists:casts,id',
         ]);
         $validated['created_at'] = now();
+
+        // Handle image upload
+        if ($request->hasFile('image')) {
+            $file = $request->file('image');
+            $fileName = time() . '_' . $file->getClientOriginalName();
+            $path = $file->storeAs('chat_images', $fileName, 'public');
+            $validated['image'] = 'chat_images/' . $fileName;
+        }
+
         $message = \App\Models\Message::create($validated);
+        $message->load(['guest', 'cast']);
+        event(new \App\Events\MessageSent($message));
         return response()->json(['message' => $message], 201);
     }
 
     public function messages($chatId)
     {
-        $messages = Message::with(['guest', 'cast'])
+        $messages = Message::with(['guest', 'cast', 'gift'])
             ->where('chat_id', $chatId)
             ->orderBy('created_at', 'asc') 
             ->get();
@@ -57,5 +69,33 @@ class ChatController extends Controller
         //     $message->save();
         // });
         return response()->json(['messages' => $messages]);
+    }
+
+    // Fetch all available gifts
+    public function gifts()
+    {
+        $gifts = Gift::all();
+        return response()->json(['gifts' => $gifts]);
+    }
+
+    // Fetch all gifts received by a cast
+    public function receivedGifts($castId)
+    {
+        $gifts = \DB::table('guest_gifts')
+            ->join('gifts', 'guest_gifts.gift_id', '=', 'gifts.id')
+            ->join('guests', 'guest_gifts.sender_guest_id', '=', 'guests.id')
+            ->where('guest_gifts.receiver_cast_id', $castId)
+            ->orderBy('guest_gifts.created_at', 'desc')
+            ->select(
+                'guest_gifts.id',
+                'guests.nickname as sender',
+                'guests.avatar as sender_avatar',
+                'guest_gifts.created_at as date',
+                'gifts.name as gift_name',
+                'gifts.points',
+                'gifts.icon as gift_icon'
+            )
+            ->get();
+        return response()->json(['gifts' => $gifts]);
     }
 } 

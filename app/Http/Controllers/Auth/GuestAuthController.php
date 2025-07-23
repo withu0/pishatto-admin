@@ -212,11 +212,11 @@ class GuestAuthController extends Controller
                 'errors' => $validator->errors()
             ], 422);
         }
-        // Only create the reservation, do not attach casts here
         $reservation = Reservation::create($request->only([
             'guest_id', 'type', 'scheduled_at', 'location', 'duration', 'details', 'time'
         ]));
-        // Eager load casts for consistency (will be empty on creation)
+        // Broadcast reservation creation
+        event(new \App\Events\ReservationUpdated($reservation));
         return response()->json(['reservation' => $reservation], 201);
     }
 
@@ -239,10 +239,10 @@ class GuestAuthController extends Controller
             ], 422);
         }
         $reservation = Reservation::find($request->reservation_id);
-        // Attach the cast to the reservation (pivot table)
-        // $reservation->casts()->syncWithoutDetaching([$request->cast_id]);
         $reservation->active = false;
         $reservation->save();
+        // Broadcast reservation update
+        event(new \App\Events\ReservationUpdated($reservation));
         // Only create a chat if one does not already exist for this reservation and cast
         $chat = \App\Models\Chat::where('reservation_id', $reservation->id)
             ->where('cast_id', $request->cast_id)
@@ -255,7 +255,7 @@ class GuestAuthController extends Controller
             ]);
         }
         // Notify guest
-        Notification::create([
+        $notification = Notification::create([
             'user_id' => $reservation->guest_id,
             'user_type' => 'guest',
             'type' => 'order_matched',
@@ -263,6 +263,8 @@ class GuestAuthController extends Controller
             'message' => '予約がキャストにマッチされました',
             'read' => false,
         ]);
+        // Broadcast notification
+        event(new \App\Events\NotificationSent($notification));
         // Return reservation with attached casts
         return response()->json([
             'message' => 'Reservation matched and group chat created',
