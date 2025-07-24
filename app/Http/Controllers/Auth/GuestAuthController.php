@@ -73,6 +73,9 @@ class GuestAuthController extends Controller
         // Create the guest
         $guest = Guest::create($data);
 
+        // Log the guest in using Laravel session (guest guard)
+        \Illuminate\Support\Facades\Auth::guard('guest')->login($guest);
+
         return response()->json([
             'message' => 'Guest registered successfully',
             'guest' => $guest,
@@ -92,6 +95,8 @@ class GuestAuthController extends Controller
         if (!$guest) {
             $guest = Guest::create(['phone' => $request->phone]);
         }
+        // Log the guest in using Laravel session (guest guard)
+        \Illuminate\Support\Facades\Auth::guard('guest')->login($guest);
         return response()->json([
             'guest' => $guest,
             'token' => base64_encode('guest|' . $guest->id . '|' . now()), // placeholder token
@@ -368,6 +373,16 @@ class GuestAuthController extends Controller
             $notification->read = true;
             $notification->save();
         }
+        return response()->json(['success' => true]);
+    }
+
+    // Mark all notifications as read for a user
+    public function markAllNotificationsRead($userType, $userId)
+    {
+        \App\Models\Notification::where('user_type', $userType)
+            ->where('user_id', $userId)
+            ->where('read', false)
+            ->update(['read' => true]);
         return response()->json(['success' => true]);
     }
 

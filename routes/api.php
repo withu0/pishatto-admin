@@ -48,6 +48,7 @@ Route::post('/casts/visit', [CastAuthController::class, 'recordVisit']);
 Route::get('/casts/visit-history/{guestId}', [CastAuthController::class, 'visitHistory']);
 Route::get('/notifications/{userType}/{userId}', [GuestAuthController::class, 'getNotifications']);
 Route::post('/notifications/read/{id}', [GuestAuthController::class, 'markNotificationRead']);
+Route::post('/notifications/read-all/{userType}/{userId}', [GuestAuthController::class, 'markAllNotificationsRead']);
 
 // Avatar serving route
 Route::get('/avatars/{filename}', [GuestAuthController::class, 'getAvatar']);

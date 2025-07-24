@@ -15,9 +15,23 @@ use Illuminate\Support\Facades\Broadcast;
 
 // Private chat channel (only allow users who can access the chat)
 Broadcast::channel('chat.{chatId}', function ($user, $chatId) {
-    // Replace with your own logic, e.g.:
-    // return $user->chats()->where('id', $chatId)->exists();
-    return true; // Allow all for now (for testing)
+    \Log::info('Broadcast auth user', [
+        'user' => $user,
+        'class' => $user ? get_class($user) : null,
+        'chatId' => $chatId,
+    ]);
+    $chat = \App\Models\Chat::find($chatId);
+    if (!$chat) return false;
+
+    // If user is a Guest
+    if ($user instanceof \App\Models\Guest && $chat->guest_id === $user->id) {
+        return true;
+    }
+    // If user is a Cast
+    if ($user instanceof \App\Models\Cast && $chat->cast_id === $user->id) {
+        return true;
+    }
+    return false;
 });
 
 // Private user notification channel (only the user themselves)

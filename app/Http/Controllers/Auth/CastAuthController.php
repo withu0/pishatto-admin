@@ -24,6 +24,8 @@ class CastAuthController extends Controller
         if (!$cast) {
             $cast = Cast::create(['phone' => $request->phone]);
         }
+        // Log the cast in using Laravel session (cast guard)
+        \Illuminate\Support\Facades\Auth::guard('cast')->login($cast);
         return response()->json([
             'cast' => $cast,
             'token' => base64_encode('cast|' . $cast->id . '|' . now()), // placeholder token
@@ -94,6 +96,9 @@ class CastAuthController extends Controller
         }
 
         $cast = Cast::create($data);
+
+        // Log the cast in using Laravel session (cast guard)
+        \Illuminate\Support\Facades\Auth::guard('cast')->login($cast);
 
         return response()->json([
             'message' => 'Cast registered successfully',

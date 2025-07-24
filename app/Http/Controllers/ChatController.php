@@ -55,6 +55,32 @@ class ChatController extends Controller
         $message = \App\Models\Message::create($validated);
         $message->load(['guest', 'cast']);
         event(new \App\Events\MessageSent($message));
+
+        // Notification logic for recipient
+        $chat = $message->chat;
+        if ($message->sender_guest_id && $chat && $chat->cast_id) {
+            // Guest sent message to cast
+            $recipientId = $chat->cast_id;
+            $recipientType = 'cast';
+        } elseif ($message->sender_cast_id && $chat && $chat->guest_id) {
+            // Cast sent message to guest
+            $recipientId = $chat->guest_id;
+            $recipientType = 'guest';
+        } else {
+            $recipientId = null;
+            $recipientType = null;
+        }
+        if ($recipientId && $recipientType) {
+            $notification = \App\Models\Notification::create([
+                'user_id' => $recipientId,
+                'user_type' => $recipientType,
+                'type' => 'message',
+                'reservation_id' => null,
+                'message' => '新しいメッセージが届きました',
+                'read' => false,
+            ]);
+            event(new \App\Events\NotificationSent($notification));
+        }
         return response()->json(['message' => $message], 201);
     }
 
