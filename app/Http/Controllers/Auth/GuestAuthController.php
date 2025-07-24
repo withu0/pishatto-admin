@@ -244,10 +244,11 @@ class GuestAuthController extends Controller
             ], 422);
         }
         $reservation = Reservation::find($request->reservation_id);
+
         $reservation->active = false;
         $reservation->save();
         // Broadcast reservation update
-        event(new \App\Events\ReservationUpdated($reservation));
+        // event(new \App\Events\ReservationUpdated($reservation));
         // Only create a chat if one does not already exist for this reservation and cast
         $chat = \App\Models\Chat::where('reservation_id', $reservation->id)
             ->where('cast_id', $request->cast_id)
@@ -259,22 +260,22 @@ class GuestAuthController extends Controller
                 'reservation_id' => $reservation->id,
             ]);
         }
-        // Notify guest
-        $notification = Notification::create([
-            'user_id' => $reservation->guest_id,
-            'user_type' => 'guest',
-            'type' => 'order_matched',
-            'reservation_id' => $reservation->id,
-            'message' => '予約がキャストにマッチされました',
-            'read' => false,
-        ]);
-        // Broadcast notification
-        event(new \App\Events\NotificationSent($notification));
+        // // Notify guest
+        // $notification = Notification::create([
+        //     'user_id' => $reservation->guest_id,
+        //     'user_type' => 'guest',
+        //     'type' => 'order_matched',
+        //     'reservation_id' => $reservation->id,
+        //     'message' => '予約がキャストにマッチされました',
+        //     'read' => false,
+        // ]);
+        // // Broadcast notification
+        // event(new \App\Events\NotificationSent($notification));
         // Return reservation with attached casts
         return response()->json([
             'message' => 'Reservation matched and group chat created',
             'chat' => $chat,
-            'reservation' => $reservation->load('casts')->toArray(),
+            'reservation' => $reservation->toArray(),
         ]);
     }
 

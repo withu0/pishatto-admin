@@ -13,30 +13,20 @@ use Illuminate\Support\Facades\Broadcast;
 |
 */
 
-// Private chat channel (only allow users who can access the chat)
 Broadcast::channel('chat.{chatId}', function ($user, $chatId) {
-    \Log::info('Broadcast auth user', [
-        'user' => $user,
-        'class' => $user ? get_class($user) : null,
-        'chatId' => $chatId,
-    ]);
-    $chat = \App\Models\Chat::find($chatId);
-    if (!$chat) return false;
+    // $chat = \App\Models\Chat::find($chatId);
+    // if (!$chat) return false;
 
-    // If user is a Guest
-    if ($user instanceof \App\Models\Guest && $chat->guest_id === $user->id) {
-        return true;
-    }
-    // If user is a Cast
-    if ($user instanceof \App\Models\Cast && $chat->cast_id === $user->id) {
-        return true;
-    }
-    return false;
-});
-
-// Private user notification channel (only the user themselves)
-Broadcast::channel('user.{userId}', function ($user, $userId) {
-    return (int) $user->id === (int) $userId;
+    // // If user is a Guest
+    // if ($user instanceof \App\Models\Guest && $chat->guest_id === $user->id) {
+    //     return true;
+    // }
+    // // If user is a Cast
+    // if ($user instanceof \App\Models\Cast && $chat->cast_id === $user->id) {
+    //     return true;
+    // }
+    // return false;
+    return true;
 });
 
 // Private reservation channel (only allow users who can access the reservation)

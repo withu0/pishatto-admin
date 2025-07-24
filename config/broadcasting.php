@@ -29,7 +29,19 @@ return [
     */
 
     'connections' => [
-
+        'reverb' => [
+            'driver' => 'reverb',
+            'key' => env('REVERB_APP_KEY' || 'local'),
+            'secret' => env('REVERB_APP_SECRET' || 'secret'),
+            'app_id' => env('REVERB_APP_ID' || '123456'),
+            'options' => [
+                'host' => env('REVERB_HOST' || '127.0.0.1'),
+                'port' => env('REVERB_PORT' || '8080'),
+                'scheme' => env('REVERB_SCHEME' || 'https'),
+                'useTLS' => env('REVERB_SCHEME' || 'https') === 'https',
+            ],
+        ],
+        
         'pusher' => [
             'driver' => 'pusher',
             'key' => env('PUSHER_APP_KEY'),
@@ -61,19 +73,6 @@ return [
         'null' => [
             'driver' => 'null',
         ],
-
-        'reverb' => [
-            'driver' => 'reverb',
-            'key' => env('REVERB_APP_KEY', 'local'),
-            'secret' => env('REVERB_APP_SECRET', 'local'),
-            'app_id' => env('REVERB_APP_ID', 'local'),
-            'options' => [
-                'host' => env('REVERB_HOST', '127.0.0.1'),
-                'port' => env('REVERB_PORT', 8080),
-                'scheme' => env('REVERB_SCHEME', 'http'),
-            ],
-        ],
-
     ],
 
 ];

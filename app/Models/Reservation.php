@@ -27,9 +27,4 @@ class Reservation extends Model
     {
         return $this->belongsTo(Guest::class, 'guest_id');
     }
-
-    // public function casts()
-    // {
-    //     return $this->belongsToMany(Cast::class, 'cast_reservation', 'reservation_id', 'cast_id');
-    // }
 } 
