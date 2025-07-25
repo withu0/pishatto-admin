@@ -42,6 +42,7 @@ Route::get('/reservations/{id}', [GuestAuthController::class, 'getReservationByI
 Route::get('/guests/repeat', [GuestAuthController::class, 'repeatGuests']);
 Route::get('/guest/profile/id/{id}', [GuestAuthController::class, 'getProfileById']);
 Route::get('/casts', [CastAuthController::class, 'list']);
+Route::get('/casts/profile/{id}', [CastAuthController::class, 'getCastProfile']);
 Route::post('/casts/like', [CastAuthController::class, 'like']);
 Route::get('/casts/liked/{guestId}', [CastAuthController::class, 'likedCasts']);
 Route::post('/casts/visit', [CastAuthController::class, 'recordVisit']);
@@ -68,3 +69,4 @@ Route::get('/guests/phones', [\App\Http\Controllers\Auth\GuestAuthController::cl
 Route::get('/gifts', [\App\Http\Controllers\ChatController::class, 'gifts']); 
 // Gift box: received gifts for cast
 Route::get('/cast/{castId}/received-gifts', [\App\Http\Controllers\ChatController::class, 'receivedGifts']); 
+Route::post('/cast/avatar-upload', [CastAuthController::class, 'uploadAvatar']); 

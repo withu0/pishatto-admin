@@ -35,16 +35,30 @@ class CastAuthController extends Controller
     public function updateProfile(Request $request)
     {
         $data = $request->only([
-            'phone', 'line_id', 'password', 'nickname', 'avatar', 'birth_year', 'height', 'residence',
+            'id', 'phone', 'line_id', 'password', 'nickname', 'avatar', 'birth_year', 'height', 'residence',
             'birthplace', 'profile_text', 'created_at', 'updated_at'
         ]);
-        if (empty($data['phone'])) {
-            return response()->json(['message' => 'Phone is required'], 422);
+        
+        if (!empty($data['id'])) {
+            $cast = \App\Models\Cast::find($data['id']);
+            if (!$cast) {
+                return response()->json(['message' => 'Cast not found'], 404);
+            }
+            // Only update fields that are present in the request
+            foreach ($data as $key => $value) {
+                if ($key !== 'id' && $value !== null) {
+                    $cast->$key = $value;
+                }
+            }
+            $cast->save();
+        } else if (!empty($data['phone'])) {
+            $cast = \App\Models\Cast::updateOrCreate(
+                ['phone' => $data['phone']],
+                $data
+            );
+        } else {
+            return response()->json(['message' => 'ID or Phone is required'], 422);
         }
-        $cast = \App\Models\Cast::updateOrCreate(
-            ['phone' => $data['phone']],
-            $data
-        );
         return response()->json(['cast' => $cast]);
     }
 
@@ -57,7 +71,7 @@ class CastAuthController extends Controller
 
     public function getProfile($id)
     {
-        $cast = \App\Models\Cast::with(['reservations', 'badges', 'titles'])->find($id);
+        $cast = \App\Models\Cast::with(['chats', 'badges', 'receivedGifts'])->find($id);
         if (!$cast) {
             return response()->json(['message' => 'Cast not found'], 404);
         }
@@ -70,6 +84,15 @@ class CastAuthController extends Controller
             'titles' => $cast->titles ?? [],
             'recommended' => $recommended,
         ]);
+    }
+
+    public function getCastProfile($id)
+    {
+        $cast = \App\Models\Cast::find($id);
+        if (!$cast) {
+            return response()->json(['message' => 'Cast not found'], 404);
+        }
+        return response()->json(['cast' => $cast]);
     }
 
     public function register(Request $request)
@@ -168,5 +191,16 @@ class CastAuthController extends Controller
     {
         $history = \App\Models\VisitHistory::where('guest_id', $guestId)->orderBy('created_at', 'desc')->with('cast')->get();
         return response()->json(['history' => $history]);
+    }
+
+    public function uploadAvatar(Request $request)
+    {
+        $request->validate([
+            'avatar' => 'required|image|mimes:jpeg,png,jpg,gif,webp|max:20480',
+        ]);
+        $file = $request->file('avatar');
+        $path = $file->store('avatars', 'public');
+        // Return the relative path to be saved in DB and used by frontend
+        return response()->json(['path' => $path]);
     }
 } 

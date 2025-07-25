@@ -16,7 +16,7 @@ return new class extends Migration
             $table->enum('type', ['guest','cast'])->nullable();
             $table->unsignedBigInteger('user_id')->nullable();
             $table->integer('points')->nullable();
-            $table->enum('period', ['daily','weekly','monthly'])->nullable();
+            $table->enum('period', ['daily','weekly','monthly','period'])->nullable();
             $table->string('region', 100)->nullable();
             $table->timestamp('created_at')->useCurrent();
         });

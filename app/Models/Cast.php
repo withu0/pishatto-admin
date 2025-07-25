@@ -24,10 +24,10 @@ class Cast extends Authenticatable
         'updated_at',
     ];
 
-    public function reservations()
-    {
-        return $this->belongsToMany(Reservation::class, 'cast_reservation', 'cast_id', 'reservation_id');
-    }
+    // public function chats()
+    // {
+    //     return $this->hasMany(Chat::class, 'cast_id', 'id');
+    // }
 
     public function badges()
     {
