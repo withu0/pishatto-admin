@@ -5,6 +5,7 @@ use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Auth\GuestAuthController;
 use App\Http\Controllers\Auth\CastAuthController;
 use App\Http\Controllers\ChatController;
+use App\Http\Controllers\RankingController;
 
 /*
 |--------------------------------------------------------------------------
@@ -70,3 +71,7 @@ Route::get('/gifts', [\App\Http\Controllers\ChatController::class, 'gifts']);
 // Gift box: received gifts for cast
 Route::get('/cast/{castId}/received-gifts', [\App\Http\Controllers\ChatController::class, 'receivedGifts']); 
 Route::post('/cast/avatar-upload', [CastAuthController::class, 'uploadAvatar']); 
+Route::post('/guests/like', [GuestAuthController::class, 'likeGuest']); 
+Route::post('/chats/create', [ChatController::class, 'createChat']); 
+Route::get('/guests/like-status/{cast_id}/{guest_id}', [GuestAuthController::class, 'likeStatus']); 
+Route::get('/ranking', [RankingController::class, 'getRanking']); 

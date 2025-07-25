@@ -34,6 +34,11 @@ class Cast extends Authenticatable
         return $this->belongsToMany(Badge::class, 'cast_badge', 'cast_id', 'badge_id');
     }
 
+    public function likes()
+    {
+        return $this->hasMany(\App\Models\Like::class, 'cast_id');
+    }
+
     public function receivedGifts()
     {
         return $this->hasManyThrough(

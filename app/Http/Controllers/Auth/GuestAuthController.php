@@ -103,6 +103,28 @@ class GuestAuthController extends Controller
         ]);
     }
 
+    public function likeStatus($cast_id, $guest_id)
+    {
+        $like = \App\Models\Like::where('cast_id', $cast_id)->where('guest_id', $guest_id)->first();
+        return response()->json(['liked' => $like ? true : false]);
+    }
+
+    public function likeGuest(Request $request)
+    {
+        $castId = $request->input('cast_id');
+        $guestId = $request->input('guest_id');
+        if (!$castId || !$guestId) {
+            return response()->json(['message' => 'cast_id and guest_id are required'], 422);
+        }
+        $like = \App\Models\Like::where('cast_id', $castId)->where('guest_id', $guestId)->first();
+        if ($like) {
+            return response()->json(['liked' => false, 'message' => 'Already liked']);
+        } else {
+            \App\Models\Like::create(['cast_id' => $castId, 'guest_id' => $guestId]);
+            return response()->json(['liked' => true]);
+        }
+    }
+
     public function getProfile($phone)
     {
         $guest = Guest::where('phone', $phone)->first();

@@ -43,4 +43,9 @@ class Guest extends Authenticatable
     {
         return $this->hasMany(\App\Models\Reservation::class, 'guest_id');
     }
+
+    public function gifts()
+    {
+        return $this->hasMany(\App\Models\Gift::class, 'guest_id');
+    }
 } 

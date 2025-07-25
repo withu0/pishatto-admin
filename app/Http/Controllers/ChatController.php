@@ -145,4 +145,24 @@ class ChatController extends Controller
             ->get();
         return response()->json(['gifts' => $gifts]);
     }
+
+    // Create a chat group between cast and guest (no reservation)
+    public function createChat(Request $request)
+    {
+        $castId = $request->input('cast_id');
+        $guestId = $request->input('guest_id');
+        if (!$castId || !$guestId) {
+            return response()->json(['message' => 'cast_id and guest_id are required'], 422);
+        }
+        $chat = \App\Models\Chat::where('cast_id', $castId)->where('guest_id', $guestId)->first();
+        if ($chat) {
+            return response()->json(['chat' => $chat, 'created' => false]);
+        }
+        $chat = \App\Models\Chat::create([
+            'cast_id' => $castId,
+            'guest_id' => $guestId,
+            'reservation_id' => null,
+        ]);
+        return response()->json(['chat' => $chat, 'created' => true]);
+    }
 } 
