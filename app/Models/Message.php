@@ -19,6 +19,7 @@ class Message extends Model
         'image',
         'gift_id',
         'created_at',
+        'is_read',
     ];
 
     public function chat()

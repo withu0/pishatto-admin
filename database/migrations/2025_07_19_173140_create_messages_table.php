@@ -20,6 +20,7 @@ return new class extends Migration
             $table->string('image', 255)->nullable();
             $table->unsignedBigInteger('gift_id')->nullable();
             $table->timestamp('created_at')->useCurrent();
+            $table->boolean('is_read')->default(false);
 
             $table->index('chat_id');
             $table->index('sender_guest_id');

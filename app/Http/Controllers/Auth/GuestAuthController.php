@@ -261,16 +261,16 @@ class GuestAuthController extends Controller
             ]);
         }
         // // Notify guest
-        // $notification = Notification::create([
-        //     'user_id' => $reservation->guest_id,
-        //     'user_type' => 'guest',
-        //     'type' => 'order_matched',
-        //     'reservation_id' => $reservation->id,
-        //     'message' => '予約がキャストにマッチされました',
-        //     'read' => false,
-        // ]);
-        // // Broadcast notification
-        // event(new \App\Events\NotificationSent($notification));
+        $notification = Notification::create([
+            'user_id' => $reservation->guest_id,
+            'user_type' => 'guest',
+            'type' => 'order_matched',
+            'reservation_id' => $reservation->id,
+            'message' => '予約がキャストにマッチされました',
+            'read' => false,
+        ]);
+        // Broadcast notification
+        event(new \App\Events\NotificationSent($notification));
         // Return reservation with attached casts
         return response()->json([
             'message' => 'Reservation matched and group chat created',
@@ -282,8 +282,13 @@ class GuestAuthController extends Controller
     public function getUserChats($userType, $userId)
     {
         if ($userType === 'guest') {
-            $chats = \App\Models\Chat::where('guest_id', $userId)->get();
+            $chats = \App\Models\Chat::where('guest_id', $userId)->with(['cast', 'messages'])->get();
             $result = $chats->map(function ($chat) use ($userId) {
+                // Count unread messages for this guest in this chat
+                $unread = $chat->messages->where('is_read', false)
+                    ->filter(function($msg) {
+                        return $msg->sender_cast_id && !$msg->is_read;
+                    })->count();
                 return [
                     'id' => $chat->id,
                     'avatar' => $chat->cast ? $chat->cast->avatar : null,
@@ -291,6 +296,7 @@ class GuestAuthController extends Controller
                     'cast_nickname' => $chat->cast ? $chat->cast->nickname : null,
                     'last_message' => $chat->messages->last()->message ?? '',
                     'updated_at' => $chat->updated_at ?? null,
+                    'unread' => $unread,
                 ];
             });
             return response()->json(['chats' => $result]);
@@ -302,6 +308,11 @@ class GuestAuthController extends Controller
                 if (!$guest && $chat->reservation && $chat->reservation->guest) {
                     $guest = $chat->reservation->guest;
                 }
+                // Count unread messages for this cast in this chat
+                $unread = $chat->messages->where('is_read', false)
+                    ->filter(function($msg) {
+                        return $msg->sender_guest_id && !$msg->is_read;
+                    })->count();
                 return [
                     'id' => $chat->id,
                     'avatar' => $guest ? $guest->avatar : null,
@@ -309,6 +320,7 @@ class GuestAuthController extends Controller
                     'guest_nickname' => $guest ? $guest->nickname : null,
                     'last_message' => $chat->messages->last()->message ?? '',
                     'updated_at' => $chat->created_at ?? null,
+                    'unread' => $unread,
                 ];
             });
             return response()->json(['chats' => $result]);

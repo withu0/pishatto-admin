@@ -29,6 +29,11 @@ Broadcast::channel('chat.{chatId}', function ($user, $chatId) {
     return true;
 });
 
+
+Broadcast::channel('user.{userId}', function ($user, $userId) {
+    return (int) $user->id === (int) $userId;
+});
+
 // Private reservation channel (only allow users who can access the reservation)
 Broadcast::channel('reservation.{reservationId}', function ($user, $reservationId) {
     // Replace with your own logic, e.g.:

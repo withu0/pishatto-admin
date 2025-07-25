@@ -9,23 +9,36 @@ use App\Models\Gift;
 
 class ChatController extends Controller
 {
-    public function index()
+    public function index(Request $request)
     {
+        $userId = $request->query('user_id');
+        $userType = $request->query('user_type'); // 'guest' or 'cast'
         $chats = Chat::with(['guest', 'cast', 'messages' => function($q) {
             $q->orderBy('created_at', 'desc');
         }])->get();
 
-        $result = $chats->map(function ($chat) {
+        $result = $chats->map(function ($chat) use ($userId, $userType) {
             $user = $chat->guest ?? $chat->cast;
             $name = $user->nickname ?? 'Unknown';
             $avatar = $user->avatar ?? '/assets/avatar/default.png';
             $lastMessage = $chat->messages->first();
+            // Count unread messages for this user in this chat
+            $unread = $chat->messages->where('is_read', false)
+                ->filter(function($msg) use ($userId, $userType) {
+                    if ($userType === 'guest') {
+                        return $msg->sender_cast_id && $msg->is_read == false && $msg->chat->guest_id == $userId;
+                    } else if ($userType === 'cast') {
+                        return $msg->sender_guest_id && $msg->is_read == false && $msg->chat->cast_id == $userId;
+                    }
+                    return false;
+                })->count();
             return [
                 'id' => $chat->id,
                 'avatar' => $avatar,
                 'name' => $name,
                 'lastMessage' => $lastMessage ? $lastMessage->message : '',
                 'timestamp' => $lastMessage ? $lastMessage->created_at : now(),
+                'unread' => $unread,
             ];
         });
 
@@ -57,43 +70,51 @@ class ChatController extends Controller
         event(new \App\Events\MessageSent($message));
 
         // Notification logic for recipient
-        // $chat = $message->chat;
-        // if ($message->sender_guest_id && $chat && $chat->cast_id) {
-        //     // Guest sent message to cast
-        //     $recipientId = $chat->cast_id;
-        //     $recipientType = 'cast';
-        // } elseif ($message->sender_cast_id && $chat && $chat->guest_id) {
-        //     // Cast sent message to guest
-        //     $recipientId = $chat->guest_id;
-        //     $recipientType = 'guest';
-        // } else {
-        //     $recipientId = null;
-        //     $recipientType = null;
-        // }
-        // if ($recipientId && $recipientType) {
-        //     $notification = \App\Models\Notification::create([
-        //         'user_id' => $recipientId,
-        //         'user_type' => $recipientType,
-        //         'type' => 'message',
-        //         'reservation_id' => null,
-        //         'message' => '新しいメッセージが届きました',
-        //         'read' => false,
-        //     ]);
-        //     event(new \App\Events\NotificationSent($notification));
-        // }
+        $chat = $message->chat;
+        if ($message->sender_guest_id && $chat && $chat->cast_id) {
+            // Guest sent message to cast
+            $recipientId = $chat->cast_id;
+            $recipientType = 'cast';
+        } elseif ($message->sender_cast_id && $chat && $chat->guest_id) {
+            // Cast sent message to guest
+            $recipientId = $chat->guest_id;
+            $recipientType = 'guest';
+        } else {
+            $recipientId = null;
+            $recipientType = null;
+        }
+        if ($recipientId && $recipientType) {
+            $notification = \App\Models\Notification::create([
+                'user_id' => $recipientId,
+                'user_type' => $recipientType,
+                'type' => 'message',
+                'reservation_id' => null,
+                'message' => '新しいメッセージが届きました',
+                'read' => false,
+            ]);
+            event(new \App\Events\NotificationSent($notification));
+        }
         return response()->json(['message' => $message], 201);
     }
 
-    public function messages($chatId)
+    public function messages($chatId, Request $request)
     {
+        $userId = $request->query('user_id');
+        $userType = $request->query('user_type');
         $messages = Message::with(['guest', 'cast', 'gift'])
             ->where('chat_id', $chatId)
             ->orderBy('created_at', 'asc') 
             ->get();
-        // $messages->map(function ($message) {
-        //     $message->is_read = true;
-        //     $message->save();
-        // });
+        // Mark all messages as read for this user
+        foreach ($messages as $msg) {
+            if ($userType === 'guest' && $msg->sender_cast_id && $msg->is_read == false && $msg->chat->guest_id == $userId) {
+                $msg->is_read = true;
+                $msg->save();
+            } else if ($userType === 'cast' && $msg->sender_guest_id && $msg->is_read == false && $msg->chat->cast_id == $userId) {
+                $msg->is_read = true;
+                $msg->save();
+            }
+        }
         return response()->json(['messages' => $messages]);
     }
 
