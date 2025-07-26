@@ -29,10 +29,10 @@ class RankingService
     /**
      * Calculate and update rankings for a specific period
      */
-    public function calculateRankings(string $period = 'daily', string $region = '全国', string $category = '総合'): void
+    public function calculateRankings(string $period = 'daily', string $region = '全国', string $category = 'gift'): void
     {
         $dateRange = $this->getDateRangeForPeriod($period);
-        $categories = ['総合', 'ギフ', 'パトロール', 'コバト'];
+        $categories = ['gift', 'reservation'];
         if ($category !== 'all' && $category !== '総合') {
             $categories = [$category];
         }
@@ -113,18 +113,11 @@ class RankingService
     /**
      * Calculate points for a cast based on various activities
      */
-    private function calculateCastPoints(Cast $cast, array $dateRange, string $category = '総合'): int
+    private function calculateCastPoints(Cast $cast, array $dateRange, string $category = 'gift'): int
     {
         $points = 0;
 
-        if ($category === '総合') {
-            $points += $this->calculateCastPoints($cast, $dateRange, 'ギフ');
-            $points += $this->calculateCastPoints($cast, $dateRange, 'パトロール');
-            $points += $this->calculateCastPoints($cast, $dateRange, 'コバト');
-            return $points;
-        }
-
-        if ($category === 'ギフ') {
+        if ($category === 'gift') {
             $giftsReceived = DB::table('guest_gifts')
                 ->join('gifts', 'guest_gifts.gift_id', '=', 'gifts.id')
                 ->where('guest_gifts.receiver_cast_id', $cast->id)
@@ -137,19 +130,12 @@ class RankingService
             }
         }
 
-        if ($category === 'パトロール') {
+        if ($category === 'reservation') {
+            // For casts, we'll count the likes they received as a proxy for reservation interest
             $likesReceived = Like::where('cast_id', $cast->id)
                 ->whereBetween('created_at', [$dateRange['start'], $dateRange['end']])
                 ->count();
             $points += $likesReceived * self::POINT_WEIGHTS['like_received'];
-        }
-
-        if ($category === 'コバト') {
-            $matchedReservations = Reservation::where('cast_id', $cast->id)
-                ->where('active', true)
-                ->whereBetween('created_at', [$dateRange['start'], $dateRange['end']])
-                ->count();
-            $points += $matchedReservations * self::POINT_WEIGHTS['reservation_matched'];
         }
 
         return $points;
@@ -158,18 +144,11 @@ class RankingService
     /**
      * Calculate points for a guest based on various activities
      */
-    private function calculateGuestPoints(Guest $guest, array $dateRange, string $category = '総合'): int
+    private function calculateGuestPoints(Guest $guest, array $dateRange, string $category = 'gift'): int
     {
         $points = 0;
 
-        if ($category === '総合') {
-            $points += $this->calculateGuestPoints($guest, $dateRange, 'ギフ');
-            $points += $this->calculateGuestPoints($guest, $dateRange, 'パトロール');
-            $points += $this->calculateGuestPoints($guest, $dateRange, 'コバト');
-            return $points;
-        }
-
-        if ($category === 'ギフ') {
+        if ($category === 'gift') {
             $giftsSent = DB::table('guest_gifts')
                 ->join('gifts', 'guest_gifts.gift_id', '=', 'gifts.id')
                 ->where('guest_gifts.sender_guest_id', $guest->id)
@@ -182,17 +161,10 @@ class RankingService
             }
         }
 
-        if ($category === 'パトロール') {
-            $likesGiven = Like::where('guest_id', $guest->id)
-                ->whereBetween('created_at', [$dateRange['start'], $dateRange['end']])
-                ->count();
-            $points += $likesGiven * self::POINT_WEIGHTS['like_given'];
-        }
-
-        if ($category === 'コバト') {
+        if ($category === 'reservation') {
             $reservationsCreated = Reservation::where('guest_id', $guest->id)
                 ->whereBetween('created_at', [$dateRange['start'], $dateRange['end']])
-                ->count();
+                ->count(); 
             $points += $reservationsCreated * self::POINT_WEIGHTS['reservation_created'];
         }
 
@@ -238,7 +210,7 @@ class RankingService
     /**
      * Get rankings for display
      */
-    public function getRankings(string $type, string $period, string $region = '全国', int $limit = 10, string $category = '総合'): array
+    public function getRankings(string $type, string $period, string $region = '全国', int $limit = 10, string $category = 'gift'): array
     {
         $query = Ranking::query()
             ->byType($type)
@@ -257,9 +229,10 @@ class RankingService
         return $query->get()->map(function ($ranking, $index) use ($type) {
             $user = $type === 'cast' ? $ranking->cast : $ranking->guest;
             return [
-                'rank' => $index + 1,
+                'id' => $ranking->id,
                 'user_id' => $ranking->user_id,
                 'name' => $user->nickname ?? 'Unknown',
+                'nickname' => $user->nickname ?? 'Unknown',
                 'avatar' => $user->avatar ?? '',
                 'residence' => $user->residence ?? '',
                 'points' => $ranking->points,
@@ -275,7 +248,7 @@ class RankingService
     {
         $periods = ['daily', 'weekly', 'monthly', 'period'];
         $regions = ['全国', '東京都', '大阪府', '愛知県', '福岡県', '北海道'];
-        $categories = ['総合', 'ギフ', 'パトロール', 'コバト'];
+        $categories = ['gift', 'reservation'];
 
         foreach ($periods as $period) {
             foreach ($regions as $region) {
@@ -283,6 +256,18 @@ class RankingService
                     $this->calculateRankings($period, $region, $category);
                 }
             }
+        }
+    }
+
+    /**
+     * Update rankings in real time for a given region (for both categories, current period)
+     */
+    public function updateRealTimeRankings($region = '全国')
+    {
+        $period = 'monthly';
+        $categories = ['gift', 'reservation'];
+        foreach ($categories as $category) {
+            $this->calculateRankings($period, $region, $category);
         }
     }
 } 

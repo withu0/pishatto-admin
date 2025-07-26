@@ -24,19 +24,19 @@ class RankingController extends Controller
     {
         $userType = $request->query('userType', 'cast');
         $timePeriod = $request->query('timePeriod', 'current');
-        $category = $request->query('category', '総合');
+        $category = $request->query('category', 'gift');
         $area = $request->query('area', '全国');
 
         // Map frontend time periods to backend periods
         $periodMap = [
-            'current' => 'daily',
+            'current' => 'monthly',
             'yesterday' => 'daily',
             'lastWeek' => 'weekly',
             'lastMonth' => 'monthly',
             'allTime' => 'period'
         ];
 
-        $period = $periodMap[$timePeriod] ?? 'daily';
+        $period = $periodMap[$timePeriod] ?? 'monthly';
 
         // Get rankings from the service
         $rankings = $this->rankingService->getRankings($userType, $period, $area, 50, $category);
@@ -57,13 +57,14 @@ class RankingController extends Controller
     {
         $period = $request->input('period', 'daily');
         $region = $request->input('region', '全国');
+        $category = $request->input('category', 'gift');
 
         try {
-            $this->rankingService->calculateRankings($period, $region);
+            $this->rankingService->calculateRankings($period, $region, $category);
             
             return response()->json([
                 'success' => true,
-                'message' => "Rankings calculated successfully for {$period} period in {$region}"
+                'message' => "Rankings calculated successfully for {$period} period in {$region} for {$category}"
             ]);
         } catch (\Exception $e) {
             return response()->json([
@@ -108,6 +109,10 @@ class RankingController extends Controller
                 'monthly' => DB::table('rankings')->where('period', 'monthly')->count(),
                 'period' => DB::table('rankings')->where('period', 'period')->count(),
             ],
+            'categories' => [
+                'gift' => DB::table('rankings')->where('category', 'gift')->count(),
+                'reservation' => DB::table('rankings')->where('category', 'reservation')->count(),
+            ],
             'regions' => DB::table('rankings')
                 ->select('region', DB::raw('count(*) as count'))
                 ->groupBy('region')
@@ -124,7 +129,7 @@ class RankingController extends Controller
     {
         $userType = $request->query('userType', 'cast');
         $timePeriod = $request->query('timePeriod', 'current');
-        $category = $request->query('category', '総合');
+        $category = $request->query('category', 'gift');
         $area = $request->query('area', '全国');
 
         // Example: filter by time period (implement actual logic as needed)

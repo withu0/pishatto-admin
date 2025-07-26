@@ -22,6 +22,9 @@ return new class extends Migration
             $table->integer('duration')->nullable();
             $table->text('details')->nullable();
             $table->timestamp('created_at')->useCurrent();
+            $table->timestamp('started_at')->nullable();
+            $table->timestamp('ended_at')->nullable();
+            $table->integer('points_earned')->nullable();
 
             $table->index('guest_id');
         });

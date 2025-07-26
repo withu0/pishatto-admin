@@ -21,6 +21,9 @@ class Reservation extends Model
         'created_at',
         'time', // allow mass assignment of time
         'active',
+        'started_at',
+        'ended_at',
+        'points_earned',
     ];
 
     public function guest()

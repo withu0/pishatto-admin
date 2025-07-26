@@ -203,4 +203,50 @@ class CastAuthController extends Controller
         // Return the relative path to be saved in DB and used by frontend
         return response()->json(['path' => $path]);
     }
+
+    // Start reservation (cast triggers this)
+    public function startReservation(Request $request)
+    {
+        $validator = \Validator::make($request->all(), [
+            'reservation_id' => 'required|exists:reservations,id',
+            'cast_id' => 'required|exists:casts,id',
+        ]);
+        if ($validator->fails()) {
+            return response()->json(['message' => 'Validation failed', 'errors' => $validator->errors()], 422);
+        }
+        $reservation = \App\Models\Reservation::find($request->reservation_id);
+        // Optionally: check if this cast is allowed to start this reservation
+        if ($reservation->started_at) {
+            return response()->json(['message' => 'Reservation already started'], 400);
+        }
+        $reservation->started_at = now();
+        $reservation->save();
+        return response()->json(['reservation' => $reservation]);
+    }
+
+    // Stop reservation (cast triggers this)
+    public function stopReservation(Request $request)
+    {
+        $validator = \Validator::make($request->all(), [
+            'reservation_id' => 'required|exists:reservations,id',
+            'cast_id' => 'required|exists:casts,id',
+        ]);
+        if ($validator->fails()) {
+            return response()->json(['message' => 'Validation failed', 'errors' => $validator->errors()], 422);
+        }
+        $reservation = \App\Models\Reservation::find($request->reservation_id);
+        if (!$reservation->started_at) {
+            return response()->json(['message' => 'Reservation not started'], 400);
+        }
+        if ($reservation->ended_at) {
+            return response()->json(['message' => 'Reservation already ended'], 400);
+        }
+        $reservation->ended_at = now();
+        // Calculate duration in minutes
+        $duration = $reservation->ended_at->diffInMinutes($reservation->started_at);
+        // Example: 1 point per minute
+        $reservation->points_earned = $duration;
+        $reservation->save();
+        return response()->json(['reservation' => $reservation, 'points' => $reservation->points_earned]);
+    }
 } 

@@ -69,6 +69,14 @@ class ChatController extends Controller
         $message->load(['guest', 'cast']);
         event(new \App\Events\MessageSent($message));
 
+        // Real-time ranking update for gifts
+        if ($request->input('gift_id')) {
+            $rankingService = app(\App\Services\RankingService::class);
+            $chat = $message->chat;
+            $region = $chat && $chat->cast && $chat->cast->residence ? $chat->cast->residence : '全国';
+            $rankingService->updateRealTimeRankings($region);
+        }
+
         // Notification logic for recipient
         $chat = $message->chat;
         if ($message->sender_guest_id && $chat && $chat->cast_id) {
@@ -164,5 +172,14 @@ class ChatController extends Controller
             'reservation_id' => null,
         ]);
         return response()->json(['chat' => $chat, 'created' => true]);
+    }
+
+    public function show($chatId)
+    {
+        $chat = \App\Models\Chat::with(['guest', 'cast', 'messages', 'reservation'])->find($chatId);
+        if (!$chat) {
+            return response()->json(['message' => 'Chat not found'], 404);
+        }
+        return response()->json(['chat' => $chat]);
     }
 } 

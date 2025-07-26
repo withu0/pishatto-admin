@@ -242,6 +242,9 @@ class GuestAuthController extends Controller
         $reservation = Reservation::create($request->only([
             'guest_id', 'type', 'scheduled_at', 'location', 'duration', 'details', 'time'
         ]));
+        // Real-time ranking update for guest
+        $rankingService = app(\App\Services\RankingService::class);
+        $rankingService->updateRealTimeRankings($reservation->location ?? '全国');
         // Broadcast reservation creation
         event(new \App\Events\ReservationUpdated($reservation));
         return response()->json(['reservation' => $reservation], 201);
@@ -269,6 +272,9 @@ class GuestAuthController extends Controller
 
         $reservation->active = false;
         $reservation->save();
+        // Real-time ranking update for both guest and cast
+        $rankingService = app(\App\Services\RankingService::class);
+        $rankingService->updateRealTimeRankings($reservation->location ?? '全国');
         // Broadcast reservation update
         // event(new \App\Events\ReservationUpdated($reservation));
         // Only create a chat if one does not already exist for this reservation and cast
@@ -426,5 +432,31 @@ class GuestAuthController extends Controller
     {
         $phones = Guest::pluck('phone');
         return response()->json(['phones' => $phones]);
+    }
+
+    public function updateReservation(Request $request, $id)
+    {
+        $reservation = Reservation::find($id);
+        if (!$reservation) {
+            return response()->json(['message' => 'Reservation not found'], 404);
+        }
+        $validator = Validator::make($request->all(), [
+            'scheduled_at' => 'sometimes|date',
+            'duration' => 'sometimes|integer',
+            'location' => 'sometimes|string|max:255',
+            'details' => 'sometimes|string',
+            'time' => 'sometimes|string|max:10',
+        ]);
+        if ($validator->fails()) {
+            return response()->json([
+                'message' => 'Validation failed',
+                'errors' => $validator->errors()
+            ], 422);
+        }
+        $reservation->fill($request->only(['scheduled_at', 'duration', 'location', 'details', 'time']));
+        $reservation->save();
+        // Broadcast reservation update
+        event(new \App\Events\ReservationUpdated($reservation));
+        return response()->json(['reservation' => $reservation]);
     }
 } 
