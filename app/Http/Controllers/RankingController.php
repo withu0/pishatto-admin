@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
+use App\Services\RankingService;
 use App\Models\Cast;
 use App\Models\Guest;
 use App\Models\Like;
@@ -12,7 +13,114 @@ use Illuminate\Support\Facades\DB;
 
 class RankingController extends Controller
 {
+    protected $rankingService;
+
+    public function __construct(RankingService $rankingService)
+    {
+        $this->rankingService = $rankingService;
+    }
+
     public function getRanking(Request $request)
+    {
+        $userType = $request->query('userType', 'cast');
+        $timePeriod = $request->query('timePeriod', 'current');
+        $category = $request->query('category', '総合');
+        $area = $request->query('area', '全国');
+
+        // Map frontend time periods to backend periods
+        $periodMap = [
+            'current' => 'daily',
+            'yesterday' => 'daily',
+            'lastWeek' => 'weekly',
+            'lastMonth' => 'monthly',
+            'allTime' => 'period'
+        ];
+
+        $period = $periodMap[$timePeriod] ?? 'daily';
+
+        // Get rankings from the service
+        $rankings = $this->rankingService->getRankings($userType, $period, $area, 50, $category);
+
+        return response()->json([
+            'type' => $userType,
+            'data' => $rankings,
+            'period' => $period,
+            'area' => $area,
+            'category' => $category
+        ]);
+    }
+
+    /**
+     * Calculate and update rankings (admin endpoint)
+     */
+    public function calculateRankings(Request $request)
+    {
+        $period = $request->input('period', 'daily');
+        $region = $request->input('region', '全国');
+
+        try {
+            $this->rankingService->calculateRankings($period, $region);
+            
+            return response()->json([
+                'success' => true,
+                'message' => "Rankings calculated successfully for {$period} period in {$region}"
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Error calculating rankings: ' . $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Recalculate all rankings (admin endpoint)
+     */
+    public function recalculateAllRankings()
+    {
+        try {
+            $this->rankingService->recalculateAllRankings();
+            
+            return response()->json([
+                'success' => true,
+                'message' => 'All rankings recalculated successfully'
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Error recalculating rankings: ' . $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Get ranking statistics (admin endpoint)
+     */
+    public function getRankingStats()
+    {
+        $stats = [
+            'total_rankings' => DB::table('rankings')->count(),
+            'cast_rankings' => DB::table('rankings')->where('type', 'cast')->count(),
+            'guest_rankings' => DB::table('rankings')->where('type', 'guest')->count(),
+            'periods' => [
+                'daily' => DB::table('rankings')->where('period', 'daily')->count(),
+                'weekly' => DB::table('rankings')->where('period', 'weekly')->count(),
+                'monthly' => DB::table('rankings')->where('period', 'monthly')->count(),
+                'period' => DB::table('rankings')->where('period', 'period')->count(),
+            ],
+            'regions' => DB::table('rankings')
+                ->select('region', DB::raw('count(*) as count'))
+                ->groupBy('region')
+                ->get()
+        ];
+
+        return response()->json($stats);
+    }
+
+    /**
+     * Legacy method for backward compatibility
+     */
+    public function getLegacyRanking(Request $request)
     {
         $userType = $request->query('userType', 'cast');
         $timePeriod = $request->query('timePeriod', 'current');
@@ -42,7 +150,7 @@ class RankingController extends Controller
         if ($userType === 'cast') {
             $query = Cast::query();
             if ($area !== '全国') {
-                $query->where('area', $area);
+                $query->where('residence', 'like', "%{$area}%");
             }
             // Example: sort by likes count in the period
             $query->withCount(['likes' => function ($q) use ($dateRange) {
@@ -56,7 +164,7 @@ class RankingController extends Controller
         } else {
             $query = Guest::query();
             if ($area !== '全国') {
-                $query->where('area', $area);
+                $query->where('residence', 'like', "%{$area}%");
             }
             // Example: sort by gifts count in the period
             $query->withCount(['gifts' => function ($q) use ($dateRange) {

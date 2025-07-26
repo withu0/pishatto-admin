@@ -19,6 +19,8 @@ return new class extends Migration
             $table->string('avatar', 255)->nullable();
             $table->integer('birth_year')->nullable();
             $table->integer('height')->nullable();
+            $table->string('grade', 50)->nullable();
+            $table->integer('grade_points')->nullable();
             $table->string('residence', 100)->nullable();
             $table->string('birthplace', 100)->nullable();
             $table->text('profile_text')->nullable();

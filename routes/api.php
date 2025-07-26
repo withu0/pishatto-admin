@@ -75,3 +75,6 @@ Route::post('/guests/like', [GuestAuthController::class, 'likeGuest']);
 Route::post('/chats/create', [ChatController::class, 'createChat']); 
 Route::get('/guests/like-status/{cast_id}/{guest_id}', [GuestAuthController::class, 'likeStatus']); 
 Route::get('/ranking', [RankingController::class, 'getRanking']); 
+Route::post('/ranking/calculate', [RankingController::class, 'calculateRankings']); 
+Route::post('/ranking/recalculate-all', [RankingController::class, 'recalculateAllRankings']); 
+Route::get('/ranking/stats', [RankingController::class, 'getRankingStats']); 

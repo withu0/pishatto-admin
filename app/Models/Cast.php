@@ -17,6 +17,8 @@ class Cast extends Authenticatable
         'avatar',
         'birth_year',
         'height',
+        'grade',
+        'grade_points', 
         'residence',
         'birthplace',
         'profile_text',
