@@ -55,12 +55,20 @@ Route::post('/notifications/read-all/{userType}/{userId}', [GuestAuthController:
 
 // Avatar serving route
 Route::get('/avatars/{filename}', [GuestAuthController::class, 'getAvatar']);
+
+// Payment routes
 Route::post('/payments/purchase', [\App\Http\Controllers\PaymentController::class, 'purchase']);
+Route::post('/payments/token', [\App\Http\Controllers\PaymentController::class, 'createToken']);
 Route::get('/payments/history/{userType}/{userId}', [\App\Http\Controllers\PaymentController::class, 'history']);
+Route::get('/payments/status/{paymentId}', [\App\Http\Controllers\PaymentController::class, 'getPaymentStatus']);
+Route::post('/payments/refund/{paymentId}', [\App\Http\Controllers\PaymentController::class, 'refund']);
+Route::post('/payments/webhook', [\App\Http\Controllers\PaymentController::class, 'webhook']);
+
+// Receipt routes
 Route::get('/receipts/{userType}/{userId}', [\App\Http\Controllers\PaymentController::class, 'receipts']);
-Route::post('/payments/info', [\App\Http\Controllers\PaymentController::class, 'registerPaymentInfo']);
-Route::get('/payments/info/{userType}/{userId}', [\App\Http\Controllers\PaymentController::class, 'getPaymentInfo']);
-Route::post('/payouts/request', [\App\Http\Controllers\PaymentController::class, 'requestPayout']); 
+
+// Payout routes
+Route::post('/payouts/request', [\App\Http\Controllers\PaymentController::class, 'requestPayout']);
 
 // Tweet routes
 Route::get('/tweets', [\App\Http\Controllers\TweetController::class, 'index']);

@@ -13,15 +13,25 @@ return new class extends Migration
     {
         Schema::create('payments', function (Blueprint $table) {
             $table->id();
-            $table->unsignedBigInteger('guest_id')->nullable();
-            $table->decimal('amount', 10, 2)->nullable();
-            $table->enum('status', ['pending','paid','failed'])->nullable();
-            $table->enum('method', ['card','linepay','other'])->nullable();
-            $table->timestamp('paid_at')->useCurrentOnUpdate()->useCurrent();
-            $table->timestamp('created_at')->useCurrent();
+            $table->unsignedBigInteger('user_id');
+            $table->enum('user_type', ['guest', 'cast']);
+            $table->integer('amount'); // Amount in yen
+            $table->enum('status', ['pending', 'paid', 'failed', 'refunded'])->default('pending');
+            $table->enum('payment_method', ['card', 'convenience_store', 'bank_transfer', 'linepay', 'other'])->nullable();
+            $table->string('payjp_charge_id')->nullable(); // PAY.JP charge ID
+            $table->string('payjp_customer_id')->nullable(); // PAY.JP customer ID
+            $table->string('payjp_token')->nullable(); // PAY.JP token
+            $table->text('description')->nullable();
+            $table->json('metadata')->nullable(); // Additional payment data
+            $table->timestamp('paid_at')->nullable();
+            $table->timestamp('failed_at')->nullable();
+            $table->timestamp('refunded_at')->nullable();
+            $table->timestamps();
 
-            $table->index('guest_id');
-            $table->foreign('guest_id')->references('id')->on('guests')->onDelete('cascade')->onUpdate('restrict');
+            $table->index(['user_id', 'user_type']);
+            $table->index('payjp_charge_id');
+            $table->index('payjp_customer_id');
+            $table->index('status');
         });
     }
 
