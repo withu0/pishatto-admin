@@ -249,4 +249,34 @@ class CastAuthController extends Controller
         $reservation->save();
         return response()->json(['reservation' => $reservation, 'points' => $reservation->points_earned]);
     }
+
+    // Add a cast to guest's favorites
+    public function favorite(Request $request)
+    {
+        $guestId = $request->input('guest_id');
+        $castId = $request->input('cast_id');
+        $guest = \App\Models\Guest::findOrFail($guestId);
+        if ($guest->favorites()->where('cast_id', $castId)->exists()) {
+            return response()->json(['favorited' => true, 'message' => 'Already favorited']);
+        }
+        $guest->favorites()->attach($castId);
+        return response()->json(['favorited' => true]);
+    }
+
+    // Remove a cast from guest's favorites
+    public function unfavorite(Request $request)
+    {
+        $guestId = $request->input('guest_id');
+        $castId = $request->input('cast_id');
+        $guest = \App\Models\Guest::findOrFail($guestId);
+        $guest->favorites()->detach($castId);
+        return response()->json(['favorited' => false]);
+    }
+
+    // List all favorite casts for a guest
+    public function favoriteCasts($guestId)
+    {
+        $guest = \App\Models\Guest::with('favorites')->findOrFail($guestId);
+        return response()->json(['casts' => $guest->favorites]);
+    }
 } 

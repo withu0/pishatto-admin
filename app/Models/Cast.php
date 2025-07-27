@@ -52,4 +52,9 @@ class Cast extends Authenticatable
             'gift_id'  // Local key on guest_gifts table
         );
     }
+
+    public function favoritedBy()
+    {
+        return $this->belongsToMany(Guest::class, 'guest_favorites', 'cast_id', 'guest_id')->withTimestamps();
+    }
 } 

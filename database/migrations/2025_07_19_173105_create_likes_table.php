@@ -15,12 +15,15 @@ return new class extends Migration
             $table->id();
             $table->unsignedBigInteger('guest_id')->nullable();
             $table->unsignedBigInteger('cast_id')->nullable();
+            $table->unsignedBigInteger('tweet_id')->nullable();
             $table->timestamp('created_at')->useCurrent();
 
             $table->index('guest_id');
             $table->index('cast_id');
+            $table->index('tweet_id');
             $table->foreign('guest_id')->references('id')->on('guests')->onDelete('cascade')->onUpdate('restrict');
             $table->foreign('cast_id')->references('id')->on('casts')->onDelete('cascade')->onUpdate('restrict');
+            $table->foreign('tweet_id')->references('id')->on('tweets')->onDelete('cascade')->onUpdate('restrict');
         });
     }
 

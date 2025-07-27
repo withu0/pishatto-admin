@@ -48,4 +48,9 @@ class Guest extends Authenticatable
     {
         return $this->hasMany(\App\Models\Gift::class, 'guest_id');
     }
+
+    public function favorites()
+    {
+        return $this->belongsToMany(Cast::class, 'guest_favorites', 'guest_id', 'cast_id')->withTimestamps();
+    }
 } 

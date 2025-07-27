@@ -3,183 +3,249 @@
 namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
-use App\Services\RankingService;
-use App\Models\Cast;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Log;
 use App\Models\Guest;
-use App\Models\Like;
+use App\Models\Cast;
 use App\Models\Gift;
 use App\Models\Reservation;
-use Illuminate\Support\Facades\DB;
+use App\Models\GuestGift;
+use Carbon\Carbon;
 
 class RankingController extends Controller
 {
-    protected $rankingService;
-
-    public function __construct(RankingService $rankingService)
-    {
-        $this->rankingService = $rankingService;
-    }
-
     public function getRanking(Request $request)
     {
-        $userType = $request->query('userType', 'cast');
-        $timePeriod = $request->query('timePeriod', 'current');
-        $category = $request->query('category', 'gift');
-        $area = $request->query('area', '全国');
-
-        // Map frontend time periods to backend periods
-        $periodMap = [
-            'current' => 'monthly',
-            'yesterday' => 'daily',
-            'lastWeek' => 'weekly',
-            'lastMonth' => 'monthly',
-            'allTime' => 'period'
-        ];
-
-        $period = $periodMap[$timePeriod] ?? 'monthly';
-
-        // Get rankings from the service
-        $rankings = $this->rankingService->getRankings($userType, $period, $area, 50, $category);
-
-        return response()->json([
-            'type' => $userType,
-            'data' => $rankings,
-            'period' => $period,
-            'area' => $area,
-            'category' => $category
-        ]);
-    }
-
-    /**
-     * Calculate and update rankings (admin endpoint)
-     */
-    public function calculateRankings(Request $request)
-    {
-        $period = $request->input('period', 'daily');
-        $region = $request->input('region', '全国');
-        $category = $request->input('category', 'gift');
-
         try {
-            $this->rankingService->calculateRankings($period, $region, $category);
+            $userType = $request->query('userType', 'cast');
+            $timePeriod = $request->query('timePeriod', 'current');
+            $category = $request->query('category', 'gift');
+            $area = $request->query('area', '全国');
+
+            // Validate inputs
+            if (!in_array($userType, ['cast', 'guest'])) {
+                return response()->json(['error' => 'Invalid user type'], 400);
+            }
+
+            if (!in_array($category, ['gift', 'reservation'])) {
+                return response()->json(['error' => 'Invalid category'], 400);
+            }
+
+            // Create cache key for this specific ranking
+            $cacheKey = "ranking_{$userType}_{$timePeriod}_{$category}_{$area}";
             
-            return response()->json([
-                'success' => true,
-                'message' => "Rankings calculated successfully for {$period} period in {$region} for {$category}"
-            ]);
+            // Try to get from cache first (cache for 5 minutes)
+            $ranking = Cache::remember($cacheKey, 300, function () use ($userType, $timePeriod, $category, $area) {
+                return $this->calculateRanking($userType, $timePeriod, $category, $area);
+            });
+
+            return response()->json(['data' => $ranking]);
         } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Error calculating rankings: ' . $e->getMessage()
-            ], 500);
+            Log::error('Ranking calculation error: ' . $e->getMessage(), [
+                'userType' => $request->query('userType'),
+                'timePeriod' => $request->query('timePeriod'),
+                'category' => $request->query('category'),
+                'area' => $request->query('area'),
+                'trace' => $e->getTraceAsString()
+            ]);
+            
+            return response()->json(['error' => 'Failed to calculate ranking'], 500);
         }
     }
 
-    /**
-     * Recalculate all rankings (admin endpoint)
-     */
-    public function recalculateAllRankings()
+    private function calculateRanking($userType, $timePeriod, $category, $area)
     {
-        try {
-            $this->rankingService->recalculateAllRankings();
-            
-            return response()->json([
-                'success' => true,
-                'message' => 'All rankings recalculated successfully'
-            ]);
-        } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Error recalculating rankings: ' . $e->getMessage()
-            ], 500);
+        $dateRange = $this->getDateRange($timePeriod);
+        
+        if ($category === 'gift') {
+            return $this->getGiftRanking($userType, $dateRange, $area);
+        } else {
+            return $this->getReservationRanking($userType, $dateRange, $area);
         }
     }
 
-    /**
-     * Get ranking statistics (admin endpoint)
-     */
-    public function getRankingStats()
+    private function getDateRange($timePeriod)
     {
-        $stats = [
-            'total_rankings' => DB::table('rankings')->count(),
-            'cast_rankings' => DB::table('rankings')->where('type', 'cast')->count(),
-            'guest_rankings' => DB::table('rankings')->where('type', 'guest')->count(),
-            'periods' => [
-                'daily' => DB::table('rankings')->where('period', 'daily')->count(),
-                'weekly' => DB::table('rankings')->where('period', 'weekly')->count(),
-                'monthly' => DB::table('rankings')->where('period', 'monthly')->count(),
-                'period' => DB::table('rankings')->where('period', 'period')->count(),
-            ],
-            'categories' => [
-                'gift' => DB::table('rankings')->where('category', 'gift')->count(),
-                'reservation' => DB::table('rankings')->where('category', 'reservation')->count(),
-            ],
-            'regions' => DB::table('rankings')
-                ->select('region', DB::raw('count(*) as count'))
-                ->groupBy('region')
-                ->get()
-        ];
-
-        return response()->json($stats);
-    }
-
-    /**
-     * Legacy method for backward compatibility
-     */
-    public function getLegacyRanking(Request $request)
-    {
-        $userType = $request->query('userType', 'cast');
-        $timePeriod = $request->query('timePeriod', 'current');
-        $category = $request->query('category', 'gift');
-        $area = $request->query('area', '全国');
-
-        // Example: filter by time period (implement actual logic as needed)
-        $dateRange = null;
+        $now = Carbon::now();
+        
         switch ($timePeriod) {
             case 'current':
-                $dateRange = [now()->startOfMonth(), now()->endOfMonth()];
-                break;
+                return [
+                    'start' => $now->startOfMonth(),
+                    'end' => $now->endOfMonth()
+                ];
             case 'yesterday':
-                $dateRange = [now()->subDay()->startOfDay(), now()->subDay()->endOfDay()];
-                break;
+                return [
+                    'start' => $now->subDay()->startOfDay(),
+                    'end' => $now->subDay()->endOfDay()
+                ];
             case 'lastWeek':
-                $dateRange = [now()->subWeek()->startOfWeek(), now()->subWeek()->endOfWeek()];
-                break;
+                return [
+                    'start' => $now->subWeek()->startOfWeek(),
+                    'end' => $now->subWeek()->endOfWeek()
+                ];
             case 'lastMonth':
-                $dateRange = [now()->subMonth()->startOfMonth(), now()->subMonth()->endOfMonth()];
-                break;
+                return [
+                    'start' => $now->subMonth()->startOfMonth(),
+                    'end' => $now->subMonth()->endOfMonth()
+                ];
             case 'allTime':
+                return [
+                    'start' => Carbon::create(2020, 1, 1), // Arbitrary start date
+                    'end' => $now
+                ];
             default:
-                $dateRange = null;
+                return [
+                    'start' => $now->startOfMonth(),
+                    'end' => $now->endOfMonth()
+                ];
         }
+    }
 
+    private function getGiftRanking($userType, $dateRange, $area)
+    {
         if ($userType === 'cast') {
-            $query = Cast::query();
-            if ($area !== '全国') {
-                $query->where('residence', 'like', "%{$area}%");
-            }
-            // Example: sort by likes count in the period
-            $query->withCount(['likes' => function ($q) use ($dateRange) {
-                if ($dateRange) {
-                    $q->whereBetween('created_at', $dateRange);
-                }
-            }]);
-            $query->orderByDesc('likes_count');
-            $casts = $query->get();
-            return response()->json(['type' => 'cast', 'data' => $casts]);
+            // Rank casts by total gift points received
+            return DB::table('casts as c')
+                ->select([
+                    'c.id',
+                    'c.nickname as name',
+                    'c.avatar',
+                    DB::raw('COALESCE(SUM(g.points), 0) as total_points'),
+                    DB::raw('COUNT(gg.id) as gift_count')
+                ])
+                ->leftJoin('guest_gifts as gg', 'c.id', '=', 'gg.receiver_cast_id')
+                ->leftJoin('gifts as g', 'gg.gift_id', '=', 'g.id')
+                ->whereBetween('gg.created_at', [$dateRange['start'], $dateRange['end']])
+                ->when($area !== '全国', function ($query) use ($area) {
+                    return $query->where('c.residence', 'LIKE', "%{$area}%");
+                })
+                ->groupBy('c.id', 'c.nickname', 'c.avatar')
+                ->having('total_points', '>', 0) // Only show casts who received gifts with points
+                ->orderBy('total_points', 'desc')
+                ->orderBy('gift_count', 'desc')
+                ->limit(50)
+                ->get()
+                ->map(function ($item) {
+                    return [
+                        'id' => $item->id,
+                        'name' => $item->name,
+                        'avatar' => $item->avatar,
+                        'points' => (int)$item->total_points,
+                        'gift_count' => (int)$item->gift_count
+                    ];
+                });
         } else {
-            $query = Guest::query();
-            if ($area !== '全国') {
-                $query->where('residence', 'like', "%{$area}%");
-            }
-            // Example: sort by gifts count in the period
-            $query->withCount(['gifts' => function ($q) use ($dateRange) {
-                if ($dateRange) {
-                    $q->whereBetween('created_at', $dateRange);
-                }
-            }]);
-            $query->orderByDesc('gifts_count');
-            $guests = $query->get();
-            return response()->json(['type' => 'guest', 'data' => $guests]);
+            // Rank guests by total gift points sent
+            return DB::table('guests as g')
+                ->select([
+                    'g.id',
+                    'g.nickname as name',
+                    'g.avatar',
+                    DB::raw('COALESCE(SUM(gi.points), 0) as total_points'),
+                    DB::raw('COUNT(gg.id) as gift_count')
+                ])
+                ->leftJoin('guest_gifts as gg', 'g.id', '=', 'gg.sender_guest_id')
+                ->leftJoin('gifts as gi', 'gg.gift_id', '=', 'gi.id')
+                ->whereBetween('gg.created_at', [$dateRange['start'], $dateRange['end']])
+                ->when($area !== '全国', function ($query) use ($area) {
+                    return $query->where('g.residence', 'LIKE', "%{$area}%");
+                })
+                ->groupBy('g.id', 'g.nickname', 'g.avatar')
+                ->having('total_points', '>', 0) // Only show guests who sent gifts with points
+                ->orderBy('total_points', 'desc')
+                ->orderBy('gift_count', 'desc')
+                ->limit(50)
+                ->get()
+                ->map(function ($item) {
+                    return [
+                        'id' => $item->id,
+                        'name' => $item->name,
+                        'avatar' => $item->avatar,
+                        'points' => (int)$item->total_points,
+                        'gift_count' => (int)$item->gift_count
+                    ];
+                });
+        }
+    }
+
+    private function getReservationRanking($userType, $dateRange, $area)
+    {
+        if ($userType === 'cast') {
+            // Rank casts by total points earned from completed reservations
+            return DB::table('casts as c')
+                ->select([
+                    'c.id',
+                    'c.nickname as name',
+                    'c.avatar',
+                    DB::raw('COALESCE(SUM(r.points_earned), 0) as total_points'),
+                    DB::raw('COUNT(r.id) as reservation_count')
+                ])
+                ->leftJoin('chats as ch', 'c.id', '=', 'ch.cast_id')
+                ->leftJoin('reservations as r', 'ch.reservation_id', '=', 'r.id')
+                ->where('r.active', false) // Completed reservations
+                ->whereBetween('r.created_at', [$dateRange['start'], $dateRange['end']])
+                ->when($area !== '全国', function ($query) use ($area) {
+                    return $query->where('c.residence', 'LIKE', "%{$area}%");
+                })
+                ->groupBy('c.id', 'c.nickname', 'c.avatar')
+                ->having('total_points', '>', 0) // Only show casts with points earned
+                ->orderBy('total_points', 'desc')
+                ->orderBy('reservation_count', 'desc')
+                ->limit(50)
+                ->get()
+                ->map(function ($item) {
+                    return [
+                        'id' => $item->id,
+                        'name' => $item->name,
+                        'avatar' => $item->avatar,
+                        'points' => (int)$item->total_points,
+                        'reservation_count' => (int)$item->reservation_count
+                    ];
+                });
+        } else {
+            // Rank guests by total points spent on reservations
+            return DB::table('guests as g')
+                ->select([
+                    'g.id',
+                    'g.nickname as name',
+                    'g.avatar',
+                    DB::raw('COALESCE(SUM(r.points_earned), 0) as total_points'),
+                    DB::raw('COUNT(r.id) as reservation_count')
+                ])
+                ->leftJoin('reservations as r', 'g.id', '=', 'r.guest_id')
+                ->whereBetween('r.created_at', [$dateRange['start'], $dateRange['end']])
+                ->when($area !== '全国', function ($query) use ($area) {
+                    return $query->where('g.residence', 'LIKE', "%{$area}%");
+                })
+                ->groupBy('g.id', 'g.nickname', 'g.avatar')
+                ->having('total_points', '>', 0) // Only show guests with points spent
+                ->orderBy('total_points', 'desc')
+                ->orderBy('reservation_count', 'desc')
+                ->limit(50)
+                ->get()
+                ->map(function ($item) {
+                    return [
+                        'id' => $item->id,
+                        'name' => $item->name,
+                        'avatar' => $item->avatar,
+                        'points' => (int)$item->total_points,
+                        'reservation_count' => (int)$item->reservation_count
+                    ];
+                });
+        }
+    }
+
+    // Method to clear ranking cache (call this when data changes)
+    public function clearRankingCache()
+    {
+        try {
+            Cache::flush();
+            return response()->json(['message' => 'Ranking cache cleared successfully']);
+        } catch (\Exception $e) {
+            Log::error('Failed to clear ranking cache: ' . $e->getMessage());
+            return response()->json(['error' => 'Failed to clear cache'], 500);
         }
     }
 } 

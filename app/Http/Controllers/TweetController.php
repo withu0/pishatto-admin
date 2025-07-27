@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
 use App\Models\Tweet;
+use App\Models\Like;
 
 class TweetController extends Controller
 {
@@ -57,5 +58,55 @@ class TweetController extends Controller
         $tweet = Tweet::findOrFail($id);
         $tweet->delete();
         return response()->json(['success' => true]);
+    }
+
+    // Like or unlike a tweet
+    public function like(Request $request)
+    {
+        $request->validate([
+            'tweet_id' => 'required|exists:tweets,id',
+            'guest_id' => 'nullable|exists:guests,id',
+            'cast_id' => 'nullable|exists:casts,id',
+        ]);
+        $tweetId = $request->tweet_id;
+        $guestId = $request->guest_id;
+        $castId = $request->cast_id;
+        $like = Like::where('tweet_id', $tweetId)
+            ->where(function($q) use ($guestId, $castId) {
+                if ($guestId) $q->where('guest_id', $guestId);
+                if ($castId) $q->where('cast_id', $castId);
+            })->first();
+        if ($like) {
+            $like->delete();
+            return response()->json(['liked' => false, 'count' => Like::where('tweet_id', $tweetId)->count()]);
+        } else {
+            Like::create([
+                'tweet_id' => $tweetId,
+                'guest_id' => $guestId,
+                'cast_id' => $castId,
+                'created_at' => now(),
+            ]);
+            return response()->json(['liked' => true, 'count' => Like::where('tweet_id', $tweetId)->count()]);
+        }
+    }
+
+    // Get like count for a tweet
+    public function likeCount($tweetId)
+    {
+        $count = Like::where('tweet_id', $tweetId)->count();
+        return response()->json(['count' => $count]);
+    }
+
+    // Get like status for a tweet for a user
+    public function likeStatus(Request $request, $tweetId)
+    {
+        $guestId = $request->query('guest_id');
+        $castId = $request->query('cast_id');
+        $like = Like::where('tweet_id', $tweetId)
+            ->where(function($q) use ($guestId, $castId) {
+                if ($guestId) $q->where('guest_id', $guestId);
+                if ($castId) $q->where('cast_id', $castId);
+            })->first();
+        return response()->json(['liked' => $like ? true : false]);
     }
 } 

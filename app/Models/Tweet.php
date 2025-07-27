@@ -28,4 +28,9 @@ class Tweet extends Model
     {
         return $this->belongsTo(Cast::class, 'cast_id');
     }
+
+    public function likes()
+    {
+        return $this->hasMany(\App\Models\Like::class, 'tweet_id');
+    }
 } 
