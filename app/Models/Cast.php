@@ -18,10 +18,12 @@ class Cast extends Authenticatable
         'birth_year',
         'height',
         'grade',
-        'grade_points', 
+        'grade_points',
         'residence',
         'birthplace',
         'profile_text',
+        'payjp_customer_id',
+        'payment_info',
         'created_at',
         'updated_at',
     ];

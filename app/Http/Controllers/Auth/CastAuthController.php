@@ -71,7 +71,7 @@ class CastAuthController extends Controller
 
     public function getProfile($id)
     {
-        $cast = \App\Models\Cast::with(['chats', 'badges', 'receivedGifts'])->find($id);
+        $cast = \App\Models\Cast::with(['badges', 'receivedGifts'])->find($id);
         if (!$cast) {
             return response()->json(['message' => 'Cast not found'], 404);
         }
@@ -79,9 +79,9 @@ class CastAuthController extends Controller
         $recommended = \App\Models\Cast::where('id', '!=', $id)->orderBy('created_at', 'desc')->limit(3)->get();
         return response()->json([
             'cast' => $cast,
-            'reservations' => $cast->reservations,
-            'badges' => $cast->badges ?? [],
-            'titles' => $cast->titles ?? [],
+            'reservations' => [],
+            'badges' => $cast->badges()->get() ?? [],
+            'titles' => [],
             'recommended' => $recommended,
         ]);
     }
@@ -93,6 +93,94 @@ class CastAuthController extends Controller
             return response()->json(['message' => 'Cast not found'], 404);
         }
         return response()->json(['cast' => $cast]);
+    }
+
+    public function getCastPointsData($id)
+    {
+        $cast = \App\Models\Cast::find($id);
+        if (!$cast) {
+            return response()->json(['message' => 'Cast not found'], 404);
+        }
+
+        // Get current month's start and end dates
+        $currentMonth = now()->startOfMonth();
+        $nextMonth = now()->addMonth()->startOfMonth();
+
+        // Calculate gift points from guest gifts (this is the main source of points for casts)
+        $giftPoints = \App\Models\GuestGift::where('receiver_cast_id', $id)
+            ->whereBetween('created_at', [$currentMonth, $nextMonth])
+            ->join('gifts', 'guest_gifts.gift_id', '=', 'gifts.id')
+            ->sum('gifts.points');
+
+        // For now, we'll use gift points as the main source since reservations don't have cast_id
+        // In a real implementation, you might have a separate cast_earnings table
+        $monthlyTotalPoints = $giftPoints;
+
+        // Calculate copat-back rate based on gift transactions
+        $totalGiftTransactions = \App\Models\GuestGift::where('receiver_cast_id', $id)
+            ->whereBetween('created_at', [$currentMonth, $nextMonth])
+            ->count();
+        
+        $successfulGiftTransactions = \App\Models\GuestGift::where('receiver_cast_id', $id)
+            ->whereBetween('created_at', [$currentMonth, $nextMonth])
+            ->join('gifts', 'guest_gifts.gift_id', '=', 'gifts.id')
+            ->where('gifts.points', '>', 0)
+            ->count();
+
+        $copatBackRate = $totalGiftTransactions > 0 ? round(($successfulGiftTransactions / $totalGiftTransactions) * 100) : 0;
+
+        return response()->json([
+            'monthly_total_points' => $monthlyTotalPoints,
+            'gift_points' => $giftPoints,
+            'copat_back_rate' => $copatBackRate,
+            'total_reservations' => $totalGiftTransactions,
+            'completed_reservations' => $successfulGiftTransactions
+        ]);
+    }
+
+    public function getCastPassportData($id)
+    {
+        $cast = \App\Models\Cast::find($id);
+        if (!$cast) {
+            return response()->json(['message' => 'Cast not found'], 404);
+        }
+
+        // For now, return mock passport data since there's no passport/shop model yet
+        // In a real implementation, you would fetch from a passport/shop table
+        $passportData = [
+            [
+                'id' => 1,
+                'name' => 'Partner Shop 1',
+                'image' => '/assets/avatar/AdobeStock_1095142160_Preview.jpeg',
+                'description' => 'Special discount for cast members'
+            ],
+            [
+                'id' => 2,
+                'name' => 'Partner Shop 2',
+                'image' => '/assets/avatar/AdobeStock_1067731649_Preview.jpeg',
+                'description' => 'Exclusive offers'
+            ],
+            [
+                'id' => 3,
+                'name' => 'Partner Shop 3',
+                'image' => '/assets/avatar/AdobeStock_1190678828_Preview.jpeg',
+                'description' => 'Premium services'
+            ],
+            [
+                'id' => 4,
+                'name' => 'Partner Shop 4',
+                'image' => '/assets/avatar/AdobeStock_1537463438_Preview.jpeg',
+                'description' => 'Luxury experiences'
+            ],
+            [
+                'id' => 5,
+                'name' => 'Partner Shop 5',
+                'image' => '/assets/avatar/AdobeStock_1537463446_Preview.jpeg',
+                'description' => 'VIP treatment'
+            ]
+        ];
+
+        return response()->json(['passport_data' => $passportData]);
     }
 
     public function register(Request $request)

@@ -32,6 +32,8 @@ class Guest extends Authenticatable
         'pressure',
         'favorite_area',
         'interests',
+        'payjp_customer_id',
+        'payment_info',
         'created_at',
         'updated_at',
     ];

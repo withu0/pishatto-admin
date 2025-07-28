@@ -6,6 +6,8 @@ use App\Http\Controllers\Auth\GuestAuthController;
 use App\Http\Controllers\Auth\CastAuthController;
 use App\Http\Controllers\ChatController;
 use App\Http\Controllers\RankingController;
+use App\Http\Controllers\PaymentController;
+use App\Http\Controllers\TweetController;
 
 /*
 |--------------------------------------------------------------------------
@@ -45,6 +47,8 @@ Route::get('/guests/repeat', [GuestAuthController::class, 'repeatGuests']);
 Route::get('/guest/profile/id/{id}', [GuestAuthController::class, 'getProfileById']);
 Route::get('/casts', [CastAuthController::class, 'list']);
 Route::get('/casts/profile/{id}', [CastAuthController::class, 'getCastProfile']);
+Route::get('/casts/points/{id}', [CastAuthController::class, 'getCastPointsData']);
+Route::get('/casts/passport/{id}', [CastAuthController::class, 'getCastPassportData']);
 Route::post('/casts/like', [CastAuthController::class, 'like']);
 Route::get('/casts/liked/{guestId}', [CastAuthController::class, 'likedCasts']);
 Route::post('/guests/visit', [CastAuthController::class, 'recordGuestVisit']);
@@ -57,33 +61,39 @@ Route::post('/notifications/read-all/{userType}/{userId}', [GuestAuthController:
 Route::get('/avatars/{filename}', [GuestAuthController::class, 'getAvatar']);
 
 // Payment routes
-Route::post('/payments/purchase', [\App\Http\Controllers\PaymentController::class, 'purchase']);
-Route::post('/payments/token', [\App\Http\Controllers\PaymentController::class, 'createToken']);
-Route::get('/payments/history/{userType}/{userId}', [\App\Http\Controllers\PaymentController::class, 'history']);
-Route::get('/payments/status/{paymentId}', [\App\Http\Controllers\PaymentController::class, 'getPaymentStatus']);
-Route::post('/payments/refund/{paymentId}', [\App\Http\Controllers\PaymentController::class, 'refund']);
-Route::post('/payments/webhook', [\App\Http\Controllers\PaymentController::class, 'webhook']);
+Route::post('/payments/token', [PaymentController::class, 'createToken']);
+Route::post('/payments/purchase', [PaymentController::class, 'purchase']);
+Route::post('/payments/register-card', [PaymentController::class, 'registerCard']);
+Route::post('/payments/info', [PaymentController::class, 'storePaymentInfo']);
+Route::get('/payments/info/{userType}/{userId}', [PaymentController::class, 'getPaymentInfo']);
+Route::get('/payments/stats/{userType}/{userId}', [PaymentController::class, 'getCustomerStats']);
+Route::delete('/payments/info/{userType}/{userId}/{cardId}', [PaymentController::class, 'deletePaymentInfo']);
+Route::get('/payments/history/{userType}/{userId}', [PaymentController::class, 'history']);
+Route::get('/payments/status/{paymentId}', [PaymentController::class, 'getPaymentStatus']);
+Route::post('/payments/{paymentId}/refund', [PaymentController::class, 'refund']);
+Route::post('/payments/payout', [PaymentController::class, 'requestPayout']);
+Route::post('/payments/webhook', [PaymentController::class, 'webhook']);
 
 // Receipt routes
-Route::get('/receipts/{userType}/{userId}', [\App\Http\Controllers\PaymentController::class, 'receipts']);
+Route::get('/receipts/{userType}/{userId}', [PaymentController::class, 'receipts']);
 
 // Payout routes
-Route::post('/payouts/request', [\App\Http\Controllers\PaymentController::class, 'requestPayout']);
+Route::post('/payouts/request', [PaymentController::class, 'requestPayout']);
 
 // Tweet routes
-Route::get('/tweets/{tweetId}/like-count', [\App\Http\Controllers\TweetController::class, 'likeCount']);
-Route::get('/tweets/{tweetId}/like-status', [\App\Http\Controllers\TweetController::class, 'likeStatus']);
-Route::get('/tweets', [\App\Http\Controllers\TweetController::class, 'index']);
-Route::get('/tweets/{userType}/{userId}', [\App\Http\Controllers\TweetController::class, 'userTweets']);
-Route::post('/tweets', [\App\Http\Controllers\TweetController::class, 'store']);
-Route::delete('/tweets/{id}', [\App\Http\Controllers\TweetController::class, 'destroy']);
+Route::get('/tweets/{tweetId}/like-count', [TweetController::class, 'likeCount']);
+Route::get('/tweets/{tweetId}/like-status', [TweetController::class, 'likeStatus']);
+Route::get('/tweets', [TweetController::class, 'index']);
+Route::get('/tweets/{userType}/{userId}', [TweetController::class, 'userTweets']);
+Route::post('/tweets', [TweetController::class, 'store']);
+Route::delete('/tweets/{id}', [TweetController::class, 'destroy']);
 // Tweet like endpoints
-Route::post('/tweets/like', [\App\Http\Controllers\TweetController::class, 'like']);
+Route::post('/tweets/like', [TweetController::class, 'like']);
 
-Route::get('/guests/phones', [\App\Http\Controllers\Auth\GuestAuthController::class, 'allPhones']);
-Route::get('/gifts', [\App\Http\Controllers\ChatController::class, 'gifts']);
+Route::get('/guests/phones', [GuestAuthController::class, 'allPhones']);
+Route::get('/gifts', [ChatController::class, 'gifts']);
 // Gift box: received gifts for cast
-Route::get('/cast/{castId}/received-gifts', [\App\Http\Controllers\ChatController::class, 'receivedGifts']);
+Route::get('/cast/{castId}/received-gifts', [ChatController::class, 'receivedGifts']);
 Route::post('/cast/avatar-upload', [CastAuthController::class, 'uploadAvatar']);
 Route::post('/guests/like', [GuestAuthController::class, 'likeGuest']);
 Route::post('/chats/create', [ChatController::class, 'createChat']);
