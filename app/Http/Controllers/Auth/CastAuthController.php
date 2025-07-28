@@ -177,19 +177,48 @@ class CastAuthController extends Controller
         return response()->json(['casts' => $casts]);
     }
 
-    // Record a visit to a cast profile
-    public function recordVisit(Request $request)
+    // Record when a cast visits a guest profile
+    public function recordGuestVisit(Request $request)
     {
-        $guestId = $request->input('guest_id');
+        $validator = \Validator::make($request->all(), [
+            'cast_id' => 'required|exists:casts,id',
+            'guest_id' => 'required|exists:guests,id',
+        ]);
+        if ($validator->fails()) {
+            return response()->json(['message' => 'Validation failed', 'errors' => $validator->errors()], 422);
+        }
+        
         $castId = $request->input('cast_id');
-        \App\Models\VisitHistory::create(['guest_id' => $guestId, 'cast_id' => $castId]);
+        $guestId = $request->input('guest_id');
+        
+        // Check if this cast has already visited this guest recently (within 24 hours)
+        $existingVisit = \App\Models\VisitHistory::where('cast_id', $castId)
+            ->where('guest_id', $guestId)
+            ->where('created_at', '>=', now()->subDay())
+            ->first();
+            
+        if ($existingVisit) {
+            // Update the existing visit timestamp
+            $existingVisit->touch();
+            return response()->json(['success' => true]);
+        }
+        
+        // Create new visit record
+        \App\Models\VisitHistory::create(['cast_id' => $castId, 'guest_id' => $guestId]);
         return response()->json(['success' => true]);
     }
 
-    // Get visit history for a guest
+    // Get visit history for a guest (casts who visited this guest's profile)
     public function visitHistory($guestId)
     {
-        $history = \App\Models\VisitHistory::where('guest_id', $guestId)->orderBy('created_at', 'desc')->with('cast')->get();
+        // Get unique casts that have visited this guest, with the most recent visit for each cast
+        $history = \App\Models\VisitHistory::where('visit_histories.guest_id', $guestId)
+            ->join('casts', 'visit_histories.cast_id', '=', 'casts.id')
+            ->select('visit_histories.*', 'casts.nickname', 'casts.avatar')
+            ->orderBy('visit_histories.updated_at', 'desc')
+            ->get()
+            ->unique('cast_id'); // Ensure we only get one record per cast
+        
         return response()->json(['history' => $history]);
     }
 

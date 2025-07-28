@@ -11,6 +11,7 @@ use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\Storage;
 use App\Models\Reservation;
 use App\Models\Notification;
+use App\Models\Badge;
 
 class GuestAuthController extends Controller
 {
@@ -436,27 +437,72 @@ class GuestAuthController extends Controller
 
     public function updateReservation(Request $request, $id)
     {
-        $reservation = Reservation::find($id);
-        if (!$reservation) {
-            return response()->json(['message' => 'Reservation not found'], 404);
+        try {
+            $reservation = Reservation::find($id);
+            if (!$reservation) {
+                return response()->json(['message' => 'Reservation not found'], 404);
+            }
+            $validator = Validator::make($request->all(), [
+                'scheduled_at' => 'sometimes|date',
+                'duration' => 'sometimes|integer',
+                'location' => 'sometimes|string|max:255',
+                'details' => 'sometimes|string',
+                'time' => 'sometimes|string|max:10',
+                'started_at' => 'sometimes|date',
+                'ended_at' => 'sometimes|date',
+            ]);
+            if ($validator->fails()) {
+                return response()->json([
+                    'message' => 'Validation failed',
+                    'errors' => $validator->errors()
+                ], 422);
+            }
+            $reservation->fill($request->only(['scheduled_at', 'duration', 'location', 'details', 'time', 'started_at', 'ended_at', 'feedback_text', 'feedback_rating', 'feedback_badge_id']));
+
+            // Points calculation logic
+            if ($reservation->started_at && $reservation->ended_at) {
+                $scheduled = $reservation->scheduled_at ? strtotime($reservation->scheduled_at) : null;
+                $start = strtotime($reservation->started_at);
+                $end = strtotime($reservation->ended_at);
+                $duration = $reservation->duration ?? 1;
+                $planned_end = $scheduled ? strtotime("+{$duration} hour", $scheduled) : ($start + $duration * 3600);
+                $base_points = $duration * 1000;
+                $overtime_points = 0;
+                $exceeded_seconds = 0;
+                if ($end > $planned_end) {
+                    $exceeded_seconds = $end - $planned_end;
+                    $exceeded_minutes = ceil($exceeded_seconds / 60);
+                    $overtime_points = $exceeded_minutes * 20;
+                }
+                $reservation->points_earned = $base_points + $overtime_points;
+            }
+
+            // Assign badge to cast if feedback_badge_id is present
+            if ($request->filled('feedback_badge_id')) {
+                $badgeId = $request->input('feedback_badge_id');
+                // Find the cast for this reservation (assuming a cast_id field or relationship exists)
+                $castId = $request->input('cast_id') ?? ($reservation->cast_id ?? null);
+                if ($castId) {
+                    $cast = \App\Models\Cast::find($castId);
+                    if ($cast && !$cast->badges()->where('badges.id', $badgeId)->exists()) {
+                        $cast->badges()->attach($badgeId);
+                    }
+                }
+            }
+
+            $reservation->save();
+            // Broadcast reservation update
+            event(new \App\Events\ReservationUpdated($reservation));
+            return response()->json(['reservation' => $reservation]);
+        } catch (\Throwable $e) {
+            \Log::error('updateReservation error: ' . $e->getMessage() . "\n" . $e->getTraceAsString());
+            return response()->json(['message' => 'Server error', 'error' => $e->getMessage(), 'trace' => $e->getTraceAsString()], 500);
         }
-        $validator = Validator::make($request->all(), [
-            'scheduled_at' => 'sometimes|date',
-            'duration' => 'sometimes|integer',
-            'location' => 'sometimes|string|max:255',
-            'details' => 'sometimes|string',
-            'time' => 'sometimes|string|max:10',
-        ]);
-        if ($validator->fails()) {
-            return response()->json([
-                'message' => 'Validation failed',
-                'errors' => $validator->errors()
-            ], 422);
-        }
-        $reservation->fill($request->only(['scheduled_at', 'duration', 'location', 'details', 'time']));
-        $reservation->save();
-        // Broadcast reservation update
-        event(new \App\Events\ReservationUpdated($reservation));
-        return response()->json(['reservation' => $reservation]);
+    }
+
+    // Add this method to return all badges
+    public function getAllBadges()
+    {
+        return response()->json(['badges' => Badge::all()]);
     }
 } 

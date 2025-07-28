@@ -43,14 +43,7 @@ class Cast extends Authenticatable
 
     public function receivedGifts()
     {
-        return $this->hasManyThrough(
-            \App\Models\Gift::class,
-            'guest_gifts',
-            'cast_id', // Foreign key on guest_gifts table
-            'id',      // Foreign key on gifts table
-            'id',      // Local key on casts table
-            'gift_id'  // Local key on guest_gifts table
-        );
+        return $this->hasMany(\App\Models\GuestGift::class, 'receiver_cast_id');
     }
 
     public function favoritedBy()

@@ -47,7 +47,7 @@ Route::get('/casts', [CastAuthController::class, 'list']);
 Route::get('/casts/profile/{id}', [CastAuthController::class, 'getCastProfile']);
 Route::post('/casts/like', [CastAuthController::class, 'like']);
 Route::get('/casts/liked/{guestId}', [CastAuthController::class, 'likedCasts']);
-Route::post('/casts/visit', [CastAuthController::class, 'recordVisit']);
+Route::post('/guests/visit', [CastAuthController::class, 'recordGuestVisit']);
 Route::get('/casts/visit-history/{guestId}', [CastAuthController::class, 'visitHistory']);
 Route::get('/notifications/{userType}/{userId}', [GuestAuthController::class, 'getNotifications']);
 Route::post('/notifications/read/{id}', [GuestAuthController::class, 'markNotificationRead']);
@@ -71,14 +71,15 @@ Route::get('/receipts/{userType}/{userId}', [\App\Http\Controllers\PaymentContro
 Route::post('/payouts/request', [\App\Http\Controllers\PaymentController::class, 'requestPayout']);
 
 // Tweet routes
+Route::get('/tweets/{tweetId}/like-count', [\App\Http\Controllers\TweetController::class, 'likeCount']);
+Route::get('/tweets/{tweetId}/like-status', [\App\Http\Controllers\TweetController::class, 'likeStatus']);
 Route::get('/tweets', [\App\Http\Controllers\TweetController::class, 'index']);
 Route::get('/tweets/{userType}/{userId}', [\App\Http\Controllers\TweetController::class, 'userTweets']);
 Route::post('/tweets', [\App\Http\Controllers\TweetController::class, 'store']);
 Route::delete('/tweets/{id}', [\App\Http\Controllers\TweetController::class, 'destroy']);
 // Tweet like endpoints
 Route::post('/tweets/like', [\App\Http\Controllers\TweetController::class, 'like']);
-Route::get('/tweets/{tweetId}/like-count', [\App\Http\Controllers\TweetController::class, 'likeCount']);
-Route::get('/tweets/{tweetId}/like-status', [\App\Http\Controllers\TweetController::class, 'likeStatus']);
+
 Route::get('/guests/phones', [\App\Http\Controllers\Auth\GuestAuthController::class, 'allPhones']);
 Route::get('/gifts', [\App\Http\Controllers\ChatController::class, 'gifts']);
 // Gift box: received gifts for cast
@@ -94,4 +95,5 @@ Route::post('/reservation/start', [CastAuthController::class, 'startReservation'
 Route::post('/reservation/stop', [CastAuthController::class, 'stopReservation']);
 Route::post('/casts/favorite', [CastAuthController::class, 'favorite']);
 Route::post('/casts/unfavorite', [CastAuthController::class, 'unfavorite']);
-Route::get('/casts/favorites/{guestId}', [CastAuthController::class, 'favoriteCasts']); 
+Route::get('/casts/favorites/{guestId}', [CastAuthController::class, 'favoriteCasts']);
+Route::get('/badges', [GuestAuthController::class, 'getAllBadges']); 

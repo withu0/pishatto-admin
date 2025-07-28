@@ -102,11 +102,13 @@ class TweetController extends Controller
     {
         $guestId = $request->query('guest_id');
         $castId = $request->query('cast_id');
+        
         $like = Like::where('tweet_id', $tweetId)
             ->where(function($q) use ($guestId, $castId) {
                 if ($guestId) $q->where('guest_id', $guestId);
                 if ($castId) $q->where('cast_id', $castId);
             })->first();
-        return response()->json(['liked' => $like ? true : false]);
+        $count = Like::where('tweet_id', $tweetId)->count();
+        return response()->json(['liked' => $like ? true : false, 'count' => $count]);
     }
 } 

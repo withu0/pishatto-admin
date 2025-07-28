@@ -69,10 +69,21 @@ class ChatController extends Controller
         $message->load(['guest', 'cast']);
         event(new \App\Events\MessageSent($message));
 
-        // Real-time ranking update for gifts
+        // Save gift to guest_gifts table if a gift was sent
         if ($request->input('gift_id')) {
-            $rankingService = app(\App\Services\RankingService::class);
             $chat = $message->chat;
+            if ($chat && $message->sender_guest_id && $chat->cast_id) {
+                \App\Models\GuestGift::create([
+                    'sender_guest_id' => $message->sender_guest_id,
+                    'receiver_cast_id' => $chat->cast_id,
+                    'gift_id' => $request->input('gift_id'),
+                    'message' => $request->input('message'),
+                    'created_at' => now(),
+                ]);
+            }
+            
+            // Real-time ranking update for gifts
+            $rankingService = app(\App\Services\RankingService::class);
             $region = $chat && $chat->cast && $chat->cast->residence ? $chat->cast->residence : '全国';
             $rankingService->updateRealTimeRankings($region);
         }
