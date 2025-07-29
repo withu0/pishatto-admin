@@ -77,18 +77,18 @@ class RankingController extends Controller
                 ];
             case 'yesterday':
                 return [
-                    'start' => $now->subDay()->startOfDay(),
-                    'end' => $now->subDay()->endOfDay()
+                    'start' => $now->copy()->subDay()->startOfDay(),
+                    'end' => $now->copy()->subDay()->endOfDay()
                 ];
             case 'lastWeek':
                 return [
-                    'start' => $now->subWeek()->startOfWeek(),
-                    'end' => $now->subWeek()->endOfWeek()
+                    'start' => $now->copy()->subWeek()->startOfWeek(),
+                    'end' => $now->copy()->subWeek()->endOfWeek()
                 ];
             case 'lastMonth':
                 return [
-                    'start' => $now->subMonth()->startOfMonth(),
-                    'end' => $now->subMonth()->endOfMonth()
+                    'start' => $now->copy()->subMonth()->startOfMonth(),
+                    'end' => $now->copy()->subMonth()->endOfMonth()
                 ];
             case 'allTime':
                 return [
@@ -103,6 +103,15 @@ class RankingController extends Controller
         }
     }
 
+    /**
+     * Calculate night time bonus points (4000 points for activities after 12 AM)
+     */
+    private function calculateNightTimeBonus($createdAt)
+    {
+        $hour = Carbon::parse($createdAt)->hour;
+        return ($hour >= 0 && $hour < 6) ? 4000 : 0; // 12 AM to 6 AM
+    }
+
     private function getGiftRanking($userType, $dateRange, $area)
     {
         if ($userType === 'cast') {
@@ -112,7 +121,7 @@ class RankingController extends Controller
                     'c.id',
                     'c.nickname as name',
                     'c.avatar',
-                    DB::raw('COALESCE(SUM(g.points), 0) as total_points'),
+                    DB::raw('COALESCE(SUM(g.points + CASE WHEN HOUR(gg.created_at) >= 0 AND HOUR(gg.created_at) < 6 THEN 4000 ELSE 0 END), 0) as total_points'),
                     DB::raw('COUNT(gg.id) as gift_count')
                 ])
                 ->leftJoin('guest_gifts as gg', 'c.id', '=', 'gg.receiver_cast_id')
@@ -143,7 +152,7 @@ class RankingController extends Controller
                     'g.id',
                     'g.nickname as name',
                     'g.avatar',
-                    DB::raw('COALESCE(SUM(gi.points), 0) as total_points'),
+                    DB::raw('COALESCE(SUM(gi.points + CASE WHEN HOUR(gg.created_at) >= 0 AND HOUR(gg.created_at) < 6 THEN 4000 ELSE 0 END), 0) as total_points'),
                     DB::raw('COUNT(gg.id) as gift_count')
                 ])
                 ->leftJoin('guest_gifts as gg', 'g.id', '=', 'gg.sender_guest_id')
@@ -179,7 +188,7 @@ class RankingController extends Controller
                     'c.id',
                     'c.nickname as name',
                     'c.avatar',
-                    DB::raw('COALESCE(SUM(r.points_earned), 0) as total_points'),
+                    DB::raw('COALESCE(SUM(r.points_earned + CASE WHEN HOUR(r.created_at) >= 0 AND HOUR(r.created_at) < 6 THEN 4000 ELSE 0 END), 0) as total_points'),
                     DB::raw('COUNT(r.id) as reservation_count')
                 ])
                 ->leftJoin('chats as ch', 'c.id', '=', 'ch.cast_id')
@@ -211,7 +220,7 @@ class RankingController extends Controller
                     'g.id',
                     'g.nickname as name',
                     'g.avatar',
-                    DB::raw('COALESCE(SUM(r.points_earned), 0) as total_points'),
+                    DB::raw('COALESCE(SUM(r.points_earned + CASE WHEN HOUR(r.created_at) >= 0 AND HOUR(r.created_at) < 6 THEN 4000 ELSE 0 END), 0) as total_points'),
                     DB::raw('COUNT(r.id) as reservation_count')
                 ])
                 ->leftJoin('reservations as r', 'g.id', '=', 'r.guest_id')
@@ -246,6 +255,65 @@ class RankingController extends Controller
         } catch (\Exception $e) {
             Log::error('Failed to clear ranking cache: ' . $e->getMessage());
             return response()->json(['error' => 'Failed to clear cache'], 500);
+        }
+    }
+
+    // Method to recalculate rankings for a specific period and region
+    public function recalculateRankings(Request $request)
+    {
+        try {
+            $period = $request->input('period', 'monthly');
+            $region = $request->input('region', '全国');
+            $category = $request->input('category', 'gift');
+
+            // Map frontend period names to backend period names
+            $periodMapping = [
+                'current' => 'monthly',
+                'yesterday' => 'daily',
+                'lastWeek' => 'weekly',
+                'lastMonth' => 'monthly',
+                'allTime' => 'period'
+            ];
+
+            $backendPeriod = $periodMapping[$period] ?? $period;
+
+            $rankingService = new \App\Services\RankingService();
+            $rankingService->calculateRankings($backendPeriod, $region, $category);
+
+            // Clear cache for this specific ranking
+            $cacheKey = "ranking_cast_{$period}_{$category}_{$region}";
+            Cache::forget($cacheKey);
+            $cacheKey = "ranking_guest_{$period}_{$category}_{$region}";
+            Cache::forget($cacheKey);
+
+            return response()->json([
+                'message' => "Rankings recalculated successfully for {$period} period in {$region}",
+                'period' => $period,
+                'region' => $region,
+                'category' => $category
+            ]);
+        } catch (\Exception $e) {
+            Log::error('Failed to recalculate rankings: ' . $e->getMessage());
+            return response()->json(['error' => 'Failed to recalculate rankings'], 500);
+        }
+    }
+
+    // Method to recalculate all rankings
+    public function recalculateAllRankings()
+    {
+        try {
+            $rankingService = new \App\Services\RankingService();
+            $rankingService->recalculateAllRankings();
+
+            // Clear all ranking cache
+            Cache::flush();
+
+            return response()->json([
+                'message' => 'All rankings recalculated successfully'
+            ]);
+        } catch (\Exception $e) {
+            Log::error('Failed to recalculate all rankings: ' . $e->getMessage());
+            return response()->json(['error' => 'Failed to recalculate all rankings'], 500);
         }
     }
 } 

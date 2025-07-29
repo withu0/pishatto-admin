@@ -77,10 +77,16 @@ class CastAuthController extends Controller
         }
         // Get recommended casts (top 3 by recent, excluding self)
         $recommended = \App\Models\Cast::where('id', '!=', $id)->orderBy('created_at', 'desc')->limit(3)->get();
+        // Get badges with counts for this cast
+        $badgesWithCounts = $cast->badges()
+            ->select('badges.*', \DB::raw('COUNT(*) as count'))
+            ->groupBy('badges.id', 'badges.name', 'badges.icon', 'badges.description', 'badges.created_at', 'badges.updated_at')
+            ->get();
+
         return response()->json([
             'cast' => $cast,
             'reservations' => [],
-            'badges' => $cast->badges()->get() ?? [],
+            'badges' => $badgesWithCounts ?? [],
             'titles' => [],
             'recommended' => $recommended,
         ]);
@@ -319,6 +325,47 @@ class CastAuthController extends Controller
         $path = $file->store('avatars', 'public');
         // Return the relative path to be saved in DB and used by frontend
         return response()->json(['path' => $path]);
+    }
+
+    public function deleteAvatar(Request $request)
+    {
+        $request->validate([
+            'cast_id' => 'required|integer|exists:casts,id',
+            'avatar_index' => 'required|integer|min:0',
+        ]);
+
+        $cast = Cast::findOrFail($request->cast_id);
+        $avatarIndex = $request->input('avatar_index');
+
+        if (!$cast->avatar) {
+            return response()->json(['error' => 'No avatars found'], 404);
+        }
+
+        $avatars = explode(',', $cast->avatar);
+
+        if ($avatarIndex >= count($avatars)) {
+            return response()->json(['error' => 'Avatar index out of range'], 404);
+        }
+
+        // Get the avatar path to delete from storage
+        $avatarPath = trim($avatars[$avatarIndex]);
+
+        // Delete the file from storage
+        if (\Illuminate\Support\Facades\Storage::disk('public')->exists($avatarPath)) {
+            \Illuminate\Support\Facades\Storage::disk('public')->delete($avatarPath);
+        }
+
+        // Remove the avatar from the array
+        unset($avatars[$avatarIndex]);
+        $avatars = array_values($avatars); // Re-index array
+
+        // Update the cast with the new avatar string
+        $cast->update(['avatar' => implode(',', $avatars)]);
+
+        return response()->json([
+            'message' => 'Avatar deleted successfully',
+            'remaining_avatars' => $avatars
+        ]);
     }
 
     // Start reservation (cast triggers this)

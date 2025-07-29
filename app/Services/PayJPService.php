@@ -258,7 +258,7 @@ class PayJPService
                     ->post($this->baseUrl . '/customers/' . $customerId . '/cards', [
                         'card' => $token
                     ]);
-
+                
                 if ($response->successful()) {
                     return $response->json();
                 }

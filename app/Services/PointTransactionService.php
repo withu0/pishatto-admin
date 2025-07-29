@@ -8,9 +8,12 @@ use App\Models\Reservation;
 use App\Models\PointTransaction;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Carbon\Carbon;
 
 class PointTransactionService
 {
+    const NIGHT_TIME_BONUS = 4000; // Bonus points for night time activities (12 AM - 6 AM)
+
     /**
      * Process point transaction when a reservation is completed
      * Deducts points from guest and adds to cast
@@ -43,12 +46,16 @@ class PointTransactionService
                 return false;
             }
 
+            // Calculate night time bonus
+            $nightTimeBonus = $this->calculateNightTimeBonus($reservation->created_at);
+            $totalPointsForCast = $pointsAmount + $nightTimeBonus;
+
             // Deduct points from guest
             $guest->points -= $pointsAmount;
             $guest->save();
 
-            // Add points to cast
-            $cast->points += $pointsAmount;
+            // Add points to cast (including night time bonus)
+            $cast->points += $totalPointsForCast;
             $cast->save();
 
             // Create point transaction record
@@ -58,11 +65,11 @@ class PointTransactionService
                 'type' => 'transfer',
                 'amount' => $pointsAmount,
                 'reservation_id' => $reservation->id,
-                'description' => "Reservation completion - {$reservation->duration} hours"
+                'description' => "Reservation completion - {$reservation->duration} hours" . ($nightTimeBonus > 0 ? " (Night time bonus: +{$nightTimeBonus})" : "")
             ]);
 
-            // Update reservation with points earned
-            $reservation->points_earned = $pointsAmount;
+            // Update reservation with points earned (including night time bonus)
+            $reservation->points_earned = $totalPointsForCast;
             $reservation->save();
 
             DB::commit();
@@ -71,7 +78,9 @@ class PointTransactionService
                 'reservation_id' => $reservation->id,
                 'guest_id' => $guest->id,
                 'cast_id' => $cast->id,
-                'points_amount' => $pointsAmount
+                'points_amount' => $pointsAmount,
+                'night_time_bonus' => $nightTimeBonus,
+                'total_points_for_cast' => $totalPointsForCast
             ]);
 
             return true;
@@ -85,6 +94,15 @@ class PointTransactionService
             ]);
             return false;
         }
+    }
+
+    /**
+     * Calculate night time bonus points (4000 points for activities after 12 AM)
+     */
+    public function calculateNightTimeBonus($createdAt): int
+    {
+        $hour = Carbon::parse($createdAt)->hour;
+        return ($hour >= 0 && $hour < 6) ? self::NIGHT_TIME_BONUS : 0; // 12 AM to 6 AM
     }
 
     /**
@@ -123,7 +141,10 @@ class PointTransactionService
             $basePoints = 9000 * $duration;
         }
         
-        return $basePoints;
+        // Add night time bonus
+        $nightTimeBonus = $this->calculateNightTimeBonus($reservation->created_at);
+        
+        return $basePoints + $nightTimeBonus;
     }
 
     /**

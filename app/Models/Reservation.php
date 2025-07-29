@@ -25,9 +25,6 @@ class Reservation extends Model
         'started_at',
         'ended_at',
         'points_earned',
-        'feedback_text',
-        'feedback_rating',
-        // 'feedback_badge_id',
     ];
 
     public function guest()
@@ -43,5 +40,13 @@ class Reservation extends Model
     public function pointTransactions()
     {
         return $this->hasMany(PointTransaction::class);
+    }
+
+    /**
+     * Get all feedback for this reservation.
+     */
+    public function feedback()
+    {
+        return $this->hasMany(Feedback::class);
     }
 } 

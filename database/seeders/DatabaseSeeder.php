@@ -18,6 +18,9 @@ class DatabaseSeeder extends Seeder
      */
     public function run(): void
     {
+        // Call badge seeder
+        $this->call(BadgeSeeder::class);
+        
         // Create sample gifts
         $gifts = [
             ['name' => 'Rose', 'category' => 'standard', 'points' => 100, 'icon' => 'rose.png'],

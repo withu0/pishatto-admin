@@ -9,6 +9,8 @@ use App\Http\Controllers\RankingController;
 use App\Http\Controllers\PaymentController;
 use App\Http\Controllers\TweetController;
 use App\Http\Controllers\CastPaymentController;
+use App\Http\Controllers\IdentityVerificationController;
+use App\Http\Controllers\FeedbackController;
 
 /*
 |--------------------------------------------------------------------------
@@ -45,6 +47,7 @@ Route::post('/messages', [ChatController::class, 'store']);
 Route::get('/reservations/{id}', [GuestAuthController::class, 'getReservationById']);
 Route::put('/reservations/{id}', [GuestAuthController::class, 'updateReservation']);
 Route::post('/reservations/{id}/complete', [GuestAuthController::class, 'completeReservation']);
+Route::post('/reservations/{id}/cancel', [GuestAuthController::class, 'cancelReservation']);
 Route::get('/guests/repeat', [GuestAuthController::class, 'repeatGuests']);
 Route::get('/guest/profile/id/{id}', [GuestAuthController::class, 'getProfileById']);
 Route::get('/casts', [CastAuthController::class, 'list']);
@@ -67,6 +70,20 @@ Route::post('/payments/token', [PaymentController::class, 'createToken']);
 
 // Point transaction routes
 Route::get('/point-transactions/{userType}/{userId}', [PaymentController::class, 'getPointTransactions']);
+
+// Badge routes
+Route::get('/badges', function () {
+    return response()->json(['badges' => \App\Models\Badge::all()]);
+});
+
+// Feedback routes
+Route::post('/feedback', [FeedbackController::class, 'store']);
+Route::get('/feedback/reservation/{reservationId}', [FeedbackController::class, 'getReservationFeedback']);
+Route::get('/feedback/cast/{castId}', [FeedbackController::class, 'getCastFeedback']);
+Route::get('/feedback/guest/{guestId}', [FeedbackController::class, 'getGuestFeedback']);
+Route::put('/feedback/{feedbackId}', [FeedbackController::class, 'update']);
+Route::delete('/feedback/{feedbackId}', [FeedbackController::class, 'destroy']);
+Route::get('/feedback/cast/{castId}/stats', [FeedbackController::class, 'getCastFeedbackStats']);
 Route::post('/payments/charge-direct', [PaymentController::class, 'createChargeDirect']);
 Route::post('/payments/debug-response', [PaymentController::class, 'debugPayJPResponse']);
 Route::post('/payments/purchase', [PaymentController::class, 'purchase']);
@@ -102,11 +119,14 @@ Route::get('/gifts', [ChatController::class, 'gifts']);
 // Gift box: received gifts for cast
 Route::get('/cast/{castId}/received-gifts', [ChatController::class, 'receivedGifts']);
 Route::post('/cast/avatar-upload', [CastAuthController::class, 'uploadAvatar']);
+Route::delete('/cast/avatar-delete', [CastAuthController::class, 'deleteAvatar']);
 Route::post('/guests/like', [GuestAuthController::class, 'likeGuest']);
 Route::post('/chats/create', [ChatController::class, 'createChat']);
 Route::get('/guests/like-status/{cast_id}/{guest_id}', [GuestAuthController::class, 'likeStatus']);
 Route::get('/ranking', [RankingController::class, 'getRanking']);
 Route::post('/ranking/clear-cache', [RankingController::class, 'clearRankingCache']);
+Route::post('/ranking/recalculate', [RankingController::class, 'recalculateRankings']);
+Route::post('/ranking/recalculate-all', [RankingController::class, 'recalculateAllRankings']);
 Route::get('/chats/{chatId}', [ChatController::class, 'show']);
 Route::post('/reservation/start', [CastAuthController::class, 'startReservation']);
 Route::post('/reservation/stop', [CastAuthController::class, 'stopReservation']);
@@ -117,4 +137,9 @@ Route::get('/badges', [GuestAuthController::class, 'getAllBadges']);
 
 // Cast payment routes
 Route::get('/casts/{castId}/immediate-payment', [CastPaymentController::class, 'getImmediatePaymentData']);
-Route::post('/casts/{castId}/immediate-payment', [CastPaymentController::class, 'processImmediatePayment']); 
+Route::post('/casts/{castId}/immediate-payment', [CastPaymentController::class, 'processImmediatePayment']);
+
+Route::post('/identity/upload', [IdentityVerificationController::class, 'upload']);
+// Admin endpoints for identity verification approval/rejection
+Route::post('/admin/identity-verification/{guestId}/approve', [IdentityVerificationController::class, 'approve']);
+Route::post('/admin/identity-verification/{guestId}/reject', [IdentityVerificationController::class, 'reject']); 

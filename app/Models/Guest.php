@@ -35,6 +35,8 @@ class Guest extends Authenticatable
         'payjp_customer_id',
         'payment_info',
         'points',
+        'identity_verification',
+        'identity_verification_completed',
         'created_at',
         'updated_at',
     ];
@@ -60,5 +62,13 @@ class Guest extends Authenticatable
     public function pointTransactions()
     {
         return $this->hasMany(PointTransaction::class);
+    }
+
+    /**
+     * Get all feedback written by this guest.
+     */
+    public function feedback()
+    {
+        return $this->hasMany(Feedback::class);
     }
 } 

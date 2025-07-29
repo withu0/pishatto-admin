@@ -13,9 +13,10 @@ class CalculateRankings extends Command
      * @var string
      */
     protected $signature = 'rankings:calculate 
-                            {period? : The period to calculate (daily, weekly, monthly, period)}
+                            {period? : The period to calculate (daily, weekly, monthly, period, current, yesterday, lastWeek, lastMonth, allTime)}
                             {region? : The region to calculate for (default: 全国)}
-                            {--all : Calculate for all periods and regions}';
+                            {--all : Calculate for all periods and regions}
+                            {--with-night-bonus : Recalculate with night time bonus logic}';
 
     /**
      * The console command description.
@@ -43,6 +44,11 @@ class CalculateRankings extends Command
         $period = $this->argument('period');
         $region = $this->argument('region') ?? '全国';
         $all = $this->option('all');
+        $withNightBonus = $this->option('with-night-bonus');
+
+        if ($withNightBonus) {
+            $this->info('Night time bonus logic is now enabled by default in the ranking calculations.');
+        }
 
         if ($all) {
             $this->info('Calculating rankings for all periods and regions...');
@@ -54,15 +60,26 @@ class CalculateRankings extends Command
         if (!$period) {
             $period = $this->choice(
                 'Which period would you like to calculate?',
-                ['daily', 'weekly', 'monthly', 'period'],
+                ['daily', 'weekly', 'monthly', 'period', 'current', 'yesterday', 'lastWeek', 'lastMonth', 'allTime'],
                 'daily'
             );
         }
 
-        $this->info("Calculating rankings for {$period} period in {$region}...");
+        // Map frontend period names to backend period names
+        $periodMapping = [
+            'current' => 'monthly',
+            'yesterday' => 'daily',
+            'lastWeek' => 'weekly',
+            'lastMonth' => 'monthly',
+            'allTime' => 'period'
+        ];
+
+        $backendPeriod = $periodMapping[$period] ?? $period;
+
+        $this->info("Calculating rankings for {$period} period (mapped to {$backendPeriod}) in {$region}...");
 
         try {
-            $this->rankingService->calculateRankings($period, $region);
+            $this->rankingService->calculateRankings($backendPeriod, $region);
             $this->info("Rankings calculated successfully for {$period} period in {$region}!");
             return 0;
         } catch (\Exception $e) {

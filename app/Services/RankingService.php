@@ -24,6 +24,7 @@ class RankingService
         'reservation_matched' => 40,  // Points for matching a reservation
         'profile_view' => 2,          // Points for profile view
         'gift_value_multiplier' => 0.1, // Additional points per gift value
+        'night_time_bonus' => 4000,   // Bonus points for night time activities (12 AM - 6 AM)
     ];
 
     /**
@@ -127,6 +128,12 @@ class RankingService
             foreach ($giftsReceived as $gift) {
                 $points += self::POINT_WEIGHTS['gift_received'];
                 $points += $gift->points * self::POINT_WEIGHTS['gift_value_multiplier'];
+                
+                // Add night time bonus
+                $giftHour = Carbon::parse($gift->created_at)->hour;
+                if ($giftHour >= 0 && $giftHour < 6) {
+                    $points += self::POINT_WEIGHTS['night_time_bonus'];
+                }
             }
         }
 
@@ -134,8 +141,17 @@ class RankingService
             // For casts, we'll count the likes they received as a proxy for reservation interest
             $likesReceived = Like::where('cast_id', $cast->id)
                 ->whereBetween('created_at', [$dateRange['start'], $dateRange['end']])
-                ->count();
-            $points += $likesReceived * self::POINT_WEIGHTS['like_received'];
+                ->get();
+                
+            foreach ($likesReceived as $like) {
+                $points += self::POINT_WEIGHTS['like_received'];
+                
+                // Add night time bonus
+                $likeHour = Carbon::parse($like->created_at)->hour;
+                if ($likeHour >= 0 && $likeHour < 6) {
+                    $points += self::POINT_WEIGHTS['night_time_bonus'];
+                }
+            }
         }
 
         return $points;
@@ -158,14 +174,29 @@ class RankingService
             foreach ($giftsSent as $gift) {
                 $points += self::POINT_WEIGHTS['gift_sent'];
                 $points += $gift->points * self::POINT_WEIGHTS['gift_value_multiplier'];
+                
+                // Add night time bonus
+                $giftHour = Carbon::parse($gift->created_at)->hour;
+                if ($giftHour >= 0 && $giftHour < 6) {
+                    $points += self::POINT_WEIGHTS['night_time_bonus'];
+                }
             }
         }
 
         if ($category === 'reservation') {
             $reservationsCreated = Reservation::where('guest_id', $guest->id)
                 ->whereBetween('created_at', [$dateRange['start'], $dateRange['end']])
-                ->count(); 
-            $points += $reservationsCreated * self::POINT_WEIGHTS['reservation_created'];
+                ->get();
+                
+            foreach ($reservationsCreated as $reservation) {
+                $points += self::POINT_WEIGHTS['reservation_created'];
+                
+                // Add night time bonus
+                $reservationHour = Carbon::parse($reservation->created_at)->hour;
+                if ($reservationHour >= 0 && $reservationHour < 6) {
+                    $points += self::POINT_WEIGHTS['night_time_bonus'];
+                }
+            }
         }
 
         return $points;
@@ -180,29 +211,38 @@ class RankingService
         
         switch ($period) {
             case 'daily':
+            case 'yesterday':
                 return [
                     'start' => $now->copy()->subDay()->startOfDay(),
                     'end' => $now->copy()->subDay()->endOfDay()
                 ];
             case 'weekly':
+            case 'lastWeek':
                 return [
                     'start' => $now->copy()->subWeek()->startOfWeek(),
                     'end' => $now->copy()->subWeek()->endOfWeek()
                 ];
             case 'monthly':
+            case 'current':
+                return [
+                    'start' => $now->copy()->startOfMonth(),
+                    'end' => $now->copy()->endOfMonth()
+                ];
+            case 'lastMonth':
                 return [
                     'start' => $now->copy()->subMonth()->startOfMonth(),
                     'end' => $now->copy()->subMonth()->endOfMonth()
                 ];
             case 'period':
+            case 'allTime':
                 return [
-                    'start' => $now->copy()->subDays(30)->startOfDay(),
-                    'end' => $now->copy()->endOfDay()
+                    'start' => Carbon::create(2020, 1, 1), // Arbitrary start date
+                    'end' => $now
                 ];
             default:
                 return [
-                    'start' => $now->copy()->subDay()->startOfDay(),
-                    'end' => $now->copy()->subDay()->endOfDay()
+                    'start' => $now->copy()->startOfMonth(),
+                    'end' => $now->copy()->endOfMonth()
                 ];
         }
     }

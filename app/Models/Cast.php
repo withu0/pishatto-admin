@@ -73,14 +73,11 @@ class Cast extends Authenticatable
     //     return $this->hasMany(Chat::class, 'cast_id', 'id');
     // }
 
-    // Temporarily commented out to fix array_merge error
-    /*
     public function badges()
     {
         return $this->belongsToMany(Badge::class, 'cast_badge', 'cast_id', 'badge_id')
                     ->withTimestamps();
     }
-    */
 
     public function likes()
     {
@@ -100,5 +97,10 @@ class Cast extends Authenticatable
     public function pointTransactions()
     {
         return $this->hasMany(PointTransaction::class);
+    }
+
+    public function feedback()
+    {
+        return $this->hasMany(Feedback::class);
     }
 }

@@ -4,11 +4,13 @@ namespace App\Http\Controllers\Auth;
 
 use App\Http\Controllers\Controller;
 use App\Models\Guest;
+use App\Models\PointTransaction;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\DB;
 use App\Models\Reservation;
 use App\Models\Notification;
 use App\Models\Badge;
@@ -248,15 +250,71 @@ class GuestAuthController extends Controller
                 'errors' => $validator->errors()
             ], 422);
         }
-        $reservation = Reservation::create($request->only([
-            'guest_id', 'type', 'scheduled_at', 'location', 'duration', 'details', 'time'
-        ]));
-        // Real-time ranking update for guest
-        $rankingService = app(\App\Services\RankingService::class);
-        $rankingService->updateRealTimeRankings($reservation->location ?? '全国');
-        // Broadcast reservation creation
-        event(new \App\Events\ReservationUpdated($reservation));
-        return response()->json(['reservation' => $reservation], 201);
+
+        try {
+            DB::beginTransaction();
+
+            // Create the reservation
+            $reservation = Reservation::create($request->only([
+                'guest_id', 'type', 'scheduled_at', 'location', 'duration', 'details', 'time'
+            ]));
+
+            // Calculate required points for this reservation
+            $requiredPoints = $this->pointTransactionService->calculateReservationPoints($reservation);
+
+            // Get the guest and check if they have enough points
+            $guest = Guest::find($request->guest_id);
+            if (!$guest) {
+                DB::rollBack();
+                return response()->json(['message' => 'Guest not found'], 404);
+            }
+
+            if ($guest->points < $requiredPoints) {
+                DB::rollBack();
+                return response()->json([
+                    'message' => 'Insufficient points',
+                    'required_points' => $requiredPoints,
+                    'available_points' => $guest->points
+                ], 400);
+            }
+
+            // Deduct points from guest and mark as pending
+            $guest->points -= $requiredPoints;
+            $guest->save();
+
+            // Create a pending point transaction record
+            PointTransaction::create([
+                'guest_id' => $guest->id,
+                'cast_id' => null,
+                'type' => 'pending',
+                'amount' => $requiredPoints,
+                'reservation_id' => $reservation->id,
+                'description' => "Reservation created - {$reservation->duration} hours (pending)"
+            ]);
+
+            DB::commit();
+
+            // Real-time ranking update for guest
+            $rankingService = app(\App\Services\RankingService::class);
+            $rankingService->updateRealTimeRankings($reservation->location ?? '全国');
+            
+            // Broadcast reservation creation
+            event(new \App\Events\ReservationUpdated($reservation));
+            
+            return response()->json([
+                'reservation' => $reservation,
+                'points_deducted' => $requiredPoints,
+                'remaining_points' => $guest->points
+            ], 201);
+
+        } catch (\Exception $e) {
+            DB::rollBack();
+            \Log::error('createReservation error: ' . $e->getMessage() . "\n" . $e->getTraceAsString());
+            return response()->json([
+                'message' => 'Failed to create reservation',
+                'error' => $e->getMessage()
+            ], 500);
+        }
     }
 
     public function listReservations($guest_id)
@@ -334,6 +392,7 @@ class GuestAuthController extends Controller
                     'cast_nickname' => $chat->cast ? $chat->cast->nickname : null,
                     'last_message' => $chat->messages->last()->message ?? '',
                     'updated_at' => $chat->updated_at ?? null,
+                    'created_at' => $chat->created_at ?? null,
                     'unread' => $unread,
                 ];
             });
@@ -358,6 +417,7 @@ class GuestAuthController extends Controller
                     'guest_nickname' => $guest ? $guest->nickname : null,
                     'last_message' => $chat->messages->last()->message ?? '',
                     'updated_at' => $chat->created_at ?? null,
+                    'created_at' => $chat->created_at ?? null,
                     'unread' => $unread,
                 ];
             });
@@ -466,7 +526,7 @@ class GuestAuthController extends Controller
                     'errors' => $validator->errors()
                 ], 422);
             }
-            $reservation->fill($request->only(['scheduled_at', 'duration', 'location', 'details', 'time', 'started_at', 'ended_at', 'feedback_text', 'feedback_rating', 'feedback_badge_id']));
+            $reservation->fill($request->only(['scheduled_at', 'duration', 'location', 'details', 'time', 'started_at', 'ended_at']));
 
             // Points calculation logic
             if ($reservation->started_at && $reservation->ended_at) {
@@ -486,18 +546,7 @@ class GuestAuthController extends Controller
                 $reservation->points_earned = $base_points + $overtime_points;
             }
 
-            // Assign badge to cast if feedback_badge_id is present
-            if ($request->filled('feedback_badge_id')) {
-                $badgeId = $request->input('feedback_badge_id');
-                // Find the cast for this reservation (assuming a cast_id field or relationship exists)
-                $castId = $request->input('cast_id') ?? ($reservation->cast_id ?? null);
-                if ($castId) {
-                    $cast = \App\Models\Cast::find($castId);
-                    if ($cast && !$cast->badges()->where('badges.id', $badgeId)->exists()) {
-                        $cast->badges()->attach($badgeId);
-                    }
-                }
-            }
+
 
             $reservation->save();
             // Broadcast reservation update
@@ -510,61 +559,167 @@ class GuestAuthController extends Controller
     }
 
     /**
-     * Complete reservation with feedback and process point transactions
+     * Complete reservation and process point transactions
      */
     public function completeReservation(Request $request, $id)
     {
-        $validator = Validator::make($request->all(), [
-            'feedback_text' => 'nullable|string|max:1000',
-            'feedback_rating' => 'nullable|integer|min:1|max:5',
-            'feedback_badge_id' => 'nullable|exists:badges,id',
-        ]);
-
-        if ($validator->fails()) {
-            return response()->json([
-                'message' => 'Validation failed',
-                'errors' => $validator->errors()
-            ], 422);
-        }
-
         try {
+            DB::beginTransaction();
+
             $reservation = Reservation::with(['guest', 'cast'])->findOrFail($id);
             
-            // Update reservation with feedback
-            $reservation->fill($request->only(['feedback_text', 'feedback_rating', 'feedback_badge_id']));
+            // Check if reservation has a cast assigned
+            if (!$reservation->cast_id) {
+                DB::rollBack();
+                return response()->json([
+                    'message' => 'Reservation has no cast assigned'
+                ], 400);
+            }
+
+            // Find the pending point transaction for this reservation
+            $pendingTransaction = PointTransaction::where('reservation_id', $reservation->id)
+                ->where('type', 'pending')
+                ->first();
+
+            if (!$pendingTransaction) {
+                DB::rollBack();
+                return response()->json([
+                    'message' => 'No pending point transaction found for this reservation'
+                ], 400);
+            }
+
+            // Mark reservation as completed
             $reservation->ended_at = now();
             $reservation->save();
 
-            // Calculate points based on duration and other factors
-            $pointsAmount = $this->pointTransactionService->calculateReservationPoints($reservation);
-            
-            // Process point transaction
-            $success = $this->pointTransactionService->processReservationCompletion($reservation, $pointsAmount);
-            
-            if (!$success) {
+            // Get the cast
+            $cast = $reservation->cast;
+            if (!$cast) {
+                DB::rollBack();
                 return response()->json([
-                    'message' => 'Failed to process point transaction'
-                ], 500);
+                    'message' => 'Cast not found'
+                ], 404);
             }
 
-            // Assign badge to cast if feedback_badge_id is present
-            if ($request->filled('feedback_badge_id')) {
-                $badgeId = $request->input('feedback_badge_id');
-                $cast = $reservation->cast;
-                if ($cast && !$cast->badges()->where('badge_id', $badgeId)->exists()) {
-                    $cast->badges()->attach($badgeId);
-                }
-            }
+            // Calculate night time bonus
+            $nightTimeBonus = $this->pointTransactionService->calculateNightTimeBonus($reservation->created_at);
+            $totalPointsForCast = $pendingTransaction->amount + $nightTimeBonus;
+
+            // Add points to cast (including night time bonus)
+            $cast->points += $totalPointsForCast;
+            $cast->save();
+
+            // Update the pending transaction to completed
+            $pendingTransaction->type = 'transfer';
+            $pendingTransaction->cast_id = $cast->id;
+            $pendingTransaction->amount = $totalPointsForCast;
+            $pendingTransaction->description = "Reservation completion - {$reservation->duration} hours" . ($nightTimeBonus > 0 ? " (Night time bonus: +{$nightTimeBonus})" : "");
+            $pendingTransaction->save();
+
+            // Update reservation with points earned (including night time bonus)
+            $reservation->points_earned = $totalPointsForCast;
+            $reservation->save();
+
+            DB::commit();
+
+            \Log::info('Reservation completion processed successfully', [
+                'reservation_id' => $reservation->id,
+                'guest_id' => $reservation->guest_id,
+                'cast_id' => $cast->id,
+                'points_amount' => $pendingTransaction->amount,
+                'night_time_bonus' => $nightTimeBonus,
+                'total_points_for_cast' => $totalPointsForCast
+            ]);
 
             return response()->json([
                 'message' => 'Reservation completed successfully',
                 'reservation' => $reservation,
-                'points_transferred' => $pointsAmount
+                'points_transferred' => $totalPointsForCast,
+                'night_time_bonus' => $nightTimeBonus
             ]);
 
         } catch (\Exception $e) {
+            DB::rollBack();
+            \Log::error('completeReservation error: ' . $e->getMessage() . "\n" . $e->getTraceAsString());
             return response()->json([
                 'message' => 'Failed to complete reservation',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Cancel reservation and refund pending points
+     */
+    public function cancelReservation(Request $request, $id)
+    {
+        try {
+            DB::beginTransaction();
+
+            $reservation = Reservation::with(['guest'])->findOrFail($id);
+            
+            // Check if reservation is still active and not completed
+            if (!$reservation->active || $reservation->ended_at) {
+                DB::rollBack();
+                return response()->json([
+                    'message' => 'Reservation cannot be cancelled'
+                ], 400);
+            }
+
+            // Find the pending point transaction for this reservation
+            $pendingTransaction = PointTransaction::where('reservation_id', $reservation->id)
+                ->where('type', 'pending')
+                ->first();
+
+            if (!$pendingTransaction) {
+                DB::rollBack();
+                return response()->json([
+                    'message' => 'No pending point transaction found for this reservation'
+                ], 400);
+            }
+
+            // Get the guest
+            $guest = $reservation->guest;
+            if (!$guest) {
+                DB::rollBack();
+                return response()->json([
+                    'message' => 'Guest not found'
+                ], 404);
+            }
+
+            // Refund points to guest
+            $guest->points += $pendingTransaction->amount;
+            $guest->save();
+
+            // Update the pending transaction to cancelled
+            $pendingTransaction->type = 'convert';
+            $pendingTransaction->description = "Reservation cancelled - refunded {$pendingTransaction->amount} points";
+            $pendingTransaction->save();
+
+            // Mark reservation as cancelled
+            $reservation->active = false;
+            $reservation->save();
+
+            DB::commit();
+
+            \Log::info('Reservation cancelled and points refunded', [
+                'reservation_id' => $reservation->id,
+                'guest_id' => $guest->id,
+                'points_refunded' => $pendingTransaction->amount
+            ]);
+
+            return response()->json([
+                'message' => 'Reservation cancelled successfully',
+                'reservation' => $reservation,
+                'points_refunded' => $pendingTransaction->amount,
+                'remaining_points' => $guest->points
+            ]);
+
+        } catch (\Exception $e) {
+            DB::rollBack();
+            \Log::error('cancelReservation error: ' . $e->getMessage() . "\n" . $e->getTraceAsString());
+            return response()->json([
+                'message' => 'Failed to cancel reservation',
                 'error' => $e->getMessage()
             ], 500);
         }
