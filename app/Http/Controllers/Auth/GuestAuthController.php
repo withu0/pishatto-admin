@@ -12,9 +12,17 @@ use Illuminate\Support\Facades\Storage;
 use App\Models\Reservation;
 use App\Models\Notification;
 use App\Models\Badge;
+use App\Services\PointTransactionService;
 
 class GuestAuthController extends Controller
 {
+    protected $pointTransactionService;
+
+    public function __construct(PointTransactionService $pointTransactionService)
+    {
+        $this->pointTransactionService = $pointTransactionService;
+    }
+
     public function register(Request $request)
     {
         $validator = Validator::make($request->all(), [
@@ -272,6 +280,7 @@ class GuestAuthController extends Controller
         $reservation = Reservation::find($request->reservation_id);
 
         $reservation->active = false;
+        $reservation->cast_id = $request->cast_id; // Set the cast_id when reservation is matched
         $reservation->save();
         // Real-time ranking update for both guest and cast
         $rankingService = app(\App\Services\RankingService::class);
@@ -497,6 +506,67 @@ class GuestAuthController extends Controller
         } catch (\Throwable $e) {
             \Log::error('updateReservation error: ' . $e->getMessage() . "\n" . $e->getTraceAsString());
             return response()->json(['message' => 'Server error', 'error' => $e->getMessage(), 'trace' => $e->getTraceAsString()], 500);
+        }
+    }
+
+    /**
+     * Complete reservation with feedback and process point transactions
+     */
+    public function completeReservation(Request $request, $id)
+    {
+        $validator = Validator::make($request->all(), [
+            'feedback_text' => 'nullable|string|max:1000',
+            'feedback_rating' => 'nullable|integer|min:1|max:5',
+            'feedback_badge_id' => 'nullable|exists:badges,id',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'message' => 'Validation failed',
+                'errors' => $validator->errors()
+            ], 422);
+        }
+
+        try {
+            $reservation = Reservation::with(['guest', 'cast'])->findOrFail($id);
+            
+            // Update reservation with feedback
+            $reservation->fill($request->only(['feedback_text', 'feedback_rating', 'feedback_badge_id']));
+            $reservation->ended_at = now();
+            $reservation->save();
+
+            // Calculate points based on duration and other factors
+            $pointsAmount = $this->pointTransactionService->calculateReservationPoints($reservation);
+            
+            // Process point transaction
+            $success = $this->pointTransactionService->processReservationCompletion($reservation, $pointsAmount);
+            
+            if (!$success) {
+                return response()->json([
+                    'message' => 'Failed to process point transaction'
+                ], 500);
+            }
+
+            // Assign badge to cast if feedback_badge_id is present
+            if ($request->filled('feedback_badge_id')) {
+                $badgeId = $request->input('feedback_badge_id');
+                $cast = $reservation->cast;
+                if ($cast && !$cast->badges()->where('badge_id', $badgeId)->exists()) {
+                    $cast->badges()->attach($badgeId);
+                }
+            }
+
+            return response()->json([
+                'message' => 'Reservation completed successfully',
+                'reservation' => $reservation,
+                'points_transferred' => $pointsAmount
+            ]);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'message' => 'Failed to complete reservation',
+                'error' => $e->getMessage()
+            ], 500);
         }
     }
 

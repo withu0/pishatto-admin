@@ -59,24 +59,31 @@ class PayJPService
     }
 
     /**
-     * Create a charge/payment
+     * Create a charge/payment using PayJP SDK
      */
     public function createCharge($data)
     {
         try {
-            $response = Http::withBasicAuth($this->secretKey, '')
-                ->post($this->baseUrl . '/charges', $data);
+            // Use PayJP SDK directly
+            if (class_exists('\Payjp\Charge')) {
+                $charge = \Payjp\Charge::create($data);
+                return (array) $charge;
+            } else {
+                // Fallback to HTTP API if SDK is not available
+                $response = Http::withBasicAuth($this->secretKey, '')
+                    ->post($this->baseUrl . '/charges', $data);
 
-            if ($response->successful()) {
-                return $response->json();
+                if ($response->successful()) {
+                    return $response->json();
+                }
+
+                Log::error('PayJP charge creation failed', [
+                    'status' => $response->status(),
+                    'response' => $response->json()
+                ]);
+
+                throw new Exception('Failed to create charge: ' . $response->body());
             }
-
-            Log::error('PayJP charge creation failed', [
-                'status' => $response->status(),
-                'response' => $response->json()
-            ]);
-
-            throw new Exception('Failed to create charge: ' . $response->body());
         } catch (Exception $e) {
             Log::error('PayJP charge creation error', ['error' => $e->getMessage()]);
             throw $e;
@@ -308,12 +315,82 @@ class PayJPService
     }
 
     /**
-     * Process a payment (create charge)
+     * Create a charge using the direct PayJP SDK approach
+     */
+    public function createChargeDirect($card, $amount, $currency = 'jpy', $tenant = null)
+    {
+        try {
+            $chargeData = [
+                'card' => $card,
+                'amount' => $amount,
+                'currency' => $currency,
+            ];
+
+            // Add tenant if provided (required for PAY.JP Platform)
+            if ($tenant) {
+                $chargeData['tenant'] = $tenant;
+            }
+
+            // Use PayJP SDK directly
+            if (class_exists('\Payjp\Charge')) {
+                $charge = \Payjp\Charge::create($chargeData);
+                
+                // Convert PayJP object to array properly
+                $chargeArray = [];
+                if (is_object($charge)) {
+                    // Get all public properties
+                    $chargeArray = get_object_vars($charge);
+                    
+                    // If the object has a toArray method, use it
+                    if (method_exists($charge, 'toArray')) {
+                        $chargeArray = $charge->toArray();
+                    }
+                    
+                    // Ensure we have the essential fields
+                    if (!isset($chargeArray['id']) && isset($charge->id)) {
+                        $chargeArray['id'] = $charge->id;
+                    }
+                    if (!isset($chargeArray['amount']) && isset($charge->amount)) {
+                        $chargeArray['amount'] = $charge->amount;
+                    }
+                    if (!isset($chargeArray['currency']) && isset($charge->currency)) {
+                        $chargeArray['currency'] = $charge->currency;
+                    }
+                    if (!isset($chargeArray['paid']) && isset($charge->paid)) {
+                        $chargeArray['paid'] = $charge->paid;
+                    }
+                } else {
+                    $chargeArray = (array) $charge;
+                }
+                
+                // Log the charge response for debugging
+                Log::info('PayJP charge created successfully', [
+                    'charge_id' => $chargeArray['id'] ?? 'unknown',
+                    'amount' => $chargeArray['amount'] ?? 'unknown',
+                    'currency' => $chargeArray['currency'] ?? 'unknown',
+                    'paid' => $chargeArray['paid'] ?? 'unknown'
+                ]);
+                
+                return $chargeArray;
+            } else {
+                throw new Exception('PayJP SDK is not available');
+            }
+        } catch (Exception $e) {
+            Log::error('PayJP direct charge creation error', [
+                'error' => $e->getMessage(),
+                'charge_data' => $chargeData ?? []
+            ]);
+            throw $e;
+        }
+    }
+
+    /**
+     * Process a payment (create charge) using PayJP SDK
      */
     public function processPayment($paymentData)
     {
         try {
-            // Create charge data
+            // Create charge data using the direct PayJP SDK approach
             $chargeData = [
                 'amount' => $paymentData['amount'],
                 'currency' => 'jpy',
@@ -330,8 +407,46 @@ class PayJPService
                 throw new Exception('Either customer_id or token is required');
             }
 
-            // Create the charge
-            $charge = $this->createCharge($chargeData);
+            // Create the charge using PayJP SDK directly
+            if (class_exists('\Payjp\Charge')) {
+                $charge = \Payjp\Charge::create($chargeData);
+                
+                // Convert PayJP object to array properly
+                $chargeArray = [];
+                if (is_object($charge)) {
+                    // Get all public properties
+                    $chargeArray = get_object_vars($charge);
+                    
+                    // If the object has a toArray method, use it
+                    if (method_exists($charge, 'toArray')) {
+                        $chargeArray = $charge->toArray();
+                    }
+                    
+                    // Ensure we have the essential fields
+                    if (!isset($chargeArray['id']) && isset($charge->id)) {
+                        $chargeArray['id'] = $charge->id;
+                    }
+                    if (!isset($chargeArray['amount']) && isset($charge->amount)) {
+                        $chargeArray['amount'] = $charge->amount;
+                    }
+                    if (!isset($chargeArray['currency']) && isset($charge->currency)) {
+                        $chargeArray['currency'] = $charge->currency;
+                    }
+                    if (!isset($chargeArray['paid']) && isset($charge->paid)) {
+                        $chargeArray['paid'] = $charge->paid;
+                    }
+                } else {
+                    $chargeArray = (array) $charge;
+                }
+            } else {
+                // Fallback to HTTP API if SDK is not available
+                $chargeArray = $this->createCharge($chargeData);
+            }
+
+            // Validate that we have a charge ID
+            if (!isset($chargeArray['id'])) {
+                throw new Exception('Charge creation failed: No charge ID returned');
+            }
 
             // Create payment record in database
             $payment = \App\Models\Payment::create([
@@ -341,7 +456,7 @@ class PayJPService
                 'payment_method' => $paymentData['payment_method'] ?? 'card',
                 'status' => 'paid',
                 'description' => $paymentData['description'] ?? 'Payment',
-                'payjp_charge_id' => $charge['id'],
+                'payjp_charge_id' => $chargeArray['id'],
                 'payjp_customer_id' => $paymentData['customer_id'] ?? null,
                 'metadata' => $paymentData['metadata'] ?? [],
             ]);
@@ -349,7 +464,7 @@ class PayJPService
             return [
                 'success' => true,
                 'payment' => $payment,
-                'charge' => $charge,
+                'charge' => $chargeArray,
             ];
 
         } catch (Exception $e) {

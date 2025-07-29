@@ -24,6 +24,7 @@ class Cast extends Authenticatable
         'profile_text',
         'payjp_customer_id',
         'payment_info',
+        'points',
         'created_at',
         'updated_at',
     ];
@@ -51,5 +52,10 @@ class Cast extends Authenticatable
     public function favoritedBy()
     {
         return $this->belongsToMany(Guest::class, 'guest_favorites', 'cast_id', 'guest_id')->withTimestamps();
+    }
+
+    public function pointTransactions()
+    {
+        return $this->hasMany(PointTransaction::class);
     }
 } 

@@ -108,7 +108,7 @@ class CastAuthController extends Controller
 
         // Calculate gift points from guest gifts (this is the main source of points for casts)
         $giftPoints = \App\Models\GuestGift::where('receiver_cast_id', $id)
-            ->whereBetween('created_at', [$currentMonth, $nextMonth])
+            ->whereBetween('guest_gifts.created_at', [$currentMonth, $nextMonth])
             ->join('gifts', 'guest_gifts.gift_id', '=', 'gifts.id')
             ->sum('gifts.points');
 
@@ -118,11 +118,11 @@ class CastAuthController extends Controller
 
         // Calculate copat-back rate based on gift transactions
         $totalGiftTransactions = \App\Models\GuestGift::where('receiver_cast_id', $id)
-            ->whereBetween('created_at', [$currentMonth, $nextMonth])
+            ->whereBetween('guest_gifts.created_at', [$currentMonth, $nextMonth])
             ->count();
         
         $successfulGiftTransactions = \App\Models\GuestGift::where('receiver_cast_id', $id)
-            ->whereBetween('created_at', [$currentMonth, $nextMonth])
+            ->whereBetween('guest_gifts.created_at', [$currentMonth, $nextMonth])
             ->join('gifts', 'guest_gifts.gift_id', '=', 'gifts.id')
             ->where('gifts.points', '>', 0)
             ->count();
@@ -358,13 +358,30 @@ class CastAuthController extends Controller
         if ($reservation->ended_at) {
             return response()->json(['message' => 'Reservation already ended'], 400);
         }
+        
+        // Set the cast_id if not already set
+        if (!$reservation->cast_id) {
+            $reservation->cast_id = $request->cast_id;
+        }
+        
         $reservation->ended_at = now();
-        // Calculate duration in minutes
-        $duration = $reservation->ended_at->diffInMinutes($reservation->started_at);
-        // Example: 1 point per minute
-        $reservation->points_earned = $duration;
         $reservation->save();
-        return response()->json(['reservation' => $reservation, 'points' => $reservation->points_earned]);
+        
+        // Calculate points and process transaction
+        $pointService = app(\App\Services\PointTransactionService::class);
+        $pointsAmount = $pointService->calculateReservationPoints($reservation);
+        
+        $success = $pointService->processReservationCompletion($reservation, $pointsAmount);
+        
+        if (!$success) {
+            return response()->json(['message' => 'Failed to process point transaction'], 500);
+        }
+        
+        return response()->json([
+            'reservation' => $reservation, 
+            'points' => $pointsAmount,
+            'message' => 'Reservation completed and points transferred successfully'
+        ]);
     }
 
     // Add a cast to guest's favorites

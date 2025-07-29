@@ -7,6 +7,7 @@ use App\Models\Payment;
 use App\Models\Receipt;
 use App\Services\PayJPService;
 use App\Services\CustomerService;
+use App\Services\PointTransactionService;
 use Illuminate\Support\Facades\Log;
 
 class PaymentController extends Controller
@@ -18,6 +19,152 @@ class PaymentController extends Controller
     {
         $this->payJPService = $payJPService;
         $this->customerService = $customerService;
+    }
+
+    /**
+     * Debug PayJP SDK response structure
+     */
+    public function debugPayJPResponse(Request $request)
+    {
+        $request->validate([
+            'card' => 'required|string',
+            'amount' => 'required|integer|min:100',
+        ]);
+
+        try {
+            $chargeData = [
+                'card' => $request->card,
+                'amount' => $request->amount,
+                'currency' => 'jpy',
+            ];
+
+            if (class_exists('\Payjp\Charge')) {
+                $charge = \Payjp\Charge::create($chargeData);
+                
+                // Debug the response structure
+                $debug = [
+                    'is_object' => is_object($charge),
+                    'class' => get_class($charge),
+                    'methods' => get_class_methods($charge),
+                    'properties' => get_object_vars($charge),
+                    'to_array_cast' => (array) $charge,
+                ];
+                
+                // Try different ways to access the data
+                if (is_object($charge)) {
+                    $debug['direct_access'] = [
+                        'id' => $charge->id ?? 'not_set',
+                        'amount' => $charge->amount ?? 'not_set',
+                        'currency' => $charge->currency ?? 'not_set',
+                        'paid' => $charge->paid ?? 'not_set',
+                    ];
+                }
+
+                return response()->json([
+                    'success' => true,
+                    'debug' => $debug,
+                    'charge' => $charge,
+                ]);
+            } else {
+                return response()->json([
+                    'success' => false,
+                    'error' => 'PayJP SDK is not available',
+                ], 500);
+            }
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ], 500);
+        }
+    }
+
+    /**
+     * Create a charge using direct PayJP SDK approach
+     */
+    public function createChargeDirect(Request $request)
+    {
+        $request->validate([
+            'card' => 'required|string',
+            'amount' => 'required|integer|min:100',
+            'currency' => 'nullable|string|in:jpy',
+            'tenant' => 'nullable|string', // Required for PAY.JP Platform
+            'user_id' => 'nullable|integer', // Optional: for adding points to user
+            'user_type' => 'nullable|string|in:guest,cast', // Optional: for adding points to user
+        ]);
+
+        try {
+            $result = $this->payJPService->createChargeDirect(
+                $request->card,
+                $request->amount,
+                $request->currency ?? 'jpy',
+                $request->tenant
+            );
+
+            // Validate the result
+            if (!is_array($result) || !isset($result['id'])) {
+                Log::error('Invalid charge result structure', [
+                    'result' => $result,
+                    'card' => $request->card,
+                    'amount' => $request->amount
+                ]);
+                
+                return response()->json([
+                    'success' => false,
+                    'error' => 'Invalid charge result structure',
+                    'debug' => $result
+                ], 500);
+            }
+
+            $response = [
+                'success' => true,
+                'charge' => $result,
+            ];
+
+            // Add points to user if user_id and user_type are provided
+            if ($request->user_id && $request->user_type) {
+                $model = $request->user_type === 'guest' 
+                    ? \App\Models\Guest::find($request->user_id)
+                    : \App\Models\Cast::find($request->user_id);
+
+                if ($model) {
+                    $currentPoints = $model->points ?? 0;
+                    $newPoints = $currentPoints + $request->amount;
+                    $model->points = $newPoints;
+                    $model->save();
+
+                    $response['points_added'] = $request->amount;
+                    $response['total_points'] = $newPoints;
+                    $response['user'] = $model->fresh();
+
+                    Log::info('Points added to user after direct charge', [
+                        'user_id' => $request->user_id,
+                        'user_type' => $request->user_type,
+                        'amount' => $request->amount,
+                        'previous_points' => $currentPoints,
+                        'new_points' => $newPoints
+                    ]);
+                }
+            }
+
+            return response()->json($response);
+
+        } catch (\Exception $e) {
+            Log::error('Direct charge creation failed: ' . $e->getMessage(), [
+                'card' => $request->card,
+                'amount' => $request->amount,
+                'currency' => $request->currency,
+                'tenant' => $request->tenant,
+                'trace' => $e->getTraceAsString()
+            ]);
+            
+            return response()->json([
+                'success' => false,
+                'error' => '決済処理中にエラーが発生しました: ' . $e->getMessage(),
+            ], 500);
+        }
     }
 
     /**
@@ -103,20 +250,31 @@ class PaymentController extends Controller
                 ], 400);
             }
 
-            // Log successful payment
-            Log::info('Payment processed successfully', [
+            // Add points to user after successful payment
+            $currentPoints = $model->points ?? 0;
+            $newPoints = $currentPoints + $request->amount;
+            $model->points = $newPoints;
+            $model->save();
+
+            // Log successful payment and points update
+            Log::info('Payment processed successfully and points added', [
                 'user_id' => $request->user_id,
                 'user_type' => $request->user_type,
                 'amount' => $request->amount,
                 'payment_id' => $result['payment']->id ?? 'unknown',
-                'charge_id' => $result['charge']->id ?? 'unknown',
-                'customer_id' => $model->payjp_customer_id
+                'charge_id' => $result['charge']['id'] ?? 'unknown',
+                'customer_id' => $model->payjp_customer_id,
+                'previous_points' => $currentPoints,
+                'new_points' => $newPoints
             ]);
 
             return response()->json([
                 'success' => true,
                 'payment' => $result['payment'],
                 'charge' => $result['charge'],
+                'points_added' => $request->amount,
+                'total_points' => $newPoints,
+                'user' => $model->fresh(),
             ]);
 
         } catch (\Exception $e) {
@@ -603,6 +761,34 @@ class PaymentController extends Controller
             return response()->json([
                 'success' => false,
                 'error' => '顧客統計の取得中にエラーが発生しました',
+            ], 500);
+        }
+    }
+
+    /**
+     * Get point transaction history for a user
+     */
+    public function getPointTransactions($userType, $userId)
+    {
+        try {
+            $pointService = app(PointTransactionService::class);
+            $transactions = $pointService->getTransactionHistory($userId, $userType);
+            
+            return response()->json([
+                'success' => true,
+                'transactions' => $transactions,
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('Point transaction history retrieval failed: ' . $e->getMessage(), [
+                'user_id' => $userId,
+                'user_type' => $userType,
+                'trace' => $e->getTraceAsString()
+            ]);
+            
+            return response()->json([
+                'success' => false,
+                'error' => 'ポイント取引履歴の取得中にエラーが発生しました',
             ], 500);
         }
     }

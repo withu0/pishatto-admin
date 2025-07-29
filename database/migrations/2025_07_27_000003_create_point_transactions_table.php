@@ -12,7 +12,7 @@ return new class extends Migration
             $table->id();
             $table->foreignId('guest_id')->nullable()->constrained('guests');
             $table->foreignId('cast_id')->nullable()->constrained('casts');
-            $table->enum('type', ['buy', 'transfer', 'convert']);
+            $table->enum('type', ['buy', 'transfer', 'convert', 'gift']);
             $table->unsignedBigInteger('amount');
             $table->foreignId('reservation_id')->nullable()->constrained('reservations');
             $table->string('description')->nullable();

@@ -8,6 +8,7 @@ use App\Http\Controllers\ChatController;
 use App\Http\Controllers\RankingController;
 use App\Http\Controllers\PaymentController;
 use App\Http\Controllers\TweetController;
+use App\Http\Controllers\CastPaymentController;
 
 /*
 |--------------------------------------------------------------------------
@@ -43,6 +44,7 @@ Route::get('/chats', [ChatController::class, 'index']);
 Route::post('/messages', [ChatController::class, 'store']);
 Route::get('/reservations/{id}', [GuestAuthController::class, 'getReservationById']);
 Route::put('/reservations/{id}', [GuestAuthController::class, 'updateReservation']);
+Route::post('/reservations/{id}/complete', [GuestAuthController::class, 'completeReservation']);
 Route::get('/guests/repeat', [GuestAuthController::class, 'repeatGuests']);
 Route::get('/guest/profile/id/{id}', [GuestAuthController::class, 'getProfileById']);
 Route::get('/casts', [CastAuthController::class, 'list']);
@@ -62,6 +64,11 @@ Route::get('/avatars/{filename}', [GuestAuthController::class, 'getAvatar']);
 
 // Payment routes
 Route::post('/payments/token', [PaymentController::class, 'createToken']);
+
+// Point transaction routes
+Route::get('/point-transactions/{userType}/{userId}', [PaymentController::class, 'getPointTransactions']);
+Route::post('/payments/charge-direct', [PaymentController::class, 'createChargeDirect']);
+Route::post('/payments/debug-response', [PaymentController::class, 'debugPayJPResponse']);
 Route::post('/payments/purchase', [PaymentController::class, 'purchase']);
 Route::post('/payments/register-card', [PaymentController::class, 'registerCard']);
 Route::post('/payments/info', [PaymentController::class, 'storePaymentInfo']);
@@ -106,4 +113,8 @@ Route::post('/reservation/stop', [CastAuthController::class, 'stopReservation'])
 Route::post('/casts/favorite', [CastAuthController::class, 'favorite']);
 Route::post('/casts/unfavorite', [CastAuthController::class, 'unfavorite']);
 Route::get('/casts/favorites/{guestId}', [CastAuthController::class, 'favoriteCasts']);
-Route::get('/badges', [GuestAuthController::class, 'getAllBadges']); 
+Route::get('/badges', [GuestAuthController::class, 'getAllBadges']);
+
+// Cast payment routes
+Route::get('/casts/{castId}/immediate-payment', [CastPaymentController::class, 'getImmediatePaymentData']);
+Route::post('/casts/{castId}/immediate-payment', [CastPaymentController::class, 'processImmediatePayment']); 

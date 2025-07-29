@@ -34,6 +34,7 @@ class Guest extends Authenticatable
         'interests',
         'payjp_customer_id',
         'payment_info',
+        'points',
         'created_at',
         'updated_at',
     ];
@@ -54,5 +55,10 @@ class Guest extends Authenticatable
     public function favorites()
     {
         return $this->belongsToMany(Cast::class, 'guest_favorites', 'guest_id', 'cast_id')->withTimestamps();
+    }
+
+    public function pointTransactions()
+    {
+        return $this->hasMany(PointTransaction::class);
     }
 } 

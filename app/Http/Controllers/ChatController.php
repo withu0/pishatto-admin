@@ -73,6 +73,80 @@ class ChatController extends Controller
         if ($request->input('gift_id')) {
             $chat = $message->chat;
             if ($chat && $message->sender_guest_id && $chat->cast_id) {
+                // Get the gift details
+                $gift = \App\Models\Gift::find($request->input('gift_id'));
+                
+                if ($gift && $gift->points > 0) {
+                    // Get guest and cast
+                    $guest = \App\Models\Guest::find($message->sender_guest_id);
+                    $cast = \App\Models\Cast::find($chat->cast_id);
+                    
+                    if ($guest && $cast) {
+                        // Check if guest has enough points
+                        if ($guest->points >= $gift->points) {
+                            // Deduct points from guest
+                            $guest->points -= $gift->points;
+                            $guest->save();
+                            
+                            // Add points to cast
+                            $cast->points += $gift->points;
+                            $cast->save();
+                            
+                            // Create point transaction record
+                            try {
+                                \App\Models\PointTransaction::create([
+                                    'guest_id' => $guest->id,
+                                    'cast_id' => $cast->id,
+                                    'type' => 'gift',
+                                    'amount' => $gift->points,
+                                    'reservation_id' => $chat->reservation_id,
+                                    'description' => "Gift sent: {$gift->name}",
+                                    'gift_type' => 'sent'
+                                ]);
+                            } catch (\Exception $e) {
+                                // Log the error for debugging
+                                \Log::error('Failed to create point transaction for gift', [
+                                    'error' => $e->getMessage(),
+                                    'guest_id' => $guest->id,
+                                    'cast_id' => $cast->id,
+                                    'gift_id' => $gift->id,
+                                    'points' => $gift->points
+                                ]);
+                                
+                                // Try using raw SQL as fallback
+                                try {
+                                    \DB::table('point_transactions')->insert([
+                                        'guest_id' => $guest->id,
+                                        'cast_id' => $cast->id,
+                                        'type' => 'gift',
+                                        'amount' => $gift->points,
+                                        'reservation_id' => $chat->reservation_id,
+                                        'description' => "Gift sent: {$gift->name}",
+                                        'gift_type' => 'sent',
+                                        'created_at' => now(),
+                                        'updated_at' => now()
+                                    ]);
+                                } catch (\Exception $e2) {
+                                    \Log::error('Raw SQL also failed for point transaction', [
+                                        'error' => $e2->getMessage()
+                                    ]);
+                                }
+                                
+                                // Continue with the gift sending even if transaction record fails
+                                // The points have already been deducted/added
+                            }
+                        } else {
+                            // If insufficient points, delete the message and return error
+                            $message->delete();
+                            return response()->json([
+                                'error' => 'Insufficient points to send this gift',
+                                'required_points' => $gift->points,
+                                'available_points' => $guest->points
+                            ], 400);
+                        }
+                    }
+                }
+                
                 \App\Models\GuestGift::create([
                     'sender_guest_id' => $message->sender_guest_id,
                     'receiver_cast_id' => $chat->cast_id,
