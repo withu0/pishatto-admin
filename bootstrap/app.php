@@ -22,6 +22,11 @@ return Application::configure(basePath: dirname(__DIR__))
             HandleInertiaRequests::class,
             AddLinkHeadersForPreloadedAssets::class,
         ]);
+
+        // Exclude upload route from CSRF protection
+        $middleware->validateCsrfTokens(except: [
+            'admin/casts/upload-avatar',
+        ]);
     })
     ->withExceptions(function (Exceptions $exceptions) {
         //

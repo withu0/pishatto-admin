@@ -15,6 +15,7 @@ class Cast extends Authenticatable
         'line_id',
         'nickname',
         'avatar',
+        'status',
         'birth_year',
         'height',
         'grade',
@@ -29,15 +30,57 @@ class Cast extends Authenticatable
         'updated_at',
     ];
 
+    /**
+     * Get the first avatar URL
+     */
+    public function getFirstAvatarUrlAttribute()
+    {
+        if ($this->avatar) {
+            $avatars = explode(',', $this->avatar);
+            return '/storage/' . trim($avatars[0]);
+        }
+        return null;
+    }
+
+    /**
+     * Get all avatar URLs
+     */
+    public function getAvatarUrlsAttribute()
+    {
+        if ($this->avatar) {
+            $avatars = explode(',', $this->avatar);
+            return array_map(function($path) {
+                return '/storage/' . trim($path);
+            }, $avatars);
+        }
+        return [];
+    }
+
+    /**
+     * Set avatars as comma-separated string
+     */
+    public function setAvatarsAttribute($value)
+    {
+        if (is_array($value)) {
+            $this->attributes['avatar'] = implode(',', $value);
+        } else {
+            $this->attributes['avatar'] = $value;
+        }
+    }
+
     // public function chats()
     // {
     //     return $this->hasMany(Chat::class, 'cast_id', 'id');
     // }
 
+    // Temporarily commented out to fix array_merge error
+    /*
     public function badges()
     {
-        return $this->belongsToMany(Badge::class, 'cast_badge', 'cast_id', 'badge_id');
+        return $this->belongsToMany(Badge::class, 'cast_badge', 'cast_id', 'badge_id')
+                    ->withTimestamps();
     }
+    */
 
     public function likes()
     {
@@ -58,4 +101,4 @@ class Cast extends Authenticatable
     {
         return $this->hasMany(PointTransaction::class);
     }
-} 
+}
