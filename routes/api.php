@@ -11,6 +11,7 @@ use App\Http\Controllers\TweetController;
 use App\Http\Controllers\CastPaymentController;
 use App\Http\Controllers\IdentityVerificationController;
 use App\Http\Controllers\FeedbackController;
+use App\Http\Controllers\Auth\SmsVerificationController;
 
 /*
 |--------------------------------------------------------------------------
@@ -26,6 +27,11 @@ use App\Http\Controllers\FeedbackController;
 Route::middleware('auth:sanctum')->get('/user', function (Request $request) {
     return $request->user();
 });
+
+// SMS Verification routes
+Route::post('/sms/send-code', [SmsVerificationController::class, 'sendVerificationCode']);
+Route::post('/sms/verify-code', [SmsVerificationController::class, 'verifyCode']);
+Route::post('/sms/check-status', [SmsVerificationController::class, 'checkVerificationStatus']);
 
 Route::post('/guest/register', [GuestAuthController::class, 'register']);
 Route::post('/guest/login', [GuestAuthController::class, 'login']);
@@ -61,6 +67,7 @@ Route::get('/casts/visit-history/{guestId}', [CastAuthController::class, 'visitH
 Route::get('/notifications/{userType}/{userId}', [GuestAuthController::class, 'getNotifications']);
 Route::post('/notifications/read/{id}', [GuestAuthController::class, 'markNotificationRead']);
 Route::post('/notifications/read-all/{userType}/{userId}', [GuestAuthController::class, 'markAllNotificationsRead']);
+Route::delete('/notifications/{id}', [GuestAuthController::class, 'deleteNotification']);
 
 // Avatar serving route
 Route::get('/avatars/{filename}', [GuestAuthController::class, 'getAvatar']);

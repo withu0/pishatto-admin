@@ -16,9 +16,9 @@ class PointTransactionService
 
     /**
      * Process point transaction when a reservation is completed
-     * Deducts points from guest and adds to cast
+     * Calculates points based on cast's grade_points and adds to cast
      */
-    public function processReservationCompletion(Reservation $reservation, int $pointsAmount): bool
+    public function processReservationCompletion(Reservation $reservation): bool
     {
         try {
             DB::beginTransaction();
@@ -36,23 +36,10 @@ class PointTransactionService
                 return false;
             }
 
-            // Check if guest has enough points
-            if ($guest->points < $pointsAmount) {
-                Log::error('Insufficient points for guest', [
-                    'guest_id' => $guest->id,
-                    'current_points' => $guest->points,
-                    'required_points' => $pointsAmount
-                ]);
-                return false;
-            }
-
-            // Calculate night time bonus
+            // Calculate points based on cast's grade_points and reservation duration
+            $calculatedPoints = $this->calculateReservationPoints($reservation);
             $nightTimeBonus = $this->calculateNightTimeBonus($reservation->created_at);
-            $totalPointsForCast = $pointsAmount + $nightTimeBonus;
-
-            // Deduct points from guest
-            $guest->points -= $pointsAmount;
-            $guest->save();
+            $totalPointsForCast = $calculatedPoints;
 
             // Add points to cast (including night time bonus)
             $cast->points += $totalPointsForCast;
@@ -63,9 +50,9 @@ class PointTransactionService
                 'guest_id' => $guest->id,
                 'cast_id' => $cast->id,
                 'type' => 'transfer',
-                'amount' => $pointsAmount,
+                'amount' => $totalPointsForCast,
                 'reservation_id' => $reservation->id,
-                'description' => "Reservation completion - {$reservation->duration} hours" . ($nightTimeBonus > 0 ? " (Night time bonus: +{$nightTimeBonus})" : "")
+                'description' => "Reservation completion - {$reservation->duration} hours (Grade points: {$cast->grade_points}, Duration: " . ($reservation->duration * 60) . " minutes)" . ($nightTimeBonus > 0 ? " (Night time bonus: +{$nightTimeBonus})" : "")
             ]);
 
             // Update reservation with points earned (including night time bonus)
@@ -78,7 +65,9 @@ class PointTransactionService
                 'reservation_id' => $reservation->id,
                 'guest_id' => $guest->id,
                 'cast_id' => $cast->id,
-                'points_amount' => $pointsAmount,
+                'grade_points' => $cast->grade_points,
+                'duration_minutes' => $reservation->duration * 60,
+                'calculated_points' => $calculatedPoints,
                 'night_time_bonus' => $nightTimeBonus,
                 'total_points_for_cast' => $totalPointsForCast
             ]);
@@ -106,9 +95,32 @@ class PointTransactionService
     }
 
     /**
-     * Calculate points for a reservation based on duration and other factors
+     * Calculate points for a reservation based on cast's grade_points and duration
+     * Formula: grade_points * (duration_in_minutes / 30)
      */
     public function calculateReservationPoints(Reservation $reservation): int
+    {
+        $cast = $reservation->cast;
+        if (!$cast) {
+            return 0;
+        }
+
+        // Calculate points based on cast's grade_points and reservation duration
+        // Formula: grade_points * (duration_in_minutes / 30)
+        $durationInMinutes = ($reservation->duration ?? 1) * 60; // Convert hours to minutes
+        $gradePoints = $cast->grade_points ?? 0;
+        $calculatedPoints = $gradePoints * ($durationInMinutes / 30);
+        
+        // Add night time bonus
+        $nightTimeBonus = $this->calculateNightTimeBonus($reservation->created_at);
+        
+        return $calculatedPoints + $nightTimeBonus;
+    }
+
+    /**
+     * Calculate points for a reservation based on duration and other factors (legacy method)
+     */
+    public function calculateReservationPointsLegacy(Reservation $reservation): int
     {
         // Base calculation based on reservation details
         $basePoints = 0;

@@ -12,6 +12,7 @@ class Notification extends Model
         'user_type',
         'type',
         'reservation_id',
+        'cast_id',
         'message',
         'read',
     ];

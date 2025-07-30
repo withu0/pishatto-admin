@@ -299,6 +299,20 @@ class CastAuthController extends Controller
         
         // Create new visit record
         \App\Models\VisitHistory::create(['cast_id' => $castId, 'guest_id' => $guestId]);
+        
+        // Create notification for the guest about the cast visit
+        $cast = \App\Models\Cast::find($castId);
+        if ($cast) {
+            \App\Models\Notification::create([
+                'user_id' => $guestId,
+                'user_type' => 'guest',
+                'type' => 'cast_visit',
+                'message' => "{$cast->nickname}さんがあなたのプロフィールを見ました",
+                'read' => false,
+                'cast_id' => $castId, // Store cast_id for reference
+            ]);
+        }
+        
         return response()->json(['success' => true]);
     }
 

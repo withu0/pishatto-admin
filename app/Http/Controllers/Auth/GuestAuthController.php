@@ -15,14 +15,17 @@ use App\Models\Reservation;
 use App\Models\Notification;
 use App\Models\Badge;
 use App\Services\PointTransactionService;
+use App\Services\TwilioService;
 
 class GuestAuthController extends Controller
 {
     protected $pointTransactionService;
+    protected $twilioService;
 
-    public function __construct(PointTransactionService $pointTransactionService)
+    public function __construct(PointTransactionService $pointTransactionService, TwilioService $twilioService)
     {
         $this->pointTransactionService = $pointTransactionService;
+        $this->twilioService = $twilioService;
     }
 
     public function register(Request $request)
@@ -47,8 +50,16 @@ class GuestAuthController extends Controller
             ], 422);
         }
 
-        if (empty($request->verification_code)) {
-            return response()->json(['message' => 'Invalid verification code'], 422);
+        // Check if verification code has been verified
+        $phoneNumber = $request->phone;
+        if (!str_starts_with($phoneNumber, '+')) {
+            $phoneNumber = '+81' . ltrim($phoneNumber, '0'); // Default to Japan (+81)
+        }
+        
+        $isVerified = $this->twilioService->isCodeVerified($phoneNumber, $request->verification_code);
+        
+        if (!$isVerified) {
+            return response()->json(['message' => 'Verification code not found or already used'], 422);
         }
 
         $data = [
@@ -98,16 +109,33 @@ class GuestAuthController extends Controller
     {
         $validator = Validator::make($request->all(), [
             'phone' => 'required|string',
+            'verification_code' => 'required|string|size:6',
         ]);
+        
         if ($validator->fails()) {
             return response()->json(['message' => 'Invalid credentials'], 422);
         }
+
+        // Verify SMS code
+        $phoneNumber = $request->phone;
+        if (!str_starts_with($phoneNumber, '+')) {
+            $phoneNumber = '+81' . ltrim($phoneNumber, '0'); // Default to Japan (+81)
+        }
+        
+        $verificationResult = $this->twilioService->verifyCode($phoneNumber, $request->verification_code);
+        
+        if (!$verificationResult['success']) {
+            return response()->json(['message' => $verificationResult['message']], 422);
+        }
+
         $guest = Guest::where('phone', $request->phone)->first();
         if (!$guest) {
             $guest = Guest::create(['phone' => $request->phone]);
         }
+        
         // Log the guest in using Laravel session (guest guard)
         \Illuminate\Support\Facades\Auth::guard('guest')->login($guest);
+        
         return response()->json([
             'guest' => $guest,
             'token' => base64_encode('guest|' . $guest->id . '|' . now()), // placeholder token
@@ -473,6 +501,21 @@ class GuestAuthController extends Controller
             ->where('user_id', $userId)
             ->orderBy('created_at', 'desc')
             ->get();
+
+        // For cast visit notifications, fetch cast information
+        foreach ($notifications as $notification) {
+            if ($notification->type === 'cast_visit' && $notification->cast_id) {
+                $cast = \App\Models\Cast::find($notification->cast_id);
+                if ($cast) {
+                    $notification->cast = [
+                        'id' => $cast->id,
+                        'nickname' => $cast->nickname,
+                        'avatar' => $cast->avatar,
+                    ];
+                }
+            }
+        }
+
         return response()->json(['notifications' => $notifications]);
     }
 
@@ -495,6 +538,17 @@ class GuestAuthController extends Controller
             ->where('read', false)
             ->update(['read' => true]);
         return response()->json(['success' => true]);
+    }
+
+    // Delete a notification
+    public function deleteNotification($id)
+    {
+        $notification = Notification::find($id);
+        if ($notification) {
+            $notification->delete();
+            return response()->json(['success' => true]);
+        }
+        return response()->json(['success' => false, 'message' => 'Notification not found'], 404);
     }
 
     // Add this method to fetch all guest phone numbers
@@ -576,18 +630,6 @@ class GuestAuthController extends Controller
                 ], 400);
             }
 
-            // Find the pending point transaction for this reservation
-            $pendingTransaction = PointTransaction::where('reservation_id', $reservation->id)
-                ->where('type', 'pending')
-                ->first();
-
-            if (!$pendingTransaction) {
-                DB::rollBack();
-                return response()->json([
-                    'message' => 'No pending point transaction found for this reservation'
-                ], 400);
-            }
-
             // Mark reservation as completed
             $reservation->ended_at = now();
             $reservation->save();
@@ -601,41 +643,32 @@ class GuestAuthController extends Controller
                 ], 404);
             }
 
-            // Calculate night time bonus
-            $nightTimeBonus = $this->pointTransactionService->calculateNightTimeBonus($reservation->created_at);
-            $totalPointsForCast = $pendingTransaction->amount + $nightTimeBonus;
-
-            // Add points to cast (including night time bonus)
-            $cast->points += $totalPointsForCast;
-            $cast->save();
-
-            // Update the pending transaction to completed
-            $pendingTransaction->type = 'transfer';
-            $pendingTransaction->cast_id = $cast->id;
-            $pendingTransaction->amount = $totalPointsForCast;
-            $pendingTransaction->description = "Reservation completion - {$reservation->duration} hours" . ($nightTimeBonus > 0 ? " (Night time bonus: +{$nightTimeBonus})" : "");
-            $pendingTransaction->save();
-
-            // Update reservation with points earned (including night time bonus)
-            $reservation->points_earned = $totalPointsForCast;
-            $reservation->save();
+            // Use the service to process the reservation completion
+            $success = $this->pointTransactionService->processReservationCompletion($reservation);
+            
+            if (!$success) {
+                DB::rollBack();
+                return response()->json([
+                    'message' => 'Failed to process point transaction'
+                ], 500);
+            }
 
             DB::commit();
+
+            // Get the updated reservation with points_earned
+            $reservation->refresh();
 
             \Log::info('Reservation completion processed successfully', [
                 'reservation_id' => $reservation->id,
                 'guest_id' => $reservation->guest_id,
                 'cast_id' => $cast->id,
-                'points_amount' => $pendingTransaction->amount,
-                'night_time_bonus' => $nightTimeBonus,
-                'total_points_for_cast' => $totalPointsForCast
+                'points_earned' => $reservation->points_earned
             ]);
 
             return response()->json([
                 'message' => 'Reservation completed successfully',
                 'reservation' => $reservation,
-                'points_transferred' => $totalPointsForCast,
-                'night_time_bonus' => $nightTimeBonus
+                'points_transferred' => $reservation->points_earned
             ]);
 
         } catch (\Exception $e) {
