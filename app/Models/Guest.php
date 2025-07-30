@@ -37,6 +37,7 @@ class Guest extends Authenticatable
         'points',
         'identity_verification',
         'identity_verification_completed',
+        'status',
         'created_at',
         'updated_at',
     ];
@@ -49,10 +50,18 @@ class Guest extends Authenticatable
         return $this->hasMany(\App\Models\Reservation::class, 'guest_id');
     }
 
-    public function gifts()
+    /**
+     * Get all gifts sent by this guest.
+     */
+    public function sentGifts()
     {
-        return $this->hasMany(\App\Models\Gift::class, 'guest_id');
+        return $this->hasMany(\App\Models\GuestGift::class, 'sender_guest_id');
     }
+
+    // public function gifts()
+    // {
+    //     return $this->hasMany(\App\Models\Gift::class, 'guest_id');
+    // }
 
     public function favorites()
     {
@@ -71,4 +80,4 @@ class Guest extends Authenticatable
     {
         return $this->hasMany(Feedback::class);
     }
-} 
+}

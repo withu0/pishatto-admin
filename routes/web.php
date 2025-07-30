@@ -5,6 +5,9 @@ use Inertia\Inertia;
 use App\Http\Controllers\Auth\GuestAuthController;
 use App\Http\Controllers\Auth\CastAuthController;
 use App\Http\Controllers\Admin\CastController;
+use App\Http\Controllers\Admin\GuestController;
+use App\Http\Controllers\Admin\BadgeController;
+use App\Http\Controllers\Admin\GiftController;
 
 Route::get('/', function () {
     return Inertia::render('welcome');
@@ -15,17 +18,23 @@ Route::middleware(['auth', 'verified'])->group(function () {
         return Inertia::render('dashboard');
     })->name('dashboard');
 
-    Route::get('admin/guests', fn() => Inertia::render('admin/guests'))->name('admin.guests');
+    // Guest CRUD routes
+    Route::resource('admin/guests', GuestController::class, ['as' => 'admin']);
 
     // Cast CRUD routes
     Route::resource('admin/casts', CastController::class, ['as' => 'admin']);
     Route::post('admin/casts/upload-avatar', [CastController::class, 'uploadAvatar'])->name('admin.casts.upload-avatar');
     Route::delete('admin/casts/{cast}/avatar', [CastController::class, 'deleteAvatar'])->name('admin.casts.delete-avatar');
 
+    // Badge CRUD routes
+    Route::resource('admin/badges', BadgeController::class, ['as' => 'admin']);
+
+    // Gift CRUD routes
+    Route::resource('admin/gifts', GiftController::class, ['as' => 'admin']);
+
     Route::get('admin/matching-select', fn() => Inertia::render('admin/matching-select'))->name('admin.matching-select');
     Route::get('admin/matching-manage', fn() => Inertia::render('admin/matching-manage'))->name('admin.matching-manage');
     Route::get('admin/messages', fn() => Inertia::render('admin/messages'))->name('admin.messages');
-    Route::get('admin/gifts', fn() => Inertia::render('admin/gifts'))->name('admin.gifts');
     Route::get('admin/ranking', fn() => Inertia::render('admin/ranking'))->name('admin.ranking');
     Route::get('admin/tweets', fn() => Inertia::render('admin/tweets'))->name('admin.tweets');
     Route::get('admin/sales', fn() => Inertia::render('admin/sales'))->name('admin.sales');

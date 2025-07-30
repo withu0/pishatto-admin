@@ -4,7 +4,7 @@ import { NavUser } from '@/components/nav-user';
 import { Sidebar, SidebarContent, SidebarFooter, SidebarHeader, SidebarMenu, SidebarMenuButton, SidebarMenuItem } from '@/components/ui/sidebar';
 import { type NavItem } from '@/types';
 import { Link } from '@inertiajs/react';
-import { BookOpen, Folder, LayoutGrid, Users, UserCheck, UserPlus, MessageCircle, Gift, Trophy, FileText, Receipt, CreditCard, Megaphone, ListChecks, DollarSign, FileSignature, MessageSquareText } from 'lucide-react';
+import { BookOpen, Folder, LayoutGrid, Users, UserCheck, UserPlus, MessageCircle, Gift, Trophy, FileText, Receipt, CreditCard, Megaphone, ListChecks, DollarSign, FileSignature, MessageSquareText, Award } from 'lucide-react';
 import AppLogo from './app-logo';
 
 const mainNavItems: NavItem[] = [
@@ -15,6 +15,7 @@ const mainNavItems: NavItem[] = [
     },
     { title: 'ゲスト一覧', href: '/admin/guests', icon: Users },
     { title: 'キャスト一覧', href: '/admin/casts', icon: UserCheck },
+    { title: 'バッジ管理', href: '/admin/badges', icon: Award },
     { title: 'マッチング選定', href: '/admin/matching-select', icon: ListChecks },
     { title: 'マッチング管理', href: '/admin/matching-manage', icon: ListChecks },
     { title: 'メッセージ管理', href: '/admin/messages', icon: MessageCircle },

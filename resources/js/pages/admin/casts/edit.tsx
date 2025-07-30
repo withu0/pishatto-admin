@@ -284,6 +284,7 @@ export default function CastEdit({ cast }: Props) {
                                                 type="file"
                                                 multiple
                                                 accept="image/*"
+                                                hidden
                                                 onChange={handleFileSelect}
                                                 className="max-w-xs"
                                             />
