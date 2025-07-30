@@ -12,8 +12,8 @@ return new class extends Migration
     public function up(): void
     {
         Schema::table('casts', function (Blueprint $table) {
-            $table->text('status')->default('active');
-            $table->text('name')->required();
+            $table->string('status')->default('active');
+            $table->text('name')->nullable(false);
         });
     }
 
