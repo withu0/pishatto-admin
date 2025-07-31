@@ -177,11 +177,20 @@ class ChatController extends Controller
             $recipientType = null;
         }
         if ($recipientId && $recipientType) {
+            // Determine cast_id based on message sender
+            $castId = null;
+            if ($message->sender_cast_id) {
+                $castId = $message->sender_cast_id;
+            } elseif ($message->sender_guest_id && $chat && $chat->cast_id) {
+                $castId = $chat->cast_id;
+            }
+            
             $notification = \App\Models\Notification::create([
                 'user_id' => $recipientId,
                 'user_type' => $recipientType,
                 'type' => 'message',
                 'reservation_id' => null,
+                'cast_id' => $castId,
                 'message' => '新しいメッセージが届きました',
                 'read' => false,
             ]);

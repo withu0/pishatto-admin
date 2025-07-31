@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Auth;
 
 use App\Http\Controllers\Controller;
 use App\Models\Guest;
+use App\Models\ChatFavorite;        
 use App\Models\PointTransaction;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
@@ -52,9 +53,7 @@ class GuestAuthController extends Controller
 
         // Check if verification code has been verified
         $phoneNumber = $request->phone;
-        if (!str_starts_with($phoneNumber, '+')) {
-            $phoneNumber = '+81' . ltrim($phoneNumber, '0'); // Default to Japan (+81)
-        }
+        $phoneNumber = $this->formatPhoneNumberForTwilio($phoneNumber);
         
         $isVerified = $this->twilioService->isCodeVerified($phoneNumber, $request->verification_code);
         
@@ -118,9 +117,7 @@ class GuestAuthController extends Controller
 
         // Verify SMS code
         $phoneNumber = $request->phone;
-        if (!str_starts_with($phoneNumber, '+')) {
-            $phoneNumber = '+81' . ltrim($phoneNumber, '0'); // Default to Japan (+81)
-        }
+        $phoneNumber = $this->formatPhoneNumberForTwilio($phoneNumber);
         
         $verificationResult = $this->twilioService->verifyCode($phoneNumber, $request->verification_code);
         
@@ -390,6 +387,7 @@ class GuestAuthController extends Controller
             'user_type' => 'guest',
             'type' => 'order_matched',
             'reservation_id' => $reservation->id,
+            'cast_id' => $request->cast_id,
             'message' => '予約がキャストにマッチされました',
             'read' => false,
         ]);
@@ -443,6 +441,7 @@ class GuestAuthController extends Controller
                     'avatar' => $guest ? $guest->avatar : null,
                     'guest_id' => $guest ? $guest->id : null,
                     'guest_nickname' => $guest ? $guest->nickname : null,
+                    'guest_age' => $guest ? $guest->birth_year : null,
                     'last_message' => $chat->messages->last()->message ?? '',
                     'updated_at' => $chat->created_at ?? null,
                     'created_at' => $chat->created_at ?? null,
@@ -497,26 +496,36 @@ class GuestAuthController extends Controller
     // Fetch notifications for a user
     public function getNotifications($userType, $userId)
     {
-        $notifications = Notification::where('user_type', $userType)
-            ->where('user_id', $userId)
-            ->orderBy('created_at', 'desc')
-            ->get();
+        \Log::info('Fetching notifications', ['user_type' => $userType, 'user_id' => $userId]);
+        
+        try {
+            $notifications = Notification::where('user_type', $userType)
+                ->where('user_id', $userId)
+                ->orderBy('created_at', 'desc')
+                ->get();
 
-        // For cast visit notifications, fetch cast information
-        foreach ($notifications as $notification) {
-            if ($notification->type === 'cast_visit' && $notification->cast_id) {
-                $cast = \App\Models\Cast::find($notification->cast_id);
-                if ($cast) {
-                    $notification->cast = [
-                        'id' => $cast->id,
-                        'nickname' => $cast->nickname,
-                        'avatar' => $cast->avatar,
-                    ];
+            \Log::info('Found notifications', ['count' => $notifications->count()]);
+
+            // For notifications with cast_id, fetch cast information
+            foreach ($notifications as $notification) {
+                if ($notification->cast_id) {
+                    $cast = \App\Models\Cast::find($notification->cast_id);
+                    if ($cast) {
+                        $notification->cast = [
+                            'id' => $cast->id,
+                            'nickname' => $cast->nickname,
+                            'avatar' => $cast->avatar,
+                        ];
+                    }
                 }
             }
-        }
 
-        return response()->json(['notifications' => $notifications]);
+            \Log::info('Returning notifications', ['notifications' => $notifications->toArray()]);
+            return response()->json(['notifications' => $notifications]);
+        } catch (\Exception $e) {
+            \Log::error('Error fetching notifications', ['error' => $e->getMessage(), 'trace' => $e->getTraceAsString()]);
+            return response()->json(['error' => 'Failed to fetch notifications'], 500);
+        }
     }
 
     // Mark a notification as read
@@ -658,17 +667,34 @@ class GuestAuthController extends Controller
             // Get the updated reservation with points_earned
             $reservation->refresh();
 
+            // Find the pending transaction to get refund information
+            $pendingTransaction = PointTransaction::where('reservation_id', $reservation->id)
+                ->where('type', 'pending')
+                ->first();
+            
+            $refundTransaction = PointTransaction::where('reservation_id', $reservation->id)
+                ->where('type', 'convert')
+                ->where('description', 'like', '%refunded unused points%')
+                ->first();
+
+            $refundAmount = $refundTransaction ? $refundTransaction->amount : 0;
+            $reservedAmount = $pendingTransaction ? $pendingTransaction->amount : 0;
+
             \Log::info('Reservation completion processed successfully', [
                 'reservation_id' => $reservation->id,
                 'guest_id' => $reservation->guest_id,
                 'cast_id' => $cast->id,
-                'points_earned' => $reservation->points_earned
+                'points_earned' => $reservation->points_earned,
+                'points_reserved' => $reservedAmount,
+                'points_refunded' => $refundAmount
             ]);
 
             return response()->json([
                 'message' => 'Reservation completed successfully',
                 'reservation' => $reservation,
-                'points_transferred' => $reservation->points_earned
+                'points_transferred' => $reservation->points_earned,
+                'points_reserved' => $reservedAmount,
+                'points_refunded' => $refundAmount
             ]);
 
         } catch (\Exception $e) {
@@ -758,9 +784,255 @@ class GuestAuthController extends Controller
         }
     }
 
+    /**
+     * Refund unused points for a completed reservation
+     * This can be used to fix reservations that were completed before the refund logic was implemented
+     */
+    public function refundUnusedPoints(Request $request, $id)
+    {
+        try {
+            DB::beginTransaction();
+
+            $reservation = Reservation::with(['guest'])->findOrFail($id);
+            
+            // Check if reservation is completed
+            if (!$reservation->ended_at) {
+                DB::rollBack();
+                return response()->json([
+                    'message' => 'Reservation is not completed yet'
+                ], 400);
+            }
+
+            // Use the service to refund unused points
+            $success = $this->pointTransactionService->refundUnusedPoints($reservation);
+            
+            if (!$success) {
+                DB::rollBack();
+                return response()->json([
+                    'message' => 'Failed to refund unused points or no unused points to refund'
+                ], 400);
+            }
+
+            DB::commit();
+
+            // Get the guest to return updated points
+            $guest = $reservation->guest;
+            $guest->refresh();
+
+            \Log::info('Unused points refunded successfully', [
+                'reservation_id' => $reservation->id,
+                'guest_id' => $guest->id,
+                'guest_points_after_refund' => $guest->points
+            ]);
+
+            return response()->json([
+                'message' => 'Unused points refunded successfully',
+                'reservation_id' => $reservation->id,
+                'guest_points' => $guest->points
+            ]);
+
+        } catch (\Exception $e) {
+            DB::rollBack();
+            \Log::error('refundUnusedPoints error: ' . $e->getMessage() . "\n" . $e->getTraceAsString());
+            return response()->json([
+                'message' => 'Failed to refund unused points',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Upload avatar for guest
+     */
+    public function uploadAvatar(Request $request)
+    {
+        $request->validate([
+            'avatar' => 'required|image|mimes:jpeg,png,jpg,gif,webp|max:20480',
+            'phone' => 'required|string',
+        ]);
+
+        try {
+            $file = $request->file('avatar');
+            $fileName = time() . '_' . $file->getClientOriginalName();
+            $path = $file->storeAs('avatars', $fileName, 'public');
+            
+            // Find the guest by phone number
+            $guest = Guest::where('phone', $request->phone)->first();
+            if (!$guest) {
+                return response()->json(['error' => 'Guest not found'], 404);
+            }
+
+            // If guest already has an avatar, delete the old one
+            if ($guest->avatar) {
+                $oldAvatarPath = $guest->avatar;
+                if (\Illuminate\Support\Facades\Storage::disk('public')->exists($oldAvatarPath)) {
+                    \Illuminate\Support\Facades\Storage::disk('public')->delete($oldAvatarPath);
+                }
+            }
+
+            // Update the guest with the new avatar path
+            $guest->update(['avatar' => $path]);
+
+            return response()->json([
+                'message' => 'Avatar uploaded successfully',
+                'avatar' => $path
+            ]);
+
+        } catch (\Exception $e) {
+            \Log::error('Avatar upload error: ' . $e->getMessage());
+            return response()->json([
+                'error' => 'Failed to upload avatar',
+                'message' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Delete avatar for guest
+     */
+    public function deleteAvatar(Request $request)
+    {
+        $request->validate([
+            'phone' => 'required|string',
+        ]);
+
+        try {
+            // Find the guest by phone number
+            $guest = Guest::where('phone', $request->phone)->first();
+            if (!$guest) {
+                return response()->json(['error' => 'Guest not found'], 404);
+            }
+
+            // If guest has an avatar, delete it from storage
+            if ($guest->avatar) {
+                $avatarPath = $guest->avatar;
+                if (\Illuminate\Support\Facades\Storage::disk('public')->exists($avatarPath)) {
+                    \Illuminate\Support\Facades\Storage::disk('public')->delete($avatarPath);
+                }
+                
+                // Clear the avatar field in database
+                $guest->update(['avatar' => null]);
+            }
+
+            return response()->json([
+                'message' => 'Avatar deleted successfully'
+            ]);
+
+        } catch (\Exception $e) {
+            \Log::error('Avatar delete error: ' . $e->getMessage());
+            return response()->json([
+                'error' => 'Failed to delete avatar',
+                'message' => $e->getMessage()
+            ], 500);
+        }
+    }
+
     // Add this method to return all badges
     public function getAllBadges()
     {
         return response()->json(['badges' => Badge::all()]);
+    }
+
+    // Add a chat to guest's favorites
+    public function favoriteChat(Request $request)
+    {
+        $guestId = $request->input('guest_id');
+        $chatId = $request->input('chat_id');
+        
+        $guest = Guest::findOrFail($guestId);
+        $chat = \App\Models\Chat::findOrFail($chatId);
+        
+        if ($guest->chatFavorites()->where('chat_id', $chatId)->exists()) {
+            return response()->json(['favorited' => true, 'message' => 'Already favorited']);
+        }
+        
+        $guest->chatFavorites()->create([
+            'chat_id' => $chatId,
+            'created_at' => now()
+        ]);
+        
+        return response()->json(['favorited' => true]);
+    }
+
+    // Remove a chat from guest's favorites
+    public function unfavoriteChat(Request $request)
+    {
+        $guestId = $request->input('guest_id');
+        $chatId = $request->input('chat_id');
+        
+        $guest = Guest::findOrFail($guestId);
+        $guest->chatFavorites()->where('chat_id', $chatId)->delete();
+        
+        return response()->json(['favorited' => false]);
+    }
+
+    // List all favorite chats for a guest
+    public function favoriteChats($guestId)
+    {
+        $guest = Guest::with(['favoritedChats.cast', 'favoritedChats.messages' => function($q) {
+            $q->orderBy('created_at', 'desc');
+        }])->findOrFail($guestId);
+        
+        $favoritedChats = $guest->favoritedChats->map(function ($chat) {
+            $cast = $chat->cast;
+            $lastMessage = $chat->messages->first();
+            
+            return [
+                'id' => $chat->id,
+                'cast_id' => $chat->cast_id,
+                'cast_nickname' => $cast ? $cast->nickname : 'Unknown',
+                'cast_avatar' => $cast ? $cast->avatar : null,
+                'last_message' => $lastMessage ? $lastMessage->message : null,
+                'last_message_time' => $lastMessage ? $lastMessage->created_at : null,
+                'unread' => $chat->messages->where('is_read', false)->count(),
+                'created_at' => $chat->created_at,
+                'favorited_at' => $chat->pivot->created_at ?? null
+            ];
+        });
+        
+        return response()->json(['chats' => $favoritedChats]);
+    }
+
+    // Check if a chat is favorited by a guest
+    public function isChatFavorited($chatId, $guestId)
+    {
+        $favorite = ChatFavorite::where('chat_id', $chatId)
+            ->where('guest_id', $guestId)
+            ->first();
+        
+        return response()->json(['favorited' => $favorite ? true : false]);
+    }
+
+    /**
+     * Format phone number for Twilio
+     * Handles cases where users input numbers like 70, 80, 90
+     */
+    private function formatPhoneNumberForTwilio($phoneNumber)
+    {
+        // Remove any non-digit characters except +
+        $phoneNumber = preg_replace('/[^0-9+]/', '', $phoneNumber);
+        
+        // If it starts with +, it's already formatted
+        if (str_starts_with($phoneNumber, '+')) {
+            return $phoneNumber;
+        }
+        
+        // Handle cases where user inputs 70, 80, 90, etc.
+        if (strlen($phoneNumber) <= 2) {
+            // Add +0 prefix for short numbers like 70, 80, 90
+            return '+0' . $phoneNumber;
+        }
+        
+        // Handle Japanese phone numbers (10-11 digits starting with 0)
+        if (strlen($phoneNumber) >= 10 && str_starts_with($phoneNumber, '0')) {
+            return '+81' . ltrim($phoneNumber, '0');
+        }
+        
+        // Handle other cases - assume it's a Japanese number
+        if (!str_starts_with($phoneNumber, '+')) {
+            return '+81' . ltrim($phoneNumber, '0');
+        }
+        
+        return $phoneNumber;
     }
 } 

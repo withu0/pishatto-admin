@@ -37,4 +37,14 @@ class Chat extends Model
     {
         return $this->belongsTo(\App\Models\Reservation::class, 'reservation_id');
     }
+
+    public function favorites()
+    {
+        return $this->hasMany(ChatFavorite::class, 'chat_id');
+    }
+
+    public function favoritedBy()
+    {
+        return $this->belongsToMany(Guest::class, 'chat_favorites', 'chat_id', 'guest_id')->withTimestamps();
+    }
 } 

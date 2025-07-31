@@ -22,7 +22,7 @@ class CastAuthController extends Controller
         }
         $cast = Cast::where('phone', $request->phone)->first();
         if (!$cast) {
-            $cast = Cast::create(['phone' => $request->phone]);
+            $cast = Cast::create(['phone' => $request->phone, 'status' => 'active', 'name' => 'New Cast ']);
         }
         // Log the cast in using Laravel session (cast guard)
         \Illuminate\Support\Facades\Auth::guard('cast')->login($cast);
@@ -228,12 +228,79 @@ class CastAuthController extends Controller
     public function list(Request $request)
     {
         $query = Cast::query();
-        // Optional filter: area (favorite_area or location)
-        if ($request->has('area')) {
-            $query->where('location', $request->area);
+        
+        // Search functionality for age and height
+        if ($request->has('search') && !empty($request->search)) {
+            $search = $request->search;
+            
+            // Debug: Log the search term
+            \Log::info('Search term: ' . $search);
+            
+            // Parse search terms (e.g., "25歳 160cm" or "25 160")
+            $searchTerms = preg_split('/[\s,]+/', $search);
+            
+            foreach ($searchTerms as $term) {
+                $term = trim($term);
+                \Log::info('Processing term: ' . $term);
+                
+                // Check if it's an age (number followed by 歳 or just number)
+                if (preg_match('/^(\d+)(歳|才)?$/', $term, $matches)) {
+                    $age = (int)$matches[1];
+                    $currentYear = date('Y');
+                    $birthYear = $currentYear - $age;
+                    \Log::info('Age search: age=' . $age . ', birthYear=' . $birthYear);
+                    $query->where('birth_year', '>=', $birthYear)
+                          ->where('birth_year', '<=', $birthYear + 1);
+                }
+                // Check if it's a height (number followed by cm or just number)
+                elseif (preg_match('/^(\d+)(cm|センチ)?$/', $term, $matches)) {
+                    $height = (int)$matches[1];
+                    \Log::info('Height search: height=' . $height);
+                    // Allow some tolerance (±5cm)
+                    $query->where('height', '>=', $height - 5)
+                          ->where('height', '<=', $height + 5);
+                }
+                // Check if it's just a number (could be age or height)
+                elseif (is_numeric($term)) {
+                    $number = (int)$term;
+                    // If number is between 140-200, treat as height
+                    if ($number >= 140 && $number <= 200) {
+                        \Log::info('Numeric height search: height=' . $number);
+                        $query->where('height', '>=', $number - 5)
+                              ->where('height', '<=', $number + 5);
+                    }
+                    // If number is between 18-80, treat as age
+                    elseif ($number >= 18 && $number <= 80) {
+                        $currentYear = date('Y');
+                        $birthYear = $currentYear - $number;
+                        \Log::info('Numeric age search: age=' . $number . ', birthYear=' . $birthYear);
+                        $query->where('birth_year', '>=', $birthYear)
+                              ->where('birth_year', '<=', $birthYear + 1);
+                    }
+                }
+                // General text search for nickname and profile_text
+                else {
+                    \Log::info('Text search: term=' . $term);
+                    $query->where(function($q) use ($term) {
+                        $q->where('nickname', 'like', "%{$term}%")
+                          ->orWhere('profile_text', 'like', "%{$term}%")
+                          ->orWhere('residence', 'like', "%{$term}%")
+                          ->orWhere('birthplace', 'like', "%{$term}%");
+                    });
+                }
+            }
         }
+        
+        // Optional filter: area (favorite_area or location)
+        if ($request->has('area') && !empty($request->area)) {
+            $query->where(function($q) use ($request) {
+                $q->where('residence', 'like', "%{$request->area}%")
+                  ->orWhere('birthplace', 'like', "%{$request->area}%");
+            });
+        }
+        
         // Optional sort
-        if ($request->has('sort')) {
+        if ($request->has('sort') && !empty($request->sort)) {
             if ($request->sort === 'newest') {
                 $query->orderBy('created_at', 'desc');
             } elseif ($request->sort === 'oldest') {
@@ -243,8 +310,20 @@ class CastAuthController extends Controller
             } elseif ($request->sort === 'most_active') {
                 $query->orderBy('updated_at', 'desc');
             }
+        } else {
+            // Default sorting by creation date (newest first)
+            $query->orderBy('created_at', 'desc');
         }
+        
+        // Debug: Log the SQL query
+        \Log::info('SQL Query: ' . $query->toSql());
+        \Log::info('SQL Bindings: ' . json_encode($query->getBindings()));
+        
         $casts = $query->get();
+        
+        // Log the number of results
+        \Log::info('Number of casts found: ' . $casts->count());
+        
         return response()->json(['casts' => $casts]);
     }
 

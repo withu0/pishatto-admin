@@ -80,4 +80,14 @@ class Guest extends Authenticatable
     {
         return $this->hasMany(Feedback::class);
     }
+
+    public function chatFavorites()
+    {
+        return $this->hasMany(ChatFavorite::class, 'guest_id');
+    }
+
+    public function favoritedChats()
+    {
+        return $this->belongsToMany(Chat::class, 'chat_favorites', 'guest_id', 'chat_id')->withPivot('created_at');
+    }
 }

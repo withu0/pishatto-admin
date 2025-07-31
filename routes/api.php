@@ -32,6 +32,7 @@ Route::middleware('auth:sanctum')->get('/user', function (Request $request) {
 Route::post('/sms/send-code', [SmsVerificationController::class, 'sendVerificationCode']);
 Route::post('/sms/verify-code', [SmsVerificationController::class, 'verifyCode']);
 Route::post('/sms/check-status', [SmsVerificationController::class, 'checkVerificationStatus']);
+Route::get('/sms/test-formatting', [SmsVerificationController::class, 'testPhoneFormatting']);
 
 Route::post('/guest/register', [GuestAuthController::class, 'register']);
 Route::post('/guest/login', [GuestAuthController::class, 'login']);
@@ -54,6 +55,7 @@ Route::get('/reservations/{id}', [GuestAuthController::class, 'getReservationByI
 Route::put('/reservations/{id}', [GuestAuthController::class, 'updateReservation']);
 Route::post('/reservations/{id}/complete', [GuestAuthController::class, 'completeReservation']);
 Route::post('/reservations/{id}/cancel', [GuestAuthController::class, 'cancelReservation']);
+Route::post('/reservations/{id}/refund', [GuestAuthController::class, 'refundUnusedPoints']);
 Route::get('/guests/repeat', [GuestAuthController::class, 'repeatGuests']);
 Route::get('/guest/profile/id/{id}', [GuestAuthController::class, 'getProfileById']);
 Route::get('/casts', [CastAuthController::class, 'list']);
@@ -64,6 +66,7 @@ Route::post('/casts/like', [CastAuthController::class, 'like']);
 Route::get('/casts/liked/{guestId}', [CastAuthController::class, 'likedCasts']);
 Route::post('/guests/visit', [CastAuthController::class, 'recordGuestVisit']);
 Route::get('/casts/visit-history/{guestId}', [CastAuthController::class, 'visitHistory']);
+
 Route::get('/notifications/{userType}/{userId}', [GuestAuthController::class, 'getNotifications']);
 Route::post('/notifications/read/{id}', [GuestAuthController::class, 'markNotificationRead']);
 Route::post('/notifications/read-all/{userType}/{userId}', [GuestAuthController::class, 'markAllNotificationsRead']);
@@ -71,6 +74,8 @@ Route::delete('/notifications/{id}', [GuestAuthController::class, 'deleteNotific
 
 // Avatar serving route
 Route::get('/avatars/{filename}', [GuestAuthController::class, 'getAvatar']);
+Route::post('/users/avatar', [GuestAuthController::class, 'uploadAvatar']);
+Route::delete('/users/avatar', [GuestAuthController::class, 'deleteAvatar']);
 
 // Payment routes
 Route::post('/payments/token', [PaymentController::class, 'createToken']);
@@ -141,6 +146,12 @@ Route::post('/casts/favorite', [CastAuthController::class, 'favorite']);
 Route::post('/casts/unfavorite', [CastAuthController::class, 'unfavorite']);
 Route::get('/casts/favorites/{guestId}', [CastAuthController::class, 'favoriteCasts']);
 Route::get('/badges', [GuestAuthController::class, 'getAllBadges']);
+
+// Chat favorites routes
+Route::post('/chats/favorite', [GuestAuthController::class, 'favoriteChat']);
+Route::post('/chats/unfavorite', [GuestAuthController::class, 'unfavoriteChat']);
+Route::get('/chats/favorites/{guestId}', [GuestAuthController::class, 'favoriteChats']);
+Route::get('/chats/{chatId}/favorited/{guestId}', [GuestAuthController::class, 'isChatFavorited']);
 
 // Cast payment routes
 Route::get('/casts/{castId}/immediate-payment', [CastPaymentController::class, 'getImmediatePaymentData']);

@@ -17,6 +17,7 @@ class PointTransactionService
     /**
      * Process point transaction when a reservation is completed
      * Calculates points based on cast's grade_points and adds to cast
+     * Also refunds unused points to guest
      */
     public function processReservationCompletion(Reservation $reservation): bool
     {
@@ -36,24 +37,52 @@ class PointTransactionService
                 return false;
             }
 
+            // Find the pending point transaction for this reservation
+            $pendingTransaction = PointTransaction::where('reservation_id', $reservation->id)
+                ->where('type', 'pending')
+                ->first();
+
+            if (!$pendingTransaction) {
+                Log::error('No pending point transaction found for reservation', [
+                    'reservation_id' => $reservation->id
+                ]);
+                return false;
+            }
+
             // Calculate points based on cast's grade_points and reservation duration
             $calculatedPoints = $this->calculateReservationPoints($reservation);
             $nightTimeBonus = $this->calculateNightTimeBonus($reservation->created_at);
             $totalPointsForCast = $calculatedPoints;
 
+            // Calculate unused points to refund
+            $reservedPoints = $pendingTransaction->amount;
+            $unusedPoints = $reservedPoints - $totalPointsForCast;
+
             // Add points to cast (including night time bonus)
             $cast->points += $totalPointsForCast;
             $cast->save();
 
-            // Create point transaction record
-            PointTransaction::create([
-                'guest_id' => $guest->id,
-                'cast_id' => $cast->id,
-                'type' => 'transfer',
-                'amount' => $totalPointsForCast,
-                'reservation_id' => $reservation->id,
-                'description' => "Reservation completion - {$reservation->duration} hours (Grade points: {$cast->grade_points}, Duration: " . ($reservation->duration * 60) . " minutes)" . ($nightTimeBonus > 0 ? " (Night time bonus: +{$nightTimeBonus})" : "")
-            ]);
+            // Refund unused points to guest if any
+            if ($unusedPoints > 0) {
+                $guest->points += $unusedPoints;
+                $guest->save();
+
+                // Create refund transaction record
+                PointTransaction::create([
+                    'guest_id' => $guest->id,
+                    'cast_id' => null,
+                    'type' => 'convert',
+                    'amount' => $unusedPoints,
+                    'reservation_id' => $reservation->id,
+                    'description' => "Reservation completion - refunded unused points ({$unusedPoints} points)"
+                ]);
+            }
+
+            // Update the pending transaction to completed
+            $pendingTransaction->type = 'transfer';
+            $pendingTransaction->amount = $totalPointsForCast;
+            $pendingTransaction->description = "Reservation completion - {$reservation->duration} hours (Grade points: {$cast->grade_points}, Duration: " . ($reservation->duration * 60) . " minutes)" . ($nightTimeBonus > 0 ? " (Night time bonus: +{$nightTimeBonus})" : "");
+            $pendingTransaction->save();
 
             // Update reservation with points earned (including night time bonus)
             $reservation->points_earned = $totalPointsForCast;
@@ -69,7 +98,9 @@ class PointTransactionService
                 'duration_minutes' => $reservation->duration * 60,
                 'calculated_points' => $calculatedPoints,
                 'night_time_bonus' => $nightTimeBonus,
-                'total_points_for_cast' => $totalPointsForCast
+                'total_points_for_cast' => $totalPointsForCast,
+                'reserved_points' => $reservedPoints,
+                'unused_points_refunded' => $unusedPoints
             ]);
 
             return true;
@@ -77,6 +108,90 @@ class PointTransactionService
         } catch (\Exception $e) {
             DB::rollBack();
             Log::error('Point transaction failed', [
+                'reservation_id' => $reservation->id,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+            return false;
+        }
+    }
+
+    /**
+     * Refund unused points for a completed reservation
+     * This method can be called independently if needed
+     */
+    public function refundUnusedPoints(Reservation $reservation): bool
+    {
+        try {
+            DB::beginTransaction();
+
+            // Find the pending point transaction for this reservation
+            $pendingTransaction = PointTransaction::where('reservation_id', $reservation->id)
+                ->where('type', 'pending')
+                ->first();
+
+            if (!$pendingTransaction) {
+                Log::error('No pending point transaction found for refund', [
+                    'reservation_id' => $reservation->id
+                ]);
+                return false;
+            }
+
+            // Get the guest
+            $guest = $reservation->guest;
+            if (!$guest) {
+                Log::error('Guest not found for refund', [
+                    'reservation_id' => $reservation->id,
+                    'guest_id' => $reservation->guest_id
+                ]);
+                return false;
+            }
+
+            // Calculate actual points used
+            $actualPointsUsed = $this->calculateReservationPoints($reservation);
+            $reservedPoints = $pendingTransaction->amount;
+            $unusedPoints = $reservedPoints - $actualPointsUsed;
+
+            // Refund unused points to guest
+            if ($unusedPoints > 0) {
+                $guest->points += $unusedPoints;
+                $guest->save();
+
+                // Create refund transaction record
+                PointTransaction::create([
+                    'guest_id' => $guest->id,
+                    'cast_id' => null,
+                    'type' => 'convert',
+                    'amount' => $unusedPoints,
+                    'reservation_id' => $reservation->id,
+                    'description' => "Reservation refund - unused points ({$unusedPoints} points)"
+                ]);
+
+                // Update the pending transaction
+                $pendingTransaction->type = 'convert';
+                $pendingTransaction->amount = $actualPointsUsed;
+                $pendingTransaction->description = "Reservation completed - actual points used ({$actualPointsUsed} points)";
+                $pendingTransaction->save();
+
+                DB::commit();
+
+                Log::info('Points refunded successfully', [
+                    'reservation_id' => $reservation->id,
+                    'guest_id' => $guest->id,
+                    'reserved_points' => $reservedPoints,
+                    'actual_points_used' => $actualPointsUsed,
+                    'unused_points_refunded' => $unusedPoints
+                ]);
+
+                return true;
+            }
+
+            DB::rollBack();
+            return false;
+
+        } catch (\Exception $e) {
+            DB::rollBack();
+            Log::error('Point refund failed', [
                 'reservation_id' => $reservation->id,
                 'error' => $e->getMessage(),
                 'trace' => $e->getTraceAsString()
@@ -102,6 +217,10 @@ class PointTransactionService
     {
         $cast = $reservation->cast;
         if (!$cast) {
+            Log::warning('Cast not found for reservation point calculation', [
+                'reservation_id' => $reservation->id,
+                'cast_id' => $reservation->cast_id
+            ]);
             return 0;
         }
 
@@ -113,8 +232,20 @@ class PointTransactionService
         
         // Add night time bonus
         $nightTimeBonus = $this->calculateNightTimeBonus($reservation->created_at);
+        $totalPoints = $calculatedPoints + $nightTimeBonus;
         
-        return $calculatedPoints + $nightTimeBonus;
+        Log::info('Point calculation for reservation', [
+            'reservation_id' => $reservation->id,
+            'cast_id' => $cast->id,
+            'cast_grade_points' => $gradePoints,
+            'duration_hours' => $reservation->duration,
+            'duration_minutes' => $durationInMinutes,
+            'calculated_points' => $calculatedPoints,
+            'night_time_bonus' => $nightTimeBonus,
+            'total_points' => $totalPoints
+        ]);
+        
+        return $totalPoints;
     }
 
     /**

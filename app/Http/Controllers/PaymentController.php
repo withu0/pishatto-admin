@@ -298,12 +298,39 @@ class PaymentController extends Controller
      */
     public function history($userType, $userId)
     {
-        $payments = Payment::where('user_type', $userType)
-            ->where('user_id', $userId)
-            ->orderBy('created_at', 'desc')
-            ->get();
+        // Validate user type
+        if (!in_array($userType, ['guest', 'cast'])) {
+            return response()->json([
+                'success' => false,
+                'error' => 'Invalid user type'
+            ], 400);
+        }
 
-        return response()->json(['payments' => $payments]);
+        // Validate user ID
+        if (!is_numeric($userId) || $userId <= 0) {
+            return response()->json([
+                'success' => false,
+                'error' => 'Invalid user ID'
+            ], 400);
+        }
+
+        try {
+            $payments = Payment::where('user_type', $userType)
+                ->where('user_id', $userId)
+                ->orderBy('created_at', 'desc')
+                ->get();
+
+            return response()->json([
+                'success' => true,
+                'payments' => $payments
+            ]);
+        } catch (\Exception $e) {
+            Log::error('Payment history retrieval failed: ' . $e->getMessage());
+            return response()->json([
+                'success' => false,
+                'error' => '支払い履歴の取得に失敗しました'
+            ], 500);
+        }
     }
 
     /**
