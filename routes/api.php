@@ -12,6 +12,8 @@ use App\Http\Controllers\CastPaymentController;
 use App\Http\Controllers\IdentityVerificationController;
 use App\Http\Controllers\FeedbackController;
 use App\Http\Controllers\Auth\SmsVerificationController;
+use App\Models\Feedback;
+use App\Http\Controllers\Admin\LocationController;
 
 /*
 |--------------------------------------------------------------------------
@@ -87,6 +89,25 @@ Route::get('/point-transactions/{userType}/{userId}', [PaymentController::class,
 Route::get('/badges', function () {
     return response()->json(['badges' => \App\Models\Badge::all()]);
 });
+Route::get('/badges/{castId}', function ($castId) {
+    // Get all badge IDs from feedback table for this cast
+    $badgeIds = \App\Models\Feedback::where('cast_id', $castId)
+        ->whereNotNull('badge_id')
+        ->pluck('badge_id');
+    
+    if ($badgeIds->isEmpty()) {
+        return response()->json(['badges' => []]);
+    }
+    
+    // Get badge information and count occurrences
+    $badgesWithCounts = \App\Models\Badge::select('badges.*', \DB::raw('COUNT(feedback.badge_id) as count'))
+        ->join('feedback', 'badges.id', '=', 'feedback.badge_id')
+        ->where('feedback.cast_id', $castId)
+        ->groupBy('badges.id', 'badges.name', 'badges.icon', 'badges.description', 'badges.created_at', 'badges.updated_at')
+        ->get();
+    
+    return response()->json(['badges' => $badgesWithCounts]);
+});
 
 // Feedback routes
 Route::post('/feedback', [FeedbackController::class, 'store']);
@@ -96,6 +117,8 @@ Route::get('/feedback/guest/{guestId}', [FeedbackController::class, 'getGuestFee
 Route::put('/feedback/{feedbackId}', [FeedbackController::class, 'update']);
 Route::delete('/feedback/{feedbackId}', [FeedbackController::class, 'destroy']);
 Route::get('/feedback/cast/{castId}/stats', [FeedbackController::class, 'getCastFeedbackStats']);
+Route::get('/feedback/top-satisfaction', [FeedbackController::class, 'getTopSatisfactionCasts']);
+Route::get('/feedback/all-satisfaction', [FeedbackController::class, 'getAllSatisfactionCasts']);
 Route::post('/payments/charge-direct', [PaymentController::class, 'createChargeDirect']);
 Route::post('/payments/debug-response', [PaymentController::class, 'debugPayJPResponse']);
 Route::post('/payments/purchase', [PaymentController::class, 'purchase']);
@@ -145,7 +168,7 @@ Route::post('/reservation/stop', [CastAuthController::class, 'stopReservation'])
 Route::post('/casts/favorite', [CastAuthController::class, 'favorite']);
 Route::post('/casts/unfavorite', [CastAuthController::class, 'unfavorite']);
 Route::get('/casts/favorites/{guestId}', [CastAuthController::class, 'favoriteCasts']);
-Route::get('/badges', [GuestAuthController::class, 'getAllBadges']);
+// Route::get('/badges', [GuestAuthController::class, 'getAllBadges']); // Commented out to avoid duplicate routes
 
 // Chat favorites routes
 Route::post('/chats/favorite', [GuestAuthController::class, 'favoriteChat']);
@@ -161,3 +184,10 @@ Route::post('/identity/upload', [IdentityVerificationController::class, 'upload'
 // Admin endpoints for identity verification approval/rejection
 Route::post('/admin/identity-verification/{guestId}/approve', [IdentityVerificationController::class, 'approve']);
 Route::post('/admin/identity-verification/{guestId}/reject', [IdentityVerificationController::class, 'reject']); 
+
+// Admin News API routes
+Route::get('/admin-news/{userType}/{userId}', [GuestAuthController::class, 'getAdminNews']);
+Route::get('/admin-news/{userType}', [GuestAuthController::class, 'getAdminNews']);
+
+// Public API routes for locations
+Route::get('/locations/active', [LocationController::class, 'getActiveLocations']);

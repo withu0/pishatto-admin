@@ -223,4 +223,77 @@ class FeedbackController extends Controller
 
         return response()->json(['stats' => $stats]);
     }
+
+    /**
+     * Get top 5 casts with highest average feedback ratings.
+     */
+    public function getTopSatisfactionCasts()
+    {
+        // First get the top 5 cast IDs with their average ratings
+        $topCastIds = \App\Models\Cast::select('casts.id')
+            ->selectRaw('AVG(feedback.rating) as average_rating')
+            ->selectRaw('COUNT(feedback.id) as feedback_count')
+            ->join('feedback', 'casts.id', '=', 'feedback.cast_id')
+            ->whereNotNull('feedback.rating')
+            ->groupBy('casts.id')
+            ->having('feedback_count', '>=', 1) // At least 1 feedback
+            ->orderBy('average_rating', 'desc')
+            ->orderBy('feedback_count', 'desc') // Secondary sort by feedback count
+            ->limit(5)
+            ->pluck('id');
+
+        // Then get the full cast data for these IDs
+        $topCasts = \App\Models\Cast::whereIn('id', $topCastIds)
+            ->get()
+            ->map(function($cast) {
+                // Get the average rating and feedback count for this cast
+                $feedbackStats = \App\Models\Feedback::where('cast_id', $cast->id)
+                    ->whereNotNull('rating')
+                    ->selectRaw('AVG(rating) as average_rating, COUNT(*) as feedback_count')
+                    ->first();
+                
+                $cast->average_rating = round($feedbackStats->average_rating, 2);
+                $cast->feedback_count = $feedbackStats->feedback_count;
+                
+                return $cast;
+            });
+
+        return response()->json(['casts' => $topCasts]);
+    }
+
+    /**
+     * Get all casts with feedback (not limited to top 5).
+     */
+    public function getAllSatisfactionCasts()
+    {
+        // Get all cast IDs that have feedback
+        $castIds = \App\Models\Cast::select('casts.id')
+            ->selectRaw('AVG(feedback.rating) as average_rating')
+            ->selectRaw('COUNT(feedback.id) as feedback_count')
+            ->join('feedback', 'casts.id', '=', 'feedback.cast_id')
+            ->whereNotNull('feedback.rating')
+            ->groupBy('casts.id')
+            ->having('feedback_count', '>=', 1) // At least 1 feedback
+            ->orderBy('average_rating', 'desc')
+            ->orderBy('feedback_count', 'desc') // Secondary sort by feedback count
+            ->pluck('id');
+
+        // Then get the full cast data for these IDs
+        $allCasts = \App\Models\Cast::whereIn('id', $castIds)
+            ->get()
+            ->map(function($cast) {
+                // Get the average rating and feedback count for this cast
+                $feedbackStats = \App\Models\Feedback::where('cast_id', $cast->id)
+                    ->whereNotNull('rating')
+                    ->selectRaw('AVG(rating) as average_rating, COUNT(*) as feedback_count')
+                    ->first();
+                
+                $cast->average_rating = round($feedbackStats->average_rating, 2);
+                $cast->feedback_count = $feedbackStats->feedback_count;
+                
+                return $cast;
+            });
+
+        return response()->json(['casts' => $allCasts]);
+    }
 }

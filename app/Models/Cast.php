@@ -23,6 +23,7 @@ class Cast extends Authenticatable
         'grade_points',
         'residence',
         'birthplace',
+        'location',
         'profile_text',
         'payjp_customer_id',
         'payment_info',
@@ -76,8 +77,15 @@ class Cast extends Authenticatable
 
     public function badges()
     {
-        return $this->belongsToMany(Badge::class, 'cast_badge', 'cast_id', 'badge_id')
-                    ->withTimestamps();
+        // Get badges from feedback table with counts
+        return $this->hasManyThrough(
+            Badge::class,
+            Feedback::class,
+            'cast_id', // Foreign key on feedback table
+            'id', // Foreign key on badges table
+            'id', // Local key on casts table
+            'badge_id' // Local key on feedback table
+        );
     }
 
     public function likes()

@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Auth;
 
 use App\Http\Controllers\Controller;
 use App\Models\Cast;
+use App\Models\Badge;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Auth;
@@ -77,9 +78,10 @@ class CastAuthController extends Controller
         }
         // Get recommended casts (top 3 by recent, excluding self)
         $recommended = \App\Models\Cast::where('id', '!=', $id)->orderBy('created_at', 'desc')->limit(3)->get();
-        // Get badges with counts for this cast
-        $badgesWithCounts = $cast->badges()
-            ->select('badges.*', \DB::raw('COUNT(*) as count'))
+        // Get badges with counts for this cast from feedback table
+        $badgesWithCounts = \App\Models\Badge::select('badges.*', \DB::raw('COUNT(feedback.badge_id) as count'))
+            ->join('feedback', 'badges.id', '=', 'feedback.badge_id')
+            ->where('feedback.cast_id', $id)
             ->groupBy('badges.id', 'badges.name', 'badges.icon', 'badges.description', 'badges.created_at', 'badges.updated_at')
             ->get();
 

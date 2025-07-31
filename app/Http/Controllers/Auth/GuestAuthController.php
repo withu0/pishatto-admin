@@ -284,7 +284,7 @@ class GuestAuthController extends Controller
                 'guest_id', 'type', 'scheduled_at', 'location', 'duration', 'details', 'time'
             ]));
 
-            // Calculate required points for this reservation
+            // Calculate required points for this reservation (including night time bonus)
             $requiredPoints = $this->pointTransactionService->calculateReservationPoints($reservation);
 
             // Get the guest and check if they have enough points
@@ -1001,6 +1001,33 @@ class GuestAuthController extends Controller
             ->first();
         
         return response()->json(['favorited' => $favorite ? true : false]);
+    }
+
+    /**
+     * Get admin news based on user type and target_type filtering
+     */
+    public function getAdminNews($userType, $userId = null)
+    {
+        // Import AdminNews model
+        $adminNews = \App\Models\AdminNews::where('status', 'published')
+            ->where(function($query) use ($userType) {
+                $query->where('target_type', 'all')
+                      ->orWhere('target_type', $userType);
+            })
+            ->orderBy('published_at', 'desc')
+            ->get()
+            ->map(function ($item) {
+                return [
+                    'id' => $item->id,
+                    'title' => $item->title,
+                    'content' => $item->content,
+                    'target_type' => $item->target_type,
+                    'published_at' => $item->published_at ? $item->published_at->format('Y/m/d') : null,
+                    'created_at' => $item->created_at->format('Y-m-d H:i:s'),
+                ];
+            });
+
+        return response()->json(['news' => $adminNews]);
     }
 
     /**

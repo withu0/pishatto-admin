@@ -8,6 +8,8 @@ use App\Http\Controllers\Admin\CastController;
 use App\Http\Controllers\Admin\GuestController;
 use App\Http\Controllers\Admin\BadgeController;
 use App\Http\Controllers\Admin\GiftController;
+use App\Http\Controllers\Admin\AdminNewsController;
+use App\Http\Controllers\Admin\LocationController;
 
 Route::get('/', function () {
     return Inertia::render('welcome');
@@ -32,6 +34,14 @@ Route::middleware(['auth', 'verified'])->group(function () {
     // Gift CRUD routes
     Route::resource('admin/gifts', GiftController::class, ['as' => 'admin']);
 
+    // AdminNews CRUD routes
+    Route::resource('admin/news', AdminNewsController::class, ['as' => 'admin']);
+    Route::post('admin/news/{news}/publish', [AdminNewsController::class, 'publish'])->name('admin.news.publish');
+
+    // Location CRUD routes
+    Route::resource('admin/locations', LocationController::class, ['as' => 'admin']);
+    Route::get('admin/locations-api/active', [LocationController::class, 'getActiveLocations'])->name('admin.locations.active');
+
     Route::get('admin/matching-select', fn() => Inertia::render('admin/matching-select'))->name('admin.matching-select');
     Route::get('admin/matching-manage', fn() => Inertia::render('admin/matching-manage'))->name('admin.matching-manage');
     Route::get('admin/messages', fn() => Inertia::render('admin/messages'))->name('admin.messages');
@@ -41,7 +51,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::get('admin/receipts', fn() => Inertia::render('admin/receipts'))->name('admin.receipts');
     Route::get('admin/payments', fn() => Inertia::render('admin/payments'))->name('admin.payments');
     Route::get('admin/payment-details', fn() => Inertia::render('admin/payment-details'))->name('admin.payment-details');
-    Route::get('admin/notifications', fn() => Inertia::render('admin/notifications'))->name('admin.notifications');
+    Route::get('admin/notifications', [App\Http\Controllers\Admin\AdminNewsController::class, 'index'])->name('admin.notifications');
 });
 
 

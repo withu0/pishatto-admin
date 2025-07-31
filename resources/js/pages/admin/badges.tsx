@@ -50,12 +50,12 @@ export default function AdminBadges({ badges, filters }: Props) {
     };
 
     return (
-        <AppLayout>
+        <AppLayout breadcrumbs={[{ title: 'バッジ管理', href: '/admin/badges' }]}>
             <Head title="バッジ管理" />
 
-            <div className="container mx-auto py-6">
+            <div className="container mx-auto p-6">
                 <div className="flex justify-between items-center mb-6">
-                    <h1 className="text-3xl font-bold">バッジ管理</h1>
+                    <h1 className="text-2xl font-bold">バッジ管理</h1>
                     <Link href="/admin/badges/create">
                         <Button>
                             <Plus className="w-4 h-4 mr-2" />

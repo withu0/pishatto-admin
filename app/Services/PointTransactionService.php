@@ -203,9 +203,9 @@ class PointTransactionService
     /**
      * Calculate night time bonus points (4000 points for activities after 12 AM)
      */
-    public function calculateNightTimeBonus($createdAt): int
+    public function calculateNightTimeBonus($scheduledAt): int
     {
-        $hour = Carbon::parse($createdAt)->hour;
+        $hour = Carbon::parse($scheduledAt)->hour;
         return ($hour >= 0 && $hour < 6) ? self::NIGHT_TIME_BONUS : 0; // 12 AM to 6 AM
     }
 
@@ -230,8 +230,8 @@ class PointTransactionService
         $gradePoints = $cast->grade_points ?? 0;
         $calculatedPoints = $gradePoints * ($durationInMinutes / 30);
         
-        // Add night time bonus
-        $nightTimeBonus = $this->calculateNightTimeBonus($reservation->created_at);
+        // Add night time bonus based on scheduled start time
+        $nightTimeBonus = $this->calculateNightTimeBonus($reservation->scheduled_at);
         $totalPoints = $calculatedPoints + $nightTimeBonus;
         
         Log::info('Point calculation for reservation', [
@@ -284,8 +284,8 @@ class PointTransactionService
             $basePoints = 9000 * $duration;
         }
         
-        // Add night time bonus
-        $nightTimeBonus = $this->calculateNightTimeBonus($reservation->created_at);
+        // Add night time bonus based on scheduled start time
+        $nightTimeBonus = $this->calculateNightTimeBonus($reservation->scheduled_at);
         
         return $basePoints + $nightTimeBonus;
     }

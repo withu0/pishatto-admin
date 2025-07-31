@@ -30,8 +30,6 @@ try {
         'phone' => '0987654321' . time(),
         'nickname' => 'Test Cast',
         'location' => 'Tokyo',
-        'age' => '25',
-        'shiatsu' => 'medium',
         'status' => 'active',
     ]);
     
