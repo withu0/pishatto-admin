@@ -1,21 +1,61 @@
 import AppLayout from '@/layouts/app-layout';
-import { Head } from '@inertiajs/react';
+import { Head, usePage, router, Link } from '@inertiajs/react';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Edit, Trash2, Plus } from 'lucide-react';
+import { Edit, Trash2, Plus, Eye } from 'lucide-react';
 import { useState } from 'react';
 
-const mockTweets = [
-    { id: 1, userType: 'ゲスト', user: '山田 太郎', content: '今日は楽しかった！', date: '2024-07-01' },
-    { id: 2, userType: 'キャスト', user: '高橋 美咲', content: 'ご利用ありがとうございました。', date: '2024-06-15' },
-];
+interface Tweet {
+    id: number;
+    userType: string;
+    user: string;
+    content: string;
+    date: string;
+}
+
+interface Guest {
+    id: number;
+    nickname: string;
+    phone: string;
+}
+
+interface Cast {
+    id: number;
+    nickname: string;
+    phone: string;
+}
+
+interface PageProps {
+    tweets: Tweet[];
+    guests: Guest[];
+    casts: Cast[];
+    [key: string]: any;
+}
 
 export default function AdminTweets() {
+    const { tweets, guests, casts } = usePage<PageProps>().props;
     const [search, setSearch] = useState('');
-    const filtered = mockTweets.filter(
+    const [isDeleting, setIsDeleting] = useState<number | null>(null);
+    
+    const filtered = tweets.filter(
         (t) => t.user.includes(search) || t.content.includes(search) || t.userType.includes(search)
     );
+
+    const handleDelete = async (tweetId: number) => {
+        if (confirm('このつぶやきを削除しますか？')) {
+            setIsDeleting(tweetId);
+            try {
+                await router.delete(`/api/tweets/${tweetId}`);
+                router.reload();
+            } catch (error) {
+                console.error('Error deleting tweet:', error);
+                alert('削除に失敗しました。');
+            } finally {
+                setIsDeleting(null);
+            }
+        }
+    };
     return (
         <AppLayout breadcrumbs={[{ title: 'つぶやき管理', href: '/admin/tweets' }]}>
             <Head title="つぶやき管理" />
@@ -24,7 +64,9 @@ export default function AdminTweets() {
                 <Card>
                     <CardHeader className="flex flex-row items-center justify-between gap-4 pb-2">
                         <CardTitle>つぶやき一覧</CardTitle>
-                        <Button size="sm" className="gap-1"><Plus className="w-4 h-4" />新規登録</Button>
+                        <Link href={route('admin.tweets.create')}>
+                            <Button size="sm" className="gap-1"><Plus className="w-4 h-4" />新規登録</Button>
+                        </Link>
                     </CardHeader>
                     <CardContent>
                         <div className="mb-4 flex items-center gap-2">
@@ -50,7 +92,9 @@ export default function AdminTweets() {
                                 <tbody>
                                     {filtered.length === 0 ? (
                                         <tr>
-                                            <td colSpan={6} className="text-center py-6 text-muted-foreground">該当するデータがありません</td>
+                                            <td colSpan={6} className="text-center py-6 text-muted-foreground">
+                                                {tweets.length === 0 ? 'つぶやきデータがありません' : '該当するデータがありません'}
+                                            </td>
                                         </tr>
                                     ) : (
                                         filtered.map((item, idx) => (
@@ -61,8 +105,21 @@ export default function AdminTweets() {
                                                 <td className="px-3 py-2">{item.content}</td>
                                                 <td className="px-3 py-2">{item.date}</td>
                                                 <td className="px-3 py-2 flex gap-2">
-                                                    <Button size="sm" variant="outline"><Edit className="w-4 h-4" />編集</Button>
-                                                    <Button size="sm" variant="destructive"><Trash2 className="w-4 h-4" />削除</Button>
+                                                    <Link href={route('admin.tweets.show', item.id)}>
+                                                        <Button size="sm" variant="outline"><Eye className="w-4 h-4" />詳細</Button>
+                                                    </Link>
+                                                    <Link href={route('admin.tweets.edit', item.id)}>
+                                                        <Button size="sm" variant="outline"><Edit className="w-4 h-4" />編集</Button>
+                                                    </Link>
+                                                    <Button 
+                                                        size="sm" 
+                                                        variant="destructive" 
+                                                        onClick={() => handleDelete(item.id)}
+                                                        disabled={isDeleting === item.id}
+                                                    >
+                                                        <Trash2 className="w-4 h-4" />
+                                                        {isDeleting === item.id ? '削除中...' : '削除'}
+                                                    </Button>
                                                 </td>
                                             </tr>
                                         ))

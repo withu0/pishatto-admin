@@ -10,6 +10,7 @@ use App\Http\Controllers\Admin\BadgeController;
 use App\Http\Controllers\Admin\GiftController;
 use App\Http\Controllers\Admin\AdminNewsController;
 use App\Http\Controllers\Admin\LocationController;
+use App\Http\Controllers\Admin\MessagesController;
 
 Route::get('/', function () {
     return Inertia::render('welcome');
@@ -44,9 +45,15 @@ Route::middleware(['auth', 'verified'])->group(function () {
 
     Route::get('admin/matching-select', fn() => Inertia::render('admin/matching-select'))->name('admin.matching-select');
     Route::get('admin/matching-manage', fn() => Inertia::render('admin/matching-manage'))->name('admin.matching-manage');
-    Route::get('admin/messages', fn() => Inertia::render('admin/messages'))->name('admin.messages');
+    Route::get('admin/messages', [MessagesController::class, 'index'])->name('admin.messages');
+    Route::get('test-messages', [MessagesController::class, 'getMessagesData'])->name('test.messages');
+    Route::post('admin/messages', [MessagesController::class, 'store'])->name('admin.messages.store');
+    Route::get('admin/messages/{id}', [MessagesController::class, 'show'])->name('admin.messages.show');
+    Route::put('admin/messages/{id}', [MessagesController::class, 'update'])->name('admin.messages.update');
+    Route::post('admin/messages/{id}', [MessagesController::class, 'update'])->name('admin.messages.update.post');
+    Route::delete('admin/messages/{id}', [MessagesController::class, 'destroy'])->name('admin.messages.destroy');
     Route::get('admin/ranking', fn() => Inertia::render('admin/ranking'))->name('admin.ranking');
-    Route::get('admin/tweets', fn() => Inertia::render('admin/tweets'))->name('admin.tweets');
+    Route::resource('admin/tweets', App\Http\Controllers\Admin\TweetsController::class, ['as' => 'admin']);
     Route::get('admin/sales', fn() => Inertia::render('admin/sales'))->name('admin.sales');
     Route::get('admin/receipts', fn() => Inertia::render('admin/receipts'))->name('admin.receipts');
     Route::get('admin/payments', fn() => Inertia::render('admin/payments'))->name('admin.payments');

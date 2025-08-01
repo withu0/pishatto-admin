@@ -19,6 +19,10 @@ class Tweet extends Model
         'created_at',
     ];
 
+    protected $casts = [
+        'created_at' => 'datetime',
+    ];
+
     public function guest()
     {
         return $this->belongsTo(Guest::class, 'guest_id');

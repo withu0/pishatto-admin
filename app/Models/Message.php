@@ -22,6 +22,10 @@ class Message extends Model
         'is_read',
     ];
 
+    protected $dates = [
+        'created_at'
+    ];
+
     public function chat()
     {
         return $this->belongsTo(Chat::class, 'chat_id');
