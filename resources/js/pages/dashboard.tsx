@@ -3,10 +3,10 @@ import { Badge } from '@/components/ui/badge';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Icon } from '@/components/ui/icon';
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
-import { Users, UserCheck, DollarSign, MessageCircle, Gift, Trophy, ListChecks, Megaphone, Sparkles } from 'lucide-react';
+import { Users, UserCheck, DollarSign, MessageCircle, Gift, Trophy, ListChecks, Megaphone, Sparkles, Clock } from 'lucide-react';
 import AppLayout from '@/layouts/app-layout';
 import { type BreadcrumbItem } from '@/types';
-import { Head, Link } from '@inertiajs/react';
+import { Head, Link, usePage } from '@inertiajs/react';
 import { ChartContainer } from '@/components/ui/chart';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 
@@ -17,149 +17,75 @@ const breadcrumbs: BreadcrumbItem[] = [
     },
 ];
 
-// Mock data from each admin page
-const mockGuests = [
-    { id: 1, name: '山田 太郎' },
-    { id: 2, name: '佐藤 花子' },
-    { id: 3, name: '鈴木 一郎' },
-];
-const mockCasts = [
-    { id: 1, name: '高橋 美咲' },
-    { id: 2, name: '田中 直樹' },
-    { id: 3, name: '小林 さくら' },
-];
-const mockSales = [
-    { id: 1, guest: '山田 太郎', amount: 5000, date: '2024-07-01' },
-    { id: 2, guest: '佐藤 花子', amount: 3000, date: '2024-06-15' },
-    { id: 3, guest: '鈴木 一郎', amount: 2000, date: '2024-06-10' },
-];
-const mockMessages = [
-    { id: 1 },
-    { id: 2 },
-];
-const mockGifts = [
-    { id: 1 },
-    { id: 2 },
-];
-const mockRanking = [
-    { id: 1 },
-    { id: 2 },
-];
-const mockMatching = [
-    { id: 1 },
-    { id: 2 },
-];
-const mockNotifications = [
-    { id: 1 },
-    { id: 2 },
-];
-const mockGiftPie = [
-    { name: '花束', value: 5, color: '#a78bfa' },
-    { name: 'ぬいぐるみ', value: 3, color: '#f472b6' },
-    { name: 'お菓子', value: 2, color: '#facc15' },
-];
 
-const summaryCards = [
-    {
-        title: 'ゲスト',
-        value: mockGuests.length,
-        icon: Users,
-        link: '/admin/guests',
-        badge: '一覧',
-        color: 'bg-gradient-to-tr from-blue-100 to-blue-300 text-blue-900',
-    },
-    {
-        title: 'キャスト',
-        value: mockCasts.length,
-        icon: UserCheck,
-        link: '/admin/casts',
-        badge: '一覧',
-        color: 'bg-gradient-to-tr from-pink-100 to-pink-300 text-pink-900',
-    },
-    {
-        title: '売上',
-        value: mockSales.reduce((sum, s) => sum + s.amount, 0).toLocaleString() + '円',
-        icon: DollarSign,
-        link: '/admin/sales',
-        badge: '合計',
-        color: 'bg-gradient-to-tr from-yellow-100 to-yellow-300 text-yellow-900',
-    },
-    {
-        title: 'メッセージ',
-        value: mockMessages.length,
-        icon: MessageCircle,
-        link: '/admin/messages',
-        badge: '件数',
-        color: 'bg-gradient-to-tr from-green-100 to-green-300 text-green-900',
-    },
-    {
-        title: 'ギフト',
-        value: mockGifts.length,
-        icon: Gift,
-        link: '/admin/gifts',
-        badge: '件数',
-        color: 'bg-gradient-to-tr from-purple-100 to-purple-300 text-purple-900',
-    },
-    {
-        title: 'ランキング',
-        value: mockRanking.length,
-        icon: Trophy,
-        link: '/admin/ranking',
-        badge: '件数',
-        color: 'bg-gradient-to-tr from-orange-100 to-orange-300 text-orange-900',
-    },
-    {
-        title: 'マッチング',
-        value: mockMatching.length,
-        icon: ListChecks,
-        link: '/admin/matching-select',
-        badge: '件数',
-        color: 'bg-gradient-to-tr from-teal-100 to-teal-300 text-teal-900',
-    },
-    {
-        title: 'お知らせ',
-        value: mockNotifications.length,
-        icon: Megaphone,
-        link: '/admin/notifications',
-        badge: '件数',
-        color: 'bg-gradient-to-tr from-gray-100 to-gray-300 text-gray-900',
-    },
-];
-
-const recentUpdates = [
-    {
-        user: '山田 太郎',
-        type: 'ゲスト',
-        action: '新規登録',
-        time: '1時間前',
-    },
-    {
-        user: '高橋 美咲',
-        type: 'キャスト',
-        action: 'プロフィール更新',
-        time: '2時間前',
-    },
-    {
-        user: '佐藤 花子',
-        type: 'ゲスト',
-        action: '売上追加',
-        time: '3時間前',
-    },
-    {
-        user: '田中 直樹',
-        type: 'キャスト',
-        action: 'ギフト受取',
-        time: '4時間前',
-    },
-];
-
-const salesChartData = [
-    { name: '6/10', 売上: 2000 },
-    { name: '6/15', 売上: 3000 },
-    { name: '7/01', 売上: 5000 },
-];
 
 export default function Dashboard() {
+    // Get real data from props
+    const { pendingApplications, totalReservations, activeReservations, totalCasts, totalGuests } = usePage().props as any;
+
+    const summaryCards = [
+        {
+            title: '保留中の応募',
+            value: pendingApplications,
+            icon: Clock,
+            link: '/admin/reservation-applications',
+            badge: '件数',
+            color: 'bg-gradient-to-tr from-orange-100 to-orange-300 text-orange-900',
+        },
+        {
+            title: '総予約数',
+            value: totalReservations,
+            icon: ListChecks,
+            link: '/admin/guests',
+            badge: '件数',
+            color: 'bg-gradient-to-tr from-blue-100 to-blue-300 text-blue-900',
+        },
+        {
+            title: 'アクティブ予約',
+            value: activeReservations,
+            icon: UserCheck,
+            link: '/admin/casts',
+            badge: '件数',
+            color: 'bg-gradient-to-tr from-green-100 to-green-300 text-green-900',
+        },
+        {
+            title: '総キャスト数',
+            value: totalCasts,
+            icon: Users,
+            link: '/admin/casts',
+            badge: '件数',
+            color: 'bg-gradient-to-tr from-purple-100 to-purple-300 text-purple-900',
+        },
+        {
+            title: '総ゲスト数',
+            value: totalGuests,
+            icon: Users,
+            link: '/admin/guests',
+            badge: '件数',
+            color: 'bg-gradient-to-tr from-pink-100 to-pink-300 text-pink-900',
+        },
+    ];
+
+    const recentUpdates = [
+        {
+            user: '予約応募管理',
+            type: '管理',
+            action: '保留中の応募を確認',
+            time: '今すぐ',
+        },
+        {
+            user: '統計情報',
+            type: 'データ',
+            action: '予約・キャスト・ゲスト数',
+            time: 'リアルタイム',
+        },
+    ];
+
+    const reservationChartData = [
+        { name: '総予約', 数: totalReservations },
+        { name: 'アクティブ', 数: activeReservations },
+        { name: '保留中応募', 数: pendingApplications },
+    ];
     return (
         <AppLayout breadcrumbs={breadcrumbs}>
             <Head title="ダッシュボード" />
@@ -167,9 +93,9 @@ export default function Dashboard() {
                 {/* Information Board */}
                 <Alert className="mb-2 bg-gradient-to-r from-indigo-100 to-indigo-50 border-indigo-200">
                     <Sparkles className="text-indigo-400" />
-                    <AlertTitle className="text-lg">管理者ダッシュボードへようこそ！</AlertTitle>
+                    <AlertTitle className="text-lg">予約応募管理ダッシュボードへようこそ！</AlertTitle>
                     <AlertDescription>
-                        主要な管理機能のサマリーと最新の更新情報を確認できます。
+                        保留中の予約応募を管理し、承認・却下の操作を行えます。主要な統計情報も確認できます。
                     </AlertDescription>
                 </Alert>
 
@@ -195,88 +121,62 @@ export default function Dashboard() {
 
                 {/* Chart + Recent Updates Row */}
                 <div className="grid md:grid-cols-2 gap-6 mt-2">
-                    {/* Sales Chart */}
+                    {/* Reservation Chart */}
                     <Card className="shadow-sm border-2 border-indigo-100">
                         <CardHeader>
                             <CardTitle className="flex items-center gap-2 text-indigo-700">
-                                <DollarSign className="h-5 w-5 text-yellow-500" />売上グラフ
+                                <ListChecks className="h-5 w-5 text-blue-500" />予約統計グラフ
                             </CardTitle>
                         </CardHeader>
                         <CardContent>
                             <div className="h-64 w-full">
                                 <ResponsiveContainer width="100%" height="100%">
-                                    <BarChart data={salesChartData}>
+                                    <BarChart data={reservationChartData}>
                                         <XAxis dataKey="name" />
                                         <YAxis />
                                         <Tooltip />
-                                        <Bar dataKey="売上" fill="#facc15" radius={[8, 8, 0, 0]} />
+                                        <Bar dataKey="数" fill="#3b82f6" radius={[8, 8, 0, 0]} />
                                     </BarChart>
                                 </ResponsiveContainer>
                             </div>
                         </CardContent>
                     </Card>
 
-                    {/* Recent Updates Board */}
+                    {/* Quick Actions Board */}
                     <Card className="shadow-sm border-2 border-indigo-100">
                         <CardHeader>
                             <CardTitle className="flex items-center gap-2 text-indigo-700">
-                                <Sparkles className="h-5 w-5 text-indigo-400" />最近の更新
+                                <Sparkles className="h-5 w-5 text-indigo-400" />クイックアクション
                             </CardTitle>
                         </CardHeader>
                         <CardContent>
                             <div className="flex flex-col gap-3">
-                                {recentUpdates.map((item, idx) => (
-                                    <div key={idx} className="flex items-center gap-4">
-                                        <Avatar>
-                                            <AvatarFallback>{item.user[0]}</AvatarFallback>
-                                        </Avatar>
-                                        <div>
-                                            <span className="font-medium text-indigo-900">{item.user}</span>
-                                            <span className="ml-2 text-xs text-indigo-500">[{item.type}]</span>
-                                            <span className="ml-2">{item.action}</span>
-                                            <span className="ml-4 text-xs text-muted-foreground">{item.time}</span>
-                                        </div>
+                                <Link href="/admin/reservation-applications" className="flex items-center gap-4 p-3 bg-blue-50 rounded-lg hover:bg-blue-100 transition-colors">
+                                    <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center">
+                                        <Clock className="h-5 w-5 text-blue-600" />
                                     </div>
-                                ))}
+                                    <div>
+                                        <span className="font-medium text-blue-900">予約応募管理</span>
+                                        <span className="ml-2 text-xs text-blue-500">[管理]</span>
+                                        <span className="ml-2">保留中の応募を承認・却下</span>
+                                    </div>
+                                </Link>
+                                <div className="flex items-center gap-4 p-3 bg-gray-50 rounded-lg">
+                                    <div className="w-10 h-10 bg-gray-100 rounded-lg flex items-center justify-center">
+                                        <ListChecks className="h-5 w-5 text-gray-600" />
+                                    </div>
+                                    <div>
+                                        <span className="font-medium text-gray-900">統計情報</span>
+                                        <span className="ml-2 text-xs text-gray-500">[データ]</span>
+                                        <span className="ml-2">リアルタイム統計</span>
+                                    </div>
+                                </div>
                             </div>
                         </CardContent>
                     </Card>
                 </div>
 
-                {/* Gift Pie Chart Row */}
-                <div className="grid md:grid-cols-3 gap-6 mt-2">
-                    <div className="md:col-start-2">
-                        <Card className="shadow-sm border-2 border-purple-100">
-                            <CardHeader>
-                                <CardTitle className="flex items-center gap-2 text-purple-700">
-                                    <Gift className="h-5 w-5 text-purple-400" />ギフト分布（円グラフ）
-                                </CardTitle>
-                            </CardHeader>
-                            <CardContent>
-                                <div className="h-64 w-full flex items-center justify-center">
-                                    <ResponsiveContainer width="100%" height="100%">
-                                        <PieChart>
-                                            <Pie
-                                                data={mockGiftPie}
-                                                dataKey="value"
-                                                nameKey="name"
-                                                cx="50%"
-                                                cy="50%"
-                                                outerRadius={80}
-                                                label
-                                            >
-                                                {mockGiftPie.map((entry, index) => (
-                                                    <Cell key={`cell-${index}`} fill={entry.color} />
-                                                ))}
-                                            </Pie>
-                                            <Tooltip />
-                                        </PieChart>
-                                    </ResponsiveContainer>
-                                </div>
-                            </CardContent>
-                        </Card>
-                    </div>
-                </div>
+
             </div>
         </AppLayout>
     );

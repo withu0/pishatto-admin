@@ -12,6 +12,7 @@ use App\Http\Controllers\CastPaymentController;
 use App\Http\Controllers\IdentityVerificationController;
 use App\Http\Controllers\FeedbackController;
 use App\Http\Controllers\Auth\SmsVerificationController;
+use App\Http\Controllers\ReservationApplicationController;
 use App\Models\Feedback;
 use App\Http\Controllers\Admin\LocationController;
 
@@ -47,7 +48,13 @@ Route::post('/guest/reservation', [GuestAuthController::class, 'createReservatio
 Route::get('/cast/profile/{id}', [CastAuthController::class, 'getProfile']);
 Route::get('/guest/reservations/{guest_id}', [GuestAuthController::class, 'listReservations']);
 Route::get('/reservations/all', [CastAuthController::class, 'allReservations']);
-Route::post('/reservation/match', [GuestAuthController::class, 'matchReservation']);
+Route::post('/reservation/match', [GuestAuthController::class, 'matchReservation']); // Deprecated
+Route::post('/reservation-applications/apply', [ReservationApplicationController::class, 'apply']);
+Route::post('/reservation-applications/{applicationId}/approve', [ReservationApplicationController::class, 'approve']);
+Route::post('/reservation-applications/{applicationId}/reject', [ReservationApplicationController::class, 'reject']);
+Route::get('/reservation-applications/pending', [ReservationApplicationController::class, 'getPendingApplications']);
+Route::get('/reservation-applications/reservation/{reservationId}', [ReservationApplicationController::class, 'getReservationApplications']);
+Route::get('/reservation-applications/cast/{castId}', [ReservationApplicationController::class, 'getCastApplications']);
 Route::get('/chats/{chatId}/messages', [ChatController::class, 'messages']);
 Route::get('/chats/{userType}/{userId}', [GuestAuthController::class, 'getUserChats']);
 Route::get('/chats/all', [GuestAuthController::class, 'allChats']);

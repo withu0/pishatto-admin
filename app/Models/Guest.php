@@ -90,4 +90,15 @@ class Guest extends Authenticatable
     {
         return $this->belongsToMany(Chat::class, 'chat_favorites', 'guest_id', 'chat_id')->withPivot('created_at');
     }
+
+    /**
+     * Get the avatar URL with storage path
+     */
+    public function getAvatarUrlAttribute()
+    {
+        if ($this->avatar) {
+            return '/storage/' . $this->avatar;
+        }
+        return null;
+    }
 }

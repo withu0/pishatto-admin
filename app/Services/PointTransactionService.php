@@ -259,6 +259,12 @@ class PointTransactionService
         // Parse details to extract VIP counts
         $details = $reservation->details ?? '';
         
+        \Log::info('Calculating points for reservation', [
+            'reservation_id' => $reservation->id,
+            'details' => $details,
+            'duration' => $reservation->duration
+        ]);
+        
         // Extract VIP counts from details
         preg_match('/VIP:(\d+)人/', $details, $vipMatches);
         preg_match('/ロイヤルVIP:(\d+)人/', $details, $royalVipMatches);
@@ -267,6 +273,12 @@ class PointTransactionService
         $vipCount = isset($vipMatches[1]) ? (int)$vipMatches[1] : 0;
         $royalVipCount = isset($royalVipMatches[1]) ? (int)$royalVipMatches[1] : 0;
         $premiumCount = isset($premiumMatches[1]) ? (int)$premiumMatches[1] : 0;
+        
+        \Log::info('VIP counts extracted', [
+            'vip_count' => $vipCount,
+            'royal_vip_count' => $royalVipCount,
+            'premium_count' => $premiumCount
+        ]);
         
         // Calculate points based on VIP types and duration
         $duration = $reservation->duration ?? 1; // Default to 1 hour
@@ -287,7 +299,16 @@ class PointTransactionService
         // Add night time bonus based on scheduled start time
         $nightTimeBonus = $this->calculateNightTimeBonus($reservation->scheduled_at);
         
-        return $basePoints + $nightTimeBonus;
+        $totalPoints = $basePoints + $nightTimeBonus;
+        
+        \Log::info('Point calculation result', [
+            'reservation_id' => $reservation->id,
+            'base_points' => $basePoints,
+            'night_time_bonus' => $nightTimeBonus,
+            'total_points' => $totalPoints
+        ]);
+        
+        return $totalPoints;
     }
 
     /**

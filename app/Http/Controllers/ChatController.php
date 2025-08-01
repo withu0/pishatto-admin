@@ -276,4 +276,58 @@ class ChatController extends Controller
         }
         return response()->json(['chat' => $chat]);
     }
+
+    public function update(Request $request, $chatId)
+    {
+        $chat = \App\Models\Chat::with(['guest', 'cast', 'reservation'])->find($chatId);
+        if (!$chat) {
+            return response()->json(['message' => 'Chat not found'], 404);
+        }
+
+        $validated = $request->validate([
+            'guest_nickname' => 'nullable|string|max:50',
+            'cast_nickname' => 'nullable|string|max:50',
+            'location' => 'nullable|string|max:100',
+            'duration' => 'nullable|integer|min:1',
+            'details' => 'nullable|string|max:500',
+        ]);
+
+        // Update guest nickname if provided
+        if (isset($validated['guest_nickname']) && $chat->guest) {
+            $chat->guest->update(['nickname' => $validated['guest_nickname']]);
+        }
+
+        // Update cast nickname if provided
+        if (isset($validated['cast_nickname']) && $chat->cast) {
+            $chat->cast->update(['nickname' => $validated['cast_nickname']]);
+        }
+
+        // Update reservation if provided
+        if ($chat->reservation && (isset($validated['location']) || isset($validated['duration']) || isset($validated['details']))) {
+            $reservationData = [];
+            if (isset($validated['location'])) $reservationData['location'] = $validated['location'];
+            if (isset($validated['duration'])) $reservationData['duration'] = $validated['duration'];
+            if (isset($validated['details'])) $reservationData['details'] = $validated['details'];
+            
+            $chat->reservation->update($reservationData);
+        }
+
+        return response()->json(['message' => 'Chat updated successfully']);
+    }
+
+    public function destroy($chatId)
+    {
+        $chat = \App\Models\Chat::find($chatId);
+        if (!$chat) {
+            return response()->json(['message' => 'Chat not found'], 404);
+        }
+
+        // Delete all messages in this chat
+        \App\Models\Message::where('chat_id', $chatId)->delete();
+        
+        // Delete the chat
+        $chat->delete();
+
+        return response()->json(['message' => 'Chat deleted successfully']);
+    }
 } 

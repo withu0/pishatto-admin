@@ -285,7 +285,7 @@ class GuestAuthController extends Controller
             ]));
 
             // Calculate required points for this reservation (including night time bonus)
-            $requiredPoints = $this->pointTransactionService->calculateReservationPoints($reservation);
+            $requiredPoints = $this->pointTransactionService->calculateReservationPointsLegacy($reservation);
 
             // Get the guest and check if they have enough points
             $guest = Guest::find($request->guest_id);
@@ -293,6 +293,15 @@ class GuestAuthController extends Controller
                 DB::rollBack();
                 return response()->json(['message' => 'Guest not found'], 404);
             }
+
+            \Log::info('Reservation creation - point calculation', [
+                'reservation_id' => $reservation->id,
+                'guest_id' => $guest->id,
+                'guest_points_before' => $guest->points,
+                'required_points' => $requiredPoints,
+                'duration' => $reservation->duration,
+                'details' => $reservation->details
+            ]);
 
             if ($guest->points < $requiredPoints) {
                 DB::rollBack();
@@ -307,8 +316,15 @@ class GuestAuthController extends Controller
             $guest->points -= $requiredPoints;
             $guest->save();
 
+            \Log::info('Points deducted from guest', [
+                'reservation_id' => $reservation->id,
+                'guest_id' => $guest->id,
+                'points_deducted' => $requiredPoints,
+                'guest_points_after' => $guest->points
+            ]);
+
             // Create a pending point transaction record
-            PointTransaction::create([
+            $pendingTransaction = PointTransaction::create([
                 'guest_id' => $guest->id,
                 'cast_id' => null,
                 'type' => 'pending',
@@ -317,7 +333,21 @@ class GuestAuthController extends Controller
                 'description' => "Reservation created - {$reservation->duration} hours (pending)"
             ]);
 
+            \Log::info('Pending point transaction created', [
+                'transaction_id' => $pendingTransaction->id,
+                'reservation_id' => $reservation->id,
+                'guest_id' => $guest->id,
+                'amount' => $requiredPoints
+            ]);
+
             DB::commit();
+
+            \Log::info('Reservation created successfully', [
+                'reservation_id' => $reservation->id,
+                'guest_id' => $guest->id,
+                'points_deducted' => $requiredPoints,
+                'remaining_points' => $guest->points
+            ]);
 
             // Real-time ranking update for guest
             $rankingService = app(\App\Services\RankingService::class);
@@ -350,55 +380,11 @@ class GuestAuthController extends Controller
 
     public function matchReservation(Request $request)
     {
-        $validator = Validator::make($request->all(), [
-            'reservation_id' => 'required|exists:reservations,id',
-            'cast_id' => 'required|exists:casts,id',
-        ]);
-        if ($validator->fails()) {
-            return response()->json([
-                'message' => 'Validation failed',
-                'errors' => $validator->errors()
-            ], 422);
-        }
-        $reservation = Reservation::find($request->reservation_id);
-
-        $reservation->active = false;
-        $reservation->cast_id = $request->cast_id; // Set the cast_id when reservation is matched
-        $reservation->save();
-        // Real-time ranking update for both guest and cast
-        $rankingService = app(\App\Services\RankingService::class);
-        $rankingService->updateRealTimeRankings($reservation->location ?? '全国');
-        // Broadcast reservation update
-        // event(new \App\Events\ReservationUpdated($reservation));
-        // Only create a chat if one does not already exist for this reservation and cast
-        $chat = \App\Models\Chat::where('reservation_id', $reservation->id)
-            ->where('cast_id', $request->cast_id)
-            ->first();
-        if (!$chat) {
-            $chat = \App\Models\Chat::create([
-                'guest_id' => $reservation->guest_id,
-                'cast_id' => $request->cast_id,
-                'reservation_id' => $reservation->id,
-            ]);
-        }
-        // // Notify guest
-        $notification = Notification::create([
-            'user_id' => $reservation->guest_id,
-            'user_type' => 'guest',
-            'type' => 'order_matched',
-            'reservation_id' => $reservation->id,
-            'cast_id' => $request->cast_id,
-            'message' => '予約がキャストにマッチされました',
-            'read' => false,
-        ]);
-        // Broadcast notification
-        event(new \App\Events\NotificationSent($notification));
-        // Return reservation with attached casts
+        // This method is now deprecated - use ReservationApplicationController::apply instead
         return response()->json([
-            'message' => 'Reservation matched and group chat created',
-            'chat' => $chat,
-            'reservation' => $reservation->toArray(),
-        ]);
+            'message' => 'This endpoint is deprecated. Please use /reservation-applications/apply instead.',
+            'error' => 'DEPRECATED_ENDPOINT'
+        ], 400);
     }
 
     public function getUserChats($userType, $userId)

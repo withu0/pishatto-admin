@@ -37,6 +37,21 @@ class Reservation extends Model
         return $this->belongsTo(Cast::class, 'cast_id');
     }
 
+    public function applications()
+    {
+        return $this->hasMany(ReservationApplication::class);
+    }
+
+    public function pendingApplications()
+    {
+        return $this->hasMany(ReservationApplication::class)->where('status', 'pending');
+    }
+
+    public function approvedApplication()
+    {
+        return $this->hasOne(ReservationApplication::class)->where('status', 'approved');
+    }
+
     public function pointTransactions()
     {
         return $this->hasMany(PointTransaction::class);

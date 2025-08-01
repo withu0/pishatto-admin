@@ -511,9 +511,8 @@ class CastAuthController extends Controller
         
         // Calculate points and process transaction
         $pointService = app(\App\Services\PointTransactionService::class);
-        $pointsAmount = $pointService->calculateReservationPoints($reservation);
         
-        $success = $pointService->processReservationCompletion($reservation, $pointsAmount);
+        $success = $pointService->processReservationCompletion($reservation);
         
         if (!$success) {
             return response()->json(['message' => 'Failed to process point transaction'], 500);
@@ -521,7 +520,6 @@ class CastAuthController extends Controller
         
         return response()->json([
             'reservation' => $reservation, 
-            'points' => $pointsAmount,
             'message' => 'Reservation completed and points transferred successfully'
         ]);
     }

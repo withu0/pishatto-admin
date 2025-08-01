@@ -1,0 +1,228 @@
+<?php
+
+namespace App\Http\Controllers;
+
+use Illuminate\Http\Request;
+use App\Models\ReservationApplication;
+use App\Models\Reservation;
+use App\Models\Cast;
+use App\Models\Guest;
+
+class AdminController extends Controller
+{
+    public function dashboard()
+    {
+        $pendingApplications = ReservationApplication::with(['reservation.guest', 'cast'])
+            ->where('status', 'pending')
+            ->count();
+
+        $totalReservations = Reservation::count();
+        $activeReservations = Reservation::where('active', true)->count();
+        $totalCasts = Cast::count();
+        $totalGuests = Guest::count();
+
+        return \Inertia\Inertia::render('dashboard', compact(
+            'pendingApplications',
+            'totalReservations',
+            'activeReservations',
+            'totalCasts',
+            'totalGuests'
+        ));
+    }
+
+    public function reservationApplications()
+    {
+        $applications = ReservationApplication::with(['reservation.guest', 'cast'])
+            ->where('status', 'pending')
+            ->orderBy('applied_at', 'asc')
+            ->get()
+            ->map(function ($application) {
+                return [
+                    'id' => $application->id,
+                    'reservation' => [
+                        'id' => $application->reservation->id,
+                        'guest' => [
+                            'id' => $application->reservation->guest->id,
+                            'nickname' => $application->reservation->guest->nickname,
+                            'avatar' => $application->reservation->guest->avatar_url,
+                            'phone' => $application->reservation->guest->phone,
+                            'age' => $application->reservation->guest->age,
+                            'location' => $application->reservation->guest->location,
+                            'residence' => $application->reservation->guest->residence,
+                            'birthplace' => $application->reservation->guest->birthplace,
+                            'occupation' => $application->reservation->guest->occupation,
+                            'education' => $application->reservation->guest->education,
+                            'annual_income' => $application->reservation->guest->annual_income,
+                            'interests' => $application->reservation->guest->interests,
+                            'points' => $application->reservation->guest->points,
+                            'created_at' => $application->reservation->guest->created_at,
+                            'total_reservations' => $application->reservation->guest->reservations()->count(),
+                        ],
+                        'scheduled_at' => $application->reservation->scheduled_at,
+                        'location' => $application->reservation->location,
+                        'duration' => $application->reservation->duration,
+                        'details' => $application->reservation->details,
+                        'type' => $application->reservation->type,
+                    ],
+                    'cast' => [
+                        'id' => $application->cast->id,
+                        'nickname' => $application->cast->nickname,
+                        'avatar' => $application->cast->first_avatar_url,
+                        'phone' => $application->cast->phone,
+                        'name' => $application->cast->name,
+                        'birth_year' => $application->cast->birth_year,
+                        'height' => $application->cast->height,
+                        'grade' => $application->cast->grade,
+                        'grade_points' => $application->cast->grade_points,
+                        'residence' => $application->cast->residence,
+                        'birthplace' => $application->cast->birthplace,
+                        'location' => $application->cast->location,
+                        'profile_text' => $application->cast->profile_text,
+                        'points' => $application->cast->points,
+                        'status' => $application->cast->status,
+                        'created_at' => $application->cast->created_at,
+                    ],
+                    'status' => $application->status,
+                    'applied_at' => $application->applied_at,
+                    'approved_at' => $application->approved_at,
+                    'rejected_at' => $application->rejected_at,
+                    'rejection_reason' => $application->rejection_reason,
+                ];
+            });
+
+        return \Inertia\Inertia::render('admin/reservation-applications', compact('applications'));
+    }
+
+    public function approveApplication(Request $request, $applicationId)
+    {
+        $validated = $request->validate([
+            'admin_id' => 'required|exists:users,id',
+        ]);
+
+        $application = ReservationApplication::with(['reservation', 'cast'])->findOrFail($applicationId);
+
+        if ($application->status !== 'pending') {
+            return response()->json([
+                'message' => 'Application is not pending'
+            ], 400);
+        }
+
+        \DB::transaction(function () use ($application, $validated) {
+            // Update application status
+            $application->update([
+                'status' => 'approved',
+                'approved_at' => now(),
+                'approved_by' => $validated['admin_id'],
+            ]);
+
+            // Update reservation
+            $reservation = $application->reservation;
+            $reservation->update([
+                'active' => false,
+                'cast_id' => $application->cast_id,
+            ]);
+
+            // Reject all other pending applications for this reservation
+            ReservationApplication::where('reservation_id', $reservation->id)
+                ->where('id', '!=', $application->id)
+                ->where('status', 'pending')
+                ->update([
+                    'status' => 'rejected',
+                    'rejected_at' => now(),
+                    'rejected_by' => $validated['admin_id'],
+                    'rejection_reason' => 'Another cast was approved for this reservation',
+                ]);
+
+            // Create chat group
+            $chat = \App\Models\Chat::create([
+                'guest_id' => $reservation->guest_id,
+                'cast_id' => $application->cast_id,
+                'reservation_id' => $reservation->id,
+            ]);
+
+            // Notify guest
+            $guestNotification = \App\Models\Notification::create([
+                'user_id' => $reservation->guest_id,
+                'user_type' => 'guest',
+                'type' => 'order_matched',
+                'reservation_id' => $reservation->id,
+                'cast_id' => $application->cast_id,
+                'message' => '予約がキャストにマッチされました',
+                'read' => false,
+            ]);
+
+            // Notify approved cast
+            $castNotification = \App\Models\Notification::create([
+                'user_id' => $application->cast_id,
+                'user_type' => 'cast',
+                'type' => 'application_approved',
+                'reservation_id' => $reservation->id,
+                'message' => '予約の応募が承認されました',
+                'read' => false,
+            ]);
+
+            // Notify rejected casts
+            $rejectedApplications = ReservationApplication::where('reservation_id', $reservation->id)
+                ->where('status', 'rejected')
+                ->get();
+
+            foreach ($rejectedApplications as $rejectedApp) {
+                \App\Models\Notification::create([
+                    'user_id' => $rejectedApp->cast_id,
+                    'user_type' => 'cast',
+                    'type' => 'application_rejected',
+                    'reservation_id' => $reservation->id,
+                    'message' => '予約の応募が却下されました',
+                    'read' => false,
+                ]);
+            }
+
+            // Update rankings
+            $rankingService = app(\App\Services\RankingService::class);
+            $rankingService->updateRealTimeRankings($reservation->location ?? '全国');
+        });
+
+        return response()->json([
+            'message' => 'Application approved successfully',
+            'chat' => $chat ?? null,
+            'reservation' => $application->reservation->fresh()
+        ]);
+    }
+
+    public function rejectApplication(Request $request, $applicationId)
+    {
+        $validated = $request->validate([
+            'admin_id' => 'required|exists:users,id',
+            'rejection_reason' => 'nullable|string',
+        ]);
+
+        $application = ReservationApplication::findOrFail($applicationId);
+
+        if ($application->status !== 'pending') {
+            return response()->json([
+                'message' => 'Application is not pending'
+            ], 400);
+        }
+
+        $application->update([
+            'status' => 'rejected',
+            'rejected_at' => now(),
+            'rejected_by' => $validated['admin_id'],
+            'rejection_reason' => $validated['rejection_reason'] ?? 'Application rejected by admin',
+        ]);
+
+        // Notify cast
+        $notification = \App\Models\Notification::create([
+            'user_id' => $application->cast_id,
+            'user_type' => 'cast',
+            'type' => 'application_rejected',
+            'reservation_id' => $application->reservation_id,
+            'message' => '予約の応募が却下されました',
+            'read' => false,
+        ]);
+
+        return response()->json([
+            'message' => 'Application rejected successfully'
+        ]);
+    }
+}

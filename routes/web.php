@@ -11,15 +11,16 @@ use App\Http\Controllers\Admin\GiftController;
 use App\Http\Controllers\Admin\AdminNewsController;
 use App\Http\Controllers\Admin\LocationController;
 use App\Http\Controllers\Admin\MessagesController;
+use App\Http\Controllers\Admin\ChatController;
+
+use App\Http\Controllers\AdminController;
 
 Route::get('/', function () {
     return Inertia::render('welcome');
 })->name('home');
 
 Route::middleware(['auth', 'verified'])->group(function () {
-    Route::get('dashboard', function () {
-        return Inertia::render('dashboard');
-    })->name('dashboard');
+    Route::get('dashboard', [AdminController::class, 'dashboard'])->name('dashboard');
 
     // Guest CRUD routes
     Route::resource('admin/guests', GuestController::class, ['as' => 'admin']);
@@ -43,8 +44,12 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::resource('admin/locations', LocationController::class, ['as' => 'admin']);
     Route::get('admin/locations-api/active', [LocationController::class, 'getActiveLocations'])->name('admin.locations.active');
 
-    Route::get('admin/matching-select', fn() => Inertia::render('admin/matching-select'))->name('admin.matching-select');
-    Route::get('admin/matching-manage', fn() => Inertia::render('admin/matching-manage'))->name('admin.matching-manage');
+
+    Route::get('admin/matching-manage', [ChatController::class, 'index'])->name('admin.matching-manage');
+    Route::get('admin/chats/{id}', [ChatController::class, 'show'])->name('admin.chats.show');
+    Route::put('admin/chats/{id}', [ChatController::class, 'update'])->name('admin.chats.update');
+    Route::delete('admin/chats/{id}', [ChatController::class, 'destroy'])->name('admin.chats.destroy');
+    Route::delete('admin/chats/{chatId}/messages/{messageId}', [ChatController::class, 'deleteMessage'])->name('admin.chats.messages.destroy');
     Route::get('admin/messages', [MessagesController::class, 'index'])->name('admin.messages');
     Route::get('test-messages', [MessagesController::class, 'getMessagesData'])->name('test.messages');
     Route::post('admin/messages', [MessagesController::class, 'store'])->name('admin.messages.store');
@@ -59,6 +64,11 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::get('admin/payments', fn() => Inertia::render('admin/payments'))->name('admin.payments');
     Route::get('admin/payment-details', fn() => Inertia::render('admin/payment-details'))->name('admin.payment-details');
     Route::get('admin/notifications', [App\Http\Controllers\Admin\AdminNewsController::class, 'index'])->name('admin.notifications');
+    
+    // Reservation Applications Management
+    Route::get('admin/reservation-applications', [AdminController::class, 'reservationApplications'])->name('admin.reservation-applications');
+    Route::post('admin/reservation-applications/{applicationId}/approve', [AdminController::class, 'approveApplication'])->name('admin.reservation-applications.approve');
+    Route::post('admin/reservation-applications/{applicationId}/reject', [AdminController::class, 'rejectApplication'])->name('admin.reservation-applications.reject');
 });
 
 

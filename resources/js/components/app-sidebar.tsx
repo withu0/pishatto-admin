@@ -17,7 +17,7 @@ const mainNavItems: NavItem[] = [
     { title: 'キャスト一覧', href: '/admin/casts', icon: UserCheck },
     { title: 'ロケーション管理', href: '/admin/locations', icon: MapPin },
     { title: 'バッジ管理', href: '/admin/badges', icon: Award },
-    { title: 'マッチング選定', href: '/admin/matching-select', icon: ListChecks },
+    { title: '予約応募管理', href: '/admin/reservation-applications', icon: ListChecks },
     { title: 'マッチング管理', href: '/admin/matching-manage', icon: ListChecks },
     { title: 'メッセージ管理', href: '/admin/messages', icon: MessageCircle },
     { title: 'ギフト管理', href: '/admin/gifts', icon: Gift },

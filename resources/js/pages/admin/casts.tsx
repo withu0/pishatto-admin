@@ -112,6 +112,8 @@ export default function AdminCasts({ casts, filters }: Props) {
                                         <th className="px-3 py-2 text-left font-semibold">電話番号</th>
                                         <th className="px-3 py-2 text-left font-semibold">LINE ID</th>
                                         <th className="px-3 py-2 text-left font-semibold">状態</th>
+                                        <th className="px-3 py-2 text-left font-semibold">グレード</th>
+                                        <th className="px-3 py-2 text-left font-semibold">グレードポイント</th>
                                         <th className="px-3 py-2 text-left font-semibold">ポイント</th>
                                         <th className="px-3 py-2 text-left font-semibold">登録日</th>
                                         <th className="px-3 py-2 text-left font-semibold">操作</th>
@@ -120,7 +122,7 @@ export default function AdminCasts({ casts, filters }: Props) {
                                 <tbody>
                                     {casts.data.length === 0 ? (
                                         <tr>
-                                            <td colSpan={8} className="text-center py-6 text-muted-foreground">
+                                            <td colSpan={10} className="text-center py-6 text-muted-foreground">
                                                 該当するキャストがいません
                                             </td>
                                         </tr>
@@ -141,6 +143,20 @@ export default function AdminCasts({ casts, filters }: Props) {
                                                 <td className="px-3 py-2">{cast.line_id || '-'}</td>
                                                 <td className="px-3 py-2">
                                                     {getStatusBadge(cast)}
+                                                </td>
+                                                <td className="px-3 py-2">
+                                                    {cast.grade ? (
+                                                        <Badge variant="outline">{cast.grade}</Badge>
+                                                    ) : (
+                                                        <span className="text-muted-foreground">-</span>
+                                                    )}
+                                                </td>
+                                                <td className="px-3 py-2">
+                                                    {cast.grade_points ? (
+                                                        <Badge variant="secondary">{cast.grade_points.toLocaleString()} pt</Badge>
+                                                    ) : (
+                                                        <span className="text-muted-foreground">-</span>
+                                                    )}
                                                 </td>
                                                 <td className="px-3 py-2">
                                                     <Badge variant="secondary">{cast.points.toLocaleString()} pt</Badge>
