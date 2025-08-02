@@ -225,4 +225,83 @@ class AdminController extends Controller
             'message' => 'Application rejected successfully'
         ]);
     }
+
+    /**
+     * Show payments management page with real data
+     */
+    public function payments(Request $request)
+    {
+        $query = \App\Models\Payment::with(['cast'])
+            ->where('user_type', 'cast')
+            ->orderBy('created_at', 'desc');
+
+        // Apply filters
+        if ($request->has('search') && $request->search) {
+            $query->whereHas('cast', function($q) use ($request) {
+                $q->where('name', 'like', '%' . $request->search . '%')
+                  ->orWhere('nickname', 'like', '%' . $request->search . '%');
+            });
+        }
+
+        if ($request->has('status') && $request->status !== 'all') {
+            $query->where('status', $request->status);
+        }
+
+        if ($request->has('payment_method') && $request->payment_method !== 'all') {
+            $query->where('payment_method', $request->payment_method);
+        }
+
+        // Get paginated results
+        $payments = $query->paginate(15);
+
+        // Transform data for frontend
+        $transformedPayments = $payments->getCollection()->map(function($payment) {
+            return [
+                'id' => $payment->id,
+                'cast_id' => $payment->user_id,
+                'cast_name' => $payment->cast ? $payment->cast->name : 'Unknown Cast',
+                'amount' => $payment->amount,
+                'status' => $payment->status,
+                'payment_method' => $payment->payment_method,
+                'description' => $payment->description,
+                'paid_at' => $payment->paid_at?->toISOString(),
+                'created_at' => $payment->created_at->toISOString(),
+                'updated_at' => $payment->updated_at->toISOString(),
+                'payjp_charge_id' => $payment->payjp_charge_id,
+                'metadata' => $payment->metadata,
+            ];
+        });
+
+        // Calculate summary statistics
+        $summary = [
+            'total_amount' => \App\Models\Payment::where('user_type', 'cast')->sum('amount'),
+            'paid_count' => \App\Models\Payment::where('user_type', 'cast')->where('status', 'paid')->count(),
+            'pending_count' => \App\Models\Payment::where('user_type', 'cast')->where('status', 'pending')->count(),
+            'failed_count' => \App\Models\Payment::where('user_type', 'cast')->where('status', 'failed')->count(),
+            'refunded_count' => \App\Models\Payment::where('user_type', 'cast')->where('status', 'refunded')->count(),
+            'unique_casts' => \App\Models\Payment::where('user_type', 'cast')->distinct('user_id')->count(),
+        ];
+
+        $paymentsData = [
+            'payments' => $transformedPayments,
+            'pagination' => [
+                'current_page' => $payments->currentPage(),
+                'last_page' => $payments->lastPage(),
+                'per_page' => $payments->perPage(),
+                'total' => $payments->total(),
+                'from' => $payments->firstItem(),
+                'to' => $payments->lastItem(),
+            ],
+            'summary' => $summary,
+        ];
+
+        return \Inertia\Inertia::render('admin/payments', [
+            'payments' => $paymentsData,
+            'filters' => [
+                'search' => $request->search,
+                'status' => $request->status,
+                'payment_method' => $request->payment_method,
+            ],
+        ]);
+    }
 }

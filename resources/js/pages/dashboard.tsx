@@ -3,7 +3,7 @@ import { Badge } from '@/components/ui/badge';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Icon } from '@/components/ui/icon';
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
-import { Users, UserCheck, DollarSign, MessageCircle, Gift, Trophy, ListChecks, Megaphone, Sparkles, Clock } from 'lucide-react';
+import { Users, UserCheck, DollarSign, MessageCircle, Gift, Trophy, ListChecks, Megaphone, Sparkles, Clock, Shield } from 'lucide-react';
 import AppLayout from '@/layouts/app-layout';
 import { type BreadcrumbItem } from '@/types';
 import { Head, Link, usePage } from '@inertiajs/react';
@@ -31,6 +31,14 @@ export default function Dashboard() {
             link: '/admin/reservation-applications',
             badge: '件数',
             color: 'bg-gradient-to-tr from-orange-100 to-orange-300 text-orange-900',
+        },
+        {
+            title: '身分証明書認証待ち',
+            value: pendingApplications, // This will be updated with actual verification data
+            icon: Shield,
+            link: '/admin/identity-verifications',
+            badge: '件数',
+            color: 'bg-gradient-to-tr from-red-100 to-red-300 text-red-900',
         },
         {
             title: '総予約数',
@@ -100,7 +108,7 @@ export default function Dashboard() {
                 </Alert>
 
                 {/* Quick Stats */}
-                <div className="grid gap-4 md:grid-cols-4">
+                <div className="grid gap-4 md:grid-cols-6">
                     {summaryCards.map((card) => (
                         <Link href={card.link} key={card.title} className="block">
                             <Card className={`hover:scale-[1.03] transition-transform shadow-md ${card.color}`} style={{ minHeight: 120 }}>
@@ -159,6 +167,16 @@ export default function Dashboard() {
                                         <span className="font-medium text-blue-900">予約応募管理</span>
                                         <span className="ml-2 text-xs text-blue-500">[管理]</span>
                                         <span className="ml-2">保留中の応募を承認・却下</span>
+                                    </div>
+                                </Link>
+                                <Link href="/admin/identity-verifications" className="flex items-center gap-4 p-3 bg-red-50 rounded-lg hover:bg-red-100 transition-colors">
+                                    <div className="w-10 h-10 bg-red-100 rounded-lg flex items-center justify-center">
+                                        <Shield className="h-5 w-5 text-red-600" />
+                                    </div>
+                                    <div>
+                                        <span className="font-medium text-red-900">身分証明書認証</span>
+                                        <span className="ml-2 text-xs text-red-500">[認証]</span>
+                                        <span className="ml-2">身分証明書の承認・却下</span>
                                     </div>
                                 </Link>
                                 <div className="flex items-center gap-4 p-3 bg-gray-50 rounded-lg">

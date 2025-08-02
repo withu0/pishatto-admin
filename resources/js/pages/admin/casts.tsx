@@ -15,6 +15,7 @@ interface Cast {
     line_id?: string;
     nickname?: string;
     avatar?: string;
+    avatar_urls?: string[];
     status?: string;
     birth_year?: number;
     height?: number;
@@ -132,7 +133,7 @@ export default function AdminCasts({ casts, filters }: Props) {
                                                 <td className="px-3 py-2">{casts.per_page * (casts.current_page - 1) + idx + 1}</td>
                                                 <td className="px-3 py-2 flex items-center gap-2">
                                                     <Avatar className="w-8 h-8">
-                                                        <AvatarImage src={cast.avatar} />
+                                                        <AvatarImage src={cast.avatar_urls?.[0] || cast.avatar} />
                                                         <AvatarFallback>
                                                             {getDisplayName(cast)[0]}
                                                         </AvatarFallback>

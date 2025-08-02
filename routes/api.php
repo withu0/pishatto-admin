@@ -140,6 +140,17 @@ Route::post('/payments/{paymentId}/refund', [PaymentController::class, 'refund']
 Route::post('/payments/payout', [PaymentController::class, 'requestPayout']);
 Route::post('/payments/webhook', [PaymentController::class, 'webhook']);
 
+// Admin cast payment management routes
+Route::get('/admin/payments/cast', [PaymentController::class, 'getCastPayments']);
+Route::post('/admin/payments/cast', [PaymentController::class, 'createCastPayment']);
+Route::put('/admin/payments/cast/{paymentId}', [PaymentController::class, 'updateCastPayment']);
+Route::delete('/admin/payments/cast/{paymentId}', [PaymentController::class, 'deleteCastPayment']);
+
+// Payment Details API routes
+Route::get('/admin/payment-details', [App\Http\Controllers\Admin\PaymentDetailController::class, 'getPaymentDetails']);
+Route::post('/admin/payment-details', [App\Http\Controllers\Admin\PaymentDetailController::class, 'createPaymentDetail']);
+Route::put('/admin/payment-details/{paymentDetailId}', [App\Http\Controllers\Admin\PaymentDetailController::class, 'updatePaymentDetail']);
+
 // Receipt routes
 Route::get('/receipts/{userType}/{userId}', [PaymentController::class, 'receipts']);
 

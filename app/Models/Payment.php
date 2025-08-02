@@ -35,12 +35,12 @@ class Payment extends Model
 
     public function guest()
     {
-        return $this->belongsTo(Guest::class, 'user_id')->where('user_type', 'guest');
+        return $this->belongsTo(Guest::class, 'user_id');
     }
 
     public function cast()
     {
-        return $this->belongsTo(Cast::class, 'user_id')->where('user_type', 'cast');
+        return $this->belongsTo(Cast::class, 'user_id');
     }
 
     public function receipts()

@@ -27,6 +27,12 @@ class DashboardController extends Controller
         $rankingCount = Ranking::count();
         $matchingCount = Reservation::where('status', 'matched')->count();
         $notificationCount = Notification::count();
+        
+        // Identity verification counts
+        $pendingVerifications = Guest::where('identity_verification_completed', 'pending')
+                                   ->whereNotNull('identity_verification')->count();
+        $approvedVerifications = Guest::where('identity_verification_completed', 'success')->count();
+        $rejectedVerifications = Guest::where('identity_verification_completed', 'failed')->count();
 
         // Calculate total sales from point transactions
         $totalSales = PointTransaction::where('type', 'purchase')
@@ -59,6 +65,9 @@ class DashboardController extends Controller
                 'rankings' => $rankingCount,
                 'matching' => $matchingCount,
                 'notifications' => $notificationCount,
+                'pendingVerifications' => $pendingVerifications,
+                'approvedVerifications' => $approvedVerifications,
+                'rejectedVerifications' => $rejectedVerifications,
             ],
             'giftDistribution' => $giftDistribution,
             'recentUpdates' => $recentUpdates,

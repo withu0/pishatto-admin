@@ -101,4 +101,42 @@ class Guest extends Authenticatable
         }
         return null;
     }
+
+    /**
+     * Get the first avatar URL
+     */
+    public function getFirstAvatarUrlAttribute()
+    {
+        if ($this->avatar) {
+            $avatars = explode(',', $this->avatar);
+            return '/storage/' . trim($avatars[0]);
+        }
+        return null;
+    }
+
+    /**
+     * Get all avatar URLs
+     */
+    public function getAvatarUrlsAttribute()
+    {
+        if ($this->avatar) {
+            $avatars = explode(',', $this->avatar);
+            return array_map(function($path) {
+                return '/storage/' . trim($path);
+            }, $avatars);
+        }
+        return [];
+    }
+
+    /**
+     * Set avatars as comma-separated string
+     */
+    public function setAvatarsAttribute($value)
+    {
+        if (is_array($value)) {
+            $this->attributes['avatar'] = implode(',', $value);
+        } else {
+            $this->attributes['avatar'] = $value;
+        }
+    }
 }

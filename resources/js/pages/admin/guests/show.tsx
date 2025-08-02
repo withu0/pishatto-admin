@@ -30,7 +30,7 @@ interface Guest {
     cohabitant?: string;
     pressure?: 'weak' | 'medium' | 'strong';
     favorite_area?: string;
-    interests?: string[];
+    interests?: string[] | Array<{ category: string; tag: string }>;
     payjp_customer_id?: string;
     payment_info?: string;
     points: number;
@@ -191,6 +191,29 @@ export default function GuestShow({ guest }: Props) {
                                             <div className="flex items-center gap-2 text-sm">
                                                 <span className="font-medium">職業:</span>
                                                 <span>{guest.occupation}</span>
+                                            </div>
+                                        )}
+                                        {guest.favorite_area && (
+                                            <div className="flex items-center gap-2 text-sm">
+                                                <span className="font-medium">好みのエリア:</span>
+                                                <span>{guest.favorite_area}</span>
+                                            </div>
+                                        )}
+                                        {guest.interests && guest.interests.length > 0 && (
+                                            <div className="flex items-start gap-2 text-sm">
+                                                <span className="font-medium">興味・関心:</span>
+                                                <div className="flex flex-wrap gap-1">
+                                                    {guest.interests.map((interest, index) => (
+                                                        <Badge key={index} variant="secondary" className="text-xs">
+                                                            {typeof interest === 'string' 
+                                                                ? interest 
+                                                                : typeof interest === 'object' && interest.category && interest.tag
+                                                                    ? `${interest.category}: ${interest.tag}`
+                                                                    : JSON.stringify(interest)
+                                                            }
+                                                        </Badge>
+                                                    ))}
+                                                </div>
                                             </div>
                                         )}
                                     </div>

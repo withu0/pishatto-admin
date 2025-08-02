@@ -12,6 +12,7 @@ use App\Http\Controllers\Admin\AdminNewsController;
 use App\Http\Controllers\Admin\LocationController;
 use App\Http\Controllers\Admin\MessagesController;
 use App\Http\Controllers\Admin\ChatController;
+use App\Http\Controllers\Admin\IdentityVerificationController;
 
 use App\Http\Controllers\AdminController;
 
@@ -59,16 +60,28 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::delete('admin/messages/{id}', [MessagesController::class, 'destroy'])->name('admin.messages.destroy');
     Route::get('admin/ranking', fn() => Inertia::render('admin/ranking'))->name('admin.ranking');
     Route::resource('admin/tweets', App\Http\Controllers\Admin\TweetsController::class, ['as' => 'admin']);
-    Route::get('admin/sales', fn() => Inertia::render('admin/sales'))->name('admin.sales');
+    Route::get('admin/sales', [App\Http\Controllers\Admin\SalesController::class, 'index'])->name('admin.sales');
+    Route::post('admin/sales', [App\Http\Controllers\Admin\SalesController::class, 'store'])->name('admin.sales.store');
+    Route::put('admin/sales/{payment}', [App\Http\Controllers\Admin\SalesController::class, 'update'])->name('admin.sales.update');
+    Route::delete('admin/sales/{payment}', [App\Http\Controllers\Admin\SalesController::class, 'destroy'])->name('admin.sales.destroy');
+    Route::get('admin/sales/guests', [App\Http\Controllers\Admin\SalesController::class, 'getGuests'])->name('admin.sales.guests');
     Route::get('admin/receipts', fn() => Inertia::render('admin/receipts'))->name('admin.receipts');
-    Route::get('admin/payments', fn() => Inertia::render('admin/payments'))->name('admin.payments');
-    Route::get('admin/payment-details', fn() => Inertia::render('admin/payment-details'))->name('admin.payment-details');
+    Route::get('admin/payments', [AdminController::class, 'payments'])->name('admin.payments');
+    Route::resource('admin/payment-details', App\Http\Controllers\Admin\PaymentDetailController::class, ['as' => 'admin']);
     Route::get('admin/notifications', [App\Http\Controllers\Admin\AdminNewsController::class, 'index'])->name('admin.notifications');
     
     // Reservation Applications Management
     Route::get('admin/reservation-applications', [AdminController::class, 'reservationApplications'])->name('admin.reservation-applications');
     Route::post('admin/reservation-applications/{applicationId}/approve', [AdminController::class, 'approveApplication'])->name('admin.reservation-applications.approve');
     Route::post('admin/reservation-applications/{applicationId}/reject', [AdminController::class, 'rejectApplication'])->name('admin.reservation-applications.reject');
+    
+    // Identity Verification Management
+    Route::get('admin/identity-verifications', [IdentityVerificationController::class, 'index'])->name('admin.identity-verifications');
+    Route::post('admin/identity-verifications/{guestId}/approve', [IdentityVerificationController::class, 'approve'])->name('admin.identity-verifications.approve');
+    Route::post('admin/identity-verifications/{guestId}/reject', [IdentityVerificationController::class, 'reject'])->name('admin.identity-verifications.reject');
+    Route::get('admin/identity-verifications/stats', [IdentityVerificationController::class, 'stats'])->name('admin.identity-verifications.stats');
+    Route::get('admin/identity-verifications/debug', [IdentityVerificationController::class, 'debug'])->name('admin.identity-verifications.debug');
+    Route::get('admin/identity-verifications/test-storage', [IdentityVerificationController::class, 'testStorage'])->name('admin.identity-verifications.test-storage');
 });
 
 

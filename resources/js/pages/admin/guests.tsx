@@ -3,11 +3,12 @@ import { Head, router, Link } from '@inertiajs/react';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
-import { Edit, Trash2, Plus, Eye } from 'lucide-react';
+import { Edit, Trash2, Plus, Eye, Check, X } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { useDebounce } from '@/hooks/use-debounce';
+import { toast } from 'sonner';
 
 interface Guest {
     id: number;
@@ -18,6 +19,8 @@ interface Guest {
     shiatsu?: string;
     location?: string;
     avatar?: string;
+    avatar_url?: string;
+    avatar_urls?: string[];
     birth_year?: number;
     height?: number;
     residence?: string;
@@ -31,7 +34,7 @@ interface Guest {
     cohabitant?: string;
     pressure?: 'weak' | 'medium' | 'strong';
     favorite_area?: string;
-    interests?: string[];
+    interests?: (string | { category: string; tag: string })[];
     payjp_customer_id?: string;
     payment_info?: string;
     points: number;
@@ -59,6 +62,9 @@ interface Props {
 
 export default function AdminGuests({ guests, filters }: Props) {
     const [search, setSearch] = useState(filters.search || '');
+    const [isDeleting, setIsDeleting] = useState<number | null>(null);
+    const [isApproving, setIsApproving] = useState<number | null>(null);
+    const [isRejecting, setIsRejecting] = useState<number | null>(null);
     const debouncedSearch = useDebounce(search, 300);
 
     useEffect(() => {
@@ -68,9 +74,78 @@ export default function AdminGuests({ guests, filters }: Props) {
         });
     }, [debouncedSearch]);
 
-    const handleDelete = (guestId: number) => {
-        if (confirm('このゲストを削除してもよろしいですか？')) {
-            router.delete(`/admin/guests/${guestId}`);
+    const handleDelete = async (guestId: number) => {
+        if (!confirm('このゲストを削除してもよろしいですか？この操作は取り消せません。')) {
+            return;
+        }
+
+        setIsDeleting(guestId);
+        try {
+            await router.delete(`/admin/guests/${guestId}`, {
+                onSuccess: () => {
+                    toast.success('ゲストが正常に削除されました');
+                },
+                onError: (errors) => {
+                    toast.error('ゲストの削除に失敗しました');
+                    console.error('Delete error:', errors);
+                },
+                onFinish: () => {
+                    setIsDeleting(null);
+                }
+            });
+        } catch (error) {
+            toast.error('ゲストの削除に失敗しました');
+            setIsDeleting(null);
+        }
+    };
+
+    const handleApproveVerification = async (guestId: number) => {
+        if (!confirm('このゲストの身分証明書を承認しますか？')) {
+            return;
+        }
+
+        setIsApproving(guestId);
+        try {
+            await router.post(`/api/admin/identity-verification/${guestId}/approve`, {}, {
+                onSuccess: () => {
+                    toast.success('身分証明書が承認されました');
+                },
+                onError: (errors) => {
+                    toast.error('承認に失敗しました');
+                    console.error('Approve error:', errors);
+                },
+                onFinish: () => {
+                    setIsApproving(null);
+                }
+            });
+        } catch (error) {
+            toast.error('承認に失敗しました');
+            setIsApproving(null);
+        }
+    };
+
+    const handleRejectVerification = async (guestId: number) => {
+        if (!confirm('このゲストの身分証明書を却下しますか？')) {
+            return;
+        }
+
+        setIsRejecting(guestId);
+        try {
+            await router.post(`/api/admin/identity-verification/${guestId}/reject`, {}, {
+                onSuccess: () => {
+                    toast.success('身分証明書が却下されました');
+                },
+                onError: (errors) => {
+                    toast.error('却下に失敗しました');
+                    console.error('Reject error:', errors);
+                },
+                onFinish: () => {
+                    setIsRejecting(null);
+                }
+            });
+        } catch (error) {
+            toast.error('却下に失敗しました');
+            setIsRejecting(null);
         }
     };
 
@@ -127,7 +202,7 @@ export default function AdminGuests({ guests, filters }: Props) {
                     <CardContent>
                         <div className="mb-4 flex items-center gap-2">
                             <Input
-                                placeholder="名前・メールアドレスで検索"
+                                placeholder="名前・電話番号・LINE IDで検索"
                                 value={search}
                                 onChange={e => setSearch(e.target.value)}
                                 className="max-w-xs"
@@ -163,6 +238,7 @@ export default function AdminGuests({ guests, filters }: Props) {
                                                 <td className="px-3 py-2">{guests.from + idx}</td>
                                                 <td className="px-3 py-2 flex items-center gap-2">
                                                     <Avatar>
+                                                        <AvatarImage src={guest.avatar_url || guest.avatar_urls?.[0]} />
                                                         <AvatarFallback>{getDisplayName(guest)[0]}</AvatarFallback>
                                                     </Avatar>
                                                     {getDisplayName(guest)}
@@ -177,7 +253,31 @@ export default function AdminGuests({ guests, filters }: Props) {
                                                     <Badge variant="secondary">{guest.points.toLocaleString()} pt</Badge>
                                                 </td>
                                                 <td className="px-3 py-2">
-                                                    {getVerificationBadge(guest.identity_verification_completed)}
+                                                    <div className="flex items-center gap-2">
+                                                        {getVerificationBadge(guest.identity_verification_completed)}
+                                                        {guest.identity_verification_completed === 'pending' && guest.identity_verification && (
+                                                            <div className="flex gap-1">
+                                                                <Button
+                                                                    size="sm"
+                                                                    variant="outline"
+                                                                    className="h-6 px-2"
+                                                                    onClick={() => handleApproveVerification(guest.id)}
+                                                                    disabled={isApproving === guest.id}
+                                                                >
+                                                                    <Check className="w-3 h-3" />
+                                                                </Button>
+                                                                <Button
+                                                                    size="sm"
+                                                                    variant="outline"
+                                                                    className="h-6 px-2"
+                                                                    onClick={() => handleRejectVerification(guest.id)}
+                                                                    disabled={isRejecting === guest.id}
+                                                                >
+                                                                    <X className="w-3 h-3" />
+                                                                </Button>
+                                                            </div>
+                                                        )}
+                                                    </div>
                                                 </td>
                                                 <td className="px-3 py-2">
                                                     {getStatusBadge(guest.status)}
@@ -202,9 +302,10 @@ export default function AdminGuests({ guests, filters }: Props) {
                                                         size="sm"
                                                         variant="destructive"
                                                         onClick={() => handleDelete(guest.id)}
+                                                        disabled={isDeleting === guest.id}
                                                     >
                                                         <Trash2 className="w-4 h-4" />
-                                                        削除
+                                                        {isDeleting === guest.id ? '削除中...' : '削除'}
                                                     </Button>
                                                 </td>
                                             </tr>

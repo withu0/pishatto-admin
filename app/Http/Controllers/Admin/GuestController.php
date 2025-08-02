@@ -30,6 +30,13 @@ class GuestController extends Controller
 
         $guests = $query->orderBy('created_at', 'desc')->paginate(20);
 
+        // Add avatar_url to each guest
+        $guests->getCollection()->transform(function ($guest) {
+            $guest->avatar_url = $guest->first_avatar_url;
+            $guest->avatar_urls = $guest->avatar_urls;
+            return $guest;
+        });
+
         return Inertia::render('admin/guests', [
             'guests' => $guests,
             'filters' => $request->only(['search'])

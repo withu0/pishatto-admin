@@ -819,4 +819,181 @@ class PaymentController extends Controller
             ], 500);
         }
     }
+
+    /**
+     * Get cast payment data for admin management
+     * This shows payments made TO casts (similar to sales but for cast payments)
+     */
+    public function getCastPayments(Request $request)
+    {
+        $query = Payment::with(['cast'])
+            ->where('user_type', 'cast')
+            ->orderBy('created_at', 'desc');
+
+        // Apply filters
+        if ($request->has('search') && $request->search) {
+            $query->whereHas('cast', function($q) use ($request) {
+                $q->where('name', 'like', '%' . $request->search . '%')
+                  ->orWhere('nickname', 'like', '%' . $request->search . '%');
+            });
+        }
+
+        if ($request->has('status') && $request->status !== 'all') {
+            $query->where('status', $request->status);
+        }
+
+        if ($request->has('payment_method') && $request->payment_method !== 'all') {
+            $query->where('payment_method', $request->payment_method);
+        }
+
+        // Get paginated results
+        $payments = $query->paginate(15);
+
+        // Transform data for frontend
+        $transformedPayments = $payments->getCollection()->map(function($payment) {
+            return [
+                'id' => $payment->id,
+                'cast_id' => $payment->user_id,
+                'cast_name' => $payment->cast ? $payment->cast->name : 'Unknown Cast',
+                'amount' => $payment->amount,
+                'status' => $payment->status,
+                'payment_method' => $payment->payment_method,
+                'description' => $payment->description,
+                'paid_at' => $payment->paid_at?->toISOString(),
+                'created_at' => $payment->created_at->toISOString(),
+                'updated_at' => $payment->updated_at->toISOString(),
+                'payjp_charge_id' => $payment->payjp_charge_id,
+                'metadata' => $payment->metadata,
+            ];
+        });
+
+        // Calculate summary statistics
+        $summary = [
+            'total_amount' => Payment::where('user_type', 'cast')->sum('amount'),
+            'paid_count' => Payment::where('user_type', 'cast')->where('status', 'paid')->count(),
+            'pending_count' => Payment::where('user_type', 'cast')->where('status', 'pending')->count(),
+            'failed_count' => Payment::where('user_type', 'cast')->where('status', 'failed')->count(),
+            'refunded_count' => Payment::where('user_type', 'cast')->where('status', 'refunded')->count(),
+            'unique_casts' => Payment::where('user_type', 'cast')->distinct('user_id')->count(),
+        ];
+
+        return response()->json([
+            'payments' => $transformedPayments,
+            'pagination' => [
+                'current_page' => $payments->currentPage(),
+                'last_page' => $payments->lastPage(),
+                'per_page' => $payments->perPage(),
+                'total' => $payments->total(),
+                'from' => $payments->firstItem(),
+                'to' => $payments->lastItem(),
+            ],
+            'summary' => $summary,
+        ]);
+    }
+
+    /**
+     * Create a new cast payment
+     */
+    public function createCastPayment(Request $request)
+    {
+        $request->validate([
+            'cast_id' => 'required|integer|exists:casts,id',
+            'amount' => 'required|integer|min:1',
+            'payment_method' => 'required|in:card,convenience_store,bank_transfer,linepay,other',
+            'description' => 'nullable|string|max:500',
+            'status' => 'nullable|in:pending,paid,failed,refunded',
+        ]);
+
+        $payment = Payment::create([
+            'user_id' => $request->cast_id,
+            'user_type' => 'cast',
+            'amount' => $request->amount,
+            'payment_method' => $request->payment_method,
+            'description' => $request->description,
+            'status' => $request->status ?? 'pending',
+            'paid_at' => $request->status === 'paid' ? now() : null,
+        ]);
+
+        // Update cast points if payment is successful
+        if ($payment->status === 'paid') {
+            $cast = Cast::find($request->cast_id);
+            if ($cast) {
+                $cast->points = ($cast->points ?? 0) + $request->amount;
+                $cast->save();
+            }
+        }
+
+        return response()->json([
+            'success' => true,
+            'payment' => $payment->load('cast'),
+            'message' => 'Cast payment created successfully'
+        ]);
+    }
+
+    /**
+     * Update cast payment status
+     */
+    public function updateCastPayment(Request $request, $paymentId)
+    {
+        $request->validate([
+            'status' => 'required|in:pending,paid,failed,refunded',
+            'description' => 'nullable|string|max:500',
+        ]);
+
+        $payment = Payment::where('user_type', 'cast')->findOrFail($paymentId);
+        
+        $oldStatus = $payment->status;
+        $payment->status = $request->status;
+        $payment->description = $request->description ?? $payment->description;
+
+        // Update timestamps based on status
+        if ($request->status === 'paid' && $oldStatus !== 'paid') {
+            $payment->paid_at = now();
+        } elseif ($request->status === 'failed' && $oldStatus !== 'failed') {
+            $payment->failed_at = now();
+        } elseif ($request->status === 'refunded' && $oldStatus !== 'refunded') {
+            $payment->refunded_at = now();
+        }
+
+        $payment->save();
+
+        // Update cast points if status changed to paid
+        if ($request->status === 'paid' && $oldStatus !== 'paid') {
+            $cast = Cast::find($payment->user_id);
+            if ($cast) {
+                $cast->points = ($cast->points ?? 0) + $payment->amount;
+                $cast->save();
+            }
+        }
+
+        return response()->json([
+            'success' => true,
+            'payment' => $payment->load('cast'),
+            'message' => 'Cast payment updated successfully'
+        ]);
+    }
+
+    /**
+     * Delete cast payment
+     */
+    public function deleteCastPayment($paymentId)
+    {
+        $payment = Payment::where('user_type', 'cast')->findOrFail($paymentId);
+        
+        // Update cast points if payment was successful
+        if ($payment->status === 'paid') {
+            $cast = Cast::find($payment->user_id);
+            if ($cast) {
+                $cast->points = max(0, ($cast->points ?? 0) - $payment->amount);
+                $cast->save();
+            }
+        }
+
+        $payment->delete();
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Cast payment deleted successfully'
+        ]);
+    }
 }
