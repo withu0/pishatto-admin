@@ -4,7 +4,7 @@ import { NavUser } from '@/components/nav-user';
 import { Sidebar, SidebarContent, SidebarFooter, SidebarHeader, SidebarMenu, SidebarMenuButton, SidebarMenuItem } from '@/components/ui/sidebar';
 import { type NavItem } from '@/types';
 import { Link } from '@inertiajs/react';
-import { BookOpen, Folder, LayoutGrid, Users, UserCheck, UserPlus, MessageCircle, Gift, Trophy, FileText, Receipt, CreditCard, Megaphone, ListChecks, DollarSign, FileSignature, MessageSquareText, Award, MapPin, Shield } from 'lucide-react';
+import { BookOpen, Folder, LayoutGrid, Users, UserCheck, UserPlus, MessageCircle, Gift, Trophy, FileText, Receipt, CreditCard, Megaphone, ListChecks, DollarSign, FileSignature, MessageSquareText, Award, MapPin, Shield, Headphones } from 'lucide-react';
 import AppLogo from './app-logo';
 
 const mainNavItems: NavItem[] = [
@@ -21,6 +21,7 @@ const mainNavItems: NavItem[] = [
     { title: '予約応募管理', href: '/admin/reservation-applications', icon: ListChecks },
     { title: 'マッチング管理', href: '/admin/matching-manage', icon: ListChecks },
     { title: 'メッセージ管理', href: '/admin/messages', icon: MessageCircle },
+    { title: 'コンシェルジュ管理', href: '/admin/concierge', icon: Headphones },
     { title: 'ギフト管理', href: '/admin/gifts', icon: Gift },
     { title: 'ランキング管理', href: '/admin/ranking', icon: Trophy },
     { title: 'つぶやき管理', href: '/admin/tweets', icon: MessageSquareText },

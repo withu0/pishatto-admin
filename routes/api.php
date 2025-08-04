@@ -13,6 +13,7 @@ use App\Http\Controllers\IdentityVerificationController;
 use App\Http\Controllers\FeedbackController;
 use App\Http\Controllers\Auth\SmsVerificationController;
 use App\Http\Controllers\ReservationApplicationController;
+use App\Http\Controllers\ConciergeController;
 use App\Models\Feedback;
 use App\Http\Controllers\Admin\LocationController;
 
@@ -96,6 +97,12 @@ Route::get('/point-transactions/{userType}/{userId}', [PaymentController::class,
 Route::get('/badges', function () {
     return response()->json(['badges' => \App\Models\Badge::all()]);
 });
+// Concierge routes
+Route::get('/concierge/messages', [ConciergeController::class, 'getMessages']);
+Route::post('/concierge/messages', [ConciergeController::class, 'sendMessage']);
+Route::post('/concierge/mark-read', [ConciergeController::class, 'markAsRead']);
+Route::get('/concierge/info', [ConciergeController::class, 'getInfo']);
+
 Route::get('/badges/{castId}', function ($castId) {
     // Get all badge IDs from feedback table for this cast
     $badgeIds = \App\Models\Feedback::where('cast_id', $castId)

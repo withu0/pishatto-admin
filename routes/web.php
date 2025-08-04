@@ -13,6 +13,7 @@ use App\Http\Controllers\Admin\LocationController;
 use App\Http\Controllers\Admin\MessagesController;
 use App\Http\Controllers\Admin\ChatController;
 use App\Http\Controllers\Admin\IdentityVerificationController;
+use App\Http\Controllers\Admin\ConciergeController;
 
 use App\Http\Controllers\AdminController;
 
@@ -45,6 +46,11 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::resource('admin/locations', LocationController::class, ['as' => 'admin']);
     Route::get('admin/locations-api/active', [LocationController::class, 'getActiveLocations'])->name('admin.locations.active');
 
+    // Concierge Management routes
+    Route::resource('admin/concierge', ConciergeController::class, ['as' => 'admin']);
+    Route::put('admin/concierge/{concierge}/status', [ConciergeController::class, 'updateStatus'])->name('admin.concierge.update-status');
+    Route::put('admin/concierge/{concierge}/assign', [ConciergeController::class, 'assignAdmin'])->name('admin.concierge.assign');
+    Route::get('admin/concierge/statistics', [ConciergeController::class, 'statistics'])->name('admin.concierge.statistics');
 
     Route::get('admin/matching-manage', [ChatController::class, 'index'])->name('admin.matching-manage');
     Route::get('admin/chats/{id}', [ChatController::class, 'show'])->name('admin.chats.show');
