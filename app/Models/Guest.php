@@ -92,6 +92,25 @@ class Guest extends Authenticatable
     }
 
     /**
+     * Get concierge messages for this guest
+     */
+    public function conciergeMessages()
+    {
+        return $this->hasMany(ConciergeMessage::class, 'user_id')->where('user_type', 'guest');
+    }
+
+    /**
+     * Get unread concierge messages count
+     */
+    public function getUnreadConciergeCountAttribute()
+    {
+        return $this->conciergeMessages()
+            ->where('is_concierge', true)
+            ->where('is_read', false)
+            ->count();
+    }
+
+    /**
      * Get the avatar URL with storage path
      */
     public function getAvatarUrlAttribute()

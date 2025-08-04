@@ -8,6 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Textarea } from '@/components/ui/textarea';
 import { ArrowLeft, Save, User, MessageCircle } from 'lucide-react';
 import { useState } from 'react';
+import { toast } from 'sonner';
 
 interface ConciergeMessage {
     id: number;
@@ -112,8 +113,9 @@ export default function AdminConciergeEdit({ message, guests, casts }: Props) {
             onSuccess: () => {
                 setIsSubmitting(false);
             },
-            onError: () => {
+            onError: (errors) => {
                 setIsSubmitting(false);
+                console.error('Update error:', errors);
             },
         });
     };

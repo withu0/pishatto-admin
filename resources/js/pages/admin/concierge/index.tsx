@@ -8,6 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Edit, Trash2, Plus, Eye, MessageCircle, User, Crown, Search, Filter } from 'lucide-react';
 import { useState, useEffect } from 'react';
+import { toast } from 'sonner';
 
 interface ConciergeMessage {
     id: number;
@@ -58,9 +59,13 @@ interface Props {
     };
     stats: Stats;
     filters: Filters;
+    flash?: {
+        success?: string;
+        error?: string;
+    };
 }
 
-export default function AdminConciergeIndex({ messages, stats, filters }: Props) {
+export default function AdminConciergeIndex({ messages, stats, filters, flash }: Props) {
     const [search, setSearch] = useState(filters.search || '');
     const [statusFilter, setStatusFilter] = useState(filters.status || 'all');
     const [typeFilter, setTypeFilter] = useState(filters.message_type || 'all');
@@ -78,6 +83,16 @@ export default function AdminConciergeIndex({ messages, stats, filters }: Props)
         status: 'pending',
         admin_notes: '',
     });
+
+    // Show flash messages
+    useEffect(() => {
+        if (flash?.success) {
+            toast.success(flash.success);
+        }
+        if (flash?.error) {
+            toast.error(flash.error);
+        }
+    }, [flash]);
 
     const messageTypes = [
         { value: 'inquiry', label: 'お問い合わせ' },
@@ -166,7 +181,14 @@ export default function AdminConciergeIndex({ messages, stats, filters }: Props)
 
     const handleDeleteMessage = (messageId: number) => {
         if (confirm('このメッセージを削除しますか？')) {
-            router.delete(`/admin/concierge/${messageId}`);
+            router.delete(`/admin/concierge/${messageId}`, {
+                onSuccess: () => {
+                    // Success is handled by redirect
+                },
+                onError: (errors) => {
+                    console.error('Delete error:', errors);
+                },
+            });
         }
     };
 

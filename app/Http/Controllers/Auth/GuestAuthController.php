@@ -1018,34 +1018,21 @@ class GuestAuthController extends Controller
 
     /**
      * Format phone number for Twilio
-     * Handles cases where users input numbers like 70, 80, 90
+     * Remove leading 0 and add 81 for Japanese phone numbers
      */
     private function formatPhoneNumberForTwilio($phoneNumber)
     {
-        // Remove any non-digit characters except +
-        $phoneNumber = preg_replace('/[^0-9+]/', '', $phoneNumber);
+        // Remove any non-digit characters
+        $phoneNumber = preg_replace('/[^0-9]/', '', $phoneNumber);
         
-        // If it starts with +, it's already formatted
-        if (str_starts_with($phoneNumber, '+')) {
-            return $phoneNumber;
+        // Ensure it starts with 0 (Japanese format)
+        if (!str_starts_with($phoneNumber, '0')) {
+            throw new \InvalidArgumentException('Phone number must start with 0');
         }
         
-        // Handle cases where user inputs 70, 80, 90, etc.
-        if (strlen($phoneNumber) <= 2) {
-            // Add +0 prefix for short numbers like 70, 80, 90
-            return '+0' . $phoneNumber;
-        }
+        // Remove leading 0 and add +81
+        $formattedNumber = '+81' . ltrim($phoneNumber, '0');
         
-        // Handle Japanese phone numbers (10-11 digits starting with 0)
-        if (strlen($phoneNumber) >= 10 && str_starts_with($phoneNumber, '0')) {
-            return '+81' . ltrim($phoneNumber, '0');
-        }
-        
-        // Handle other cases - assume it's a Japanese number
-        if (!str_starts_with($phoneNumber, '+')) {
-            return '+81' . ltrim($phoneNumber, '0');
-        }
-        
-        return $phoneNumber;
+        return $formattedNumber;
     }
 } 

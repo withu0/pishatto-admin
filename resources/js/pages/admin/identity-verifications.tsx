@@ -16,6 +16,7 @@ import {
     DialogTitle,
 } from '@/components/ui/dialog';
 
+
 interface Guest {
     id: number;
     phone?: string;
@@ -393,15 +394,15 @@ export default function AdminIdentityVerifications({ verifications, filters }: P
                             </div>
                         </DialogHeader>
 
-                        {selectedVerification && selectedVerification.identity_verification_url && (
+                        {selectedVerification && selectedVerification.identity_verification && (
                             <div className="flex flex-col h-full">
                                 {/* Image Display Section */}
                                 <div className="flex-1 min-h-0 p-6">
-                                    <div className="relative w-full h-full bg-gray-50 rounded-lg border-2 border-dashed border-gray-200 overflow-hidden">
+                                    <div className="relative w-96 h-48 bg-gray-50 rounded-lg border-2 border-dashed border-gray-200 overflow-hidden">
                                         <img
                                             src={selectedVerification.identity_verification_url}
                                             alt="身分証明書"
-                                            className="w-full h-full object-contain"
+                                            className="w-full h-48 object-cover"
                                             onError={(e) => {
                                                 console.error('Image failed to load:', selectedVerification.identity_verification_url);
                                                 e.currentTarget.style.display = 'none';
@@ -472,40 +473,6 @@ export default function AdminIdentityVerifications({ verifications, filters }: P
                                                 >
                                                     <Download className="w-3 h-3 mr-1" />
                                                     ダウンロード
-                                                </Button>
-                                                <Button
-                                                    size="sm"
-                                                    variant="outline"
-                                                    onClick={async () => {
-                                                        try {
-                                                            const response = await fetch(`/admin/identity-verifications/debug?guest_id=${selectedVerification.id}`);
-                                                            const data = await response.json();
-                                                            console.log('Debug info:', data);
-                                                            alert(`Debug info logged to console. File exists: ${data.file_exists}`);
-                                                        } catch (error) {
-                                                            console.error('Debug error:', error);
-                                                        }
-                                                    }}
-                                                    className="text-xs"
-                                                >
-                                                    Debug
-                                                </Button>
-                                                <Button
-                                                    size="sm"
-                                                    variant="outline"
-                                                    onClick={async () => {
-                                                        try {
-                                                            const response = await fetch('/admin/identity-verifications/test-storage');
-                                                            const data = await response.json();
-                                                            console.log('Storage test:', data);
-                                                            alert(`Storage test completed. Check console for details.`);
-                                                        } catch (error) {
-                                                            console.error('Storage test error:', error);
-                                                        }
-                                                    }}
-                                                    className="text-xs"
-                                                >
-                                                    Test Storage
                                                 </Button>
                                             </div>
 

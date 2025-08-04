@@ -22,20 +22,20 @@ class SmsVerificationController extends Controller
     public function sendVerificationCode(Request $request)
     {
         $validator = Validator::make($request->all(), [
-            'phone' => 'required|string',
+            'phone' => 'required|string|regex:/^0\d{9,10}$/',
         ]);
 
         if ($validator->fails()) {
             return response()->json([
                 'success' => false,
-                'message' => 'Invalid phone number format',
+                'message' => '電話番号は0で始まる10桁または11桁の数字で入力してください',
                 'errors' => $validator->errors()
             ], 422);
         }
 
         $phoneNumber = $request->phone;
         
-        // Format phone number for Twilio
+        // Format phone number for Twilio - remove leading 0 and add 81
         $phoneNumber = $this->formatPhoneNumberForTwilio($phoneNumber);
 
         $result = $this->twilioService->sendVerificationCode($phoneNumber);
@@ -65,7 +65,7 @@ class SmsVerificationController extends Controller
     public function verifyCode(Request $request)
     {
         $validator = Validator::make($request->all(), [
-            'phone' => 'required|string',
+            'phone' => 'required|string|regex:/^0\d{9,10}$/',
             'code' => 'required|string|size:6',
         ]);
 
@@ -79,7 +79,7 @@ class SmsVerificationController extends Controller
 
         $phoneNumber = $request->phone;
         
-        // Format phone number for Twilio
+        // Format phone number for Twilio - remove leading 0 and add 81
         $phoneNumber = $this->formatPhoneNumberForTwilio($phoneNumber);
 
         $result = $this->twilioService->verifyCode($phoneNumber, $request->code);
@@ -106,20 +106,20 @@ class SmsVerificationController extends Controller
     public function checkVerificationStatus(Request $request)
     {
         $validator = Validator::make($request->all(), [
-            'phone' => 'required|string',
+            'phone' => 'required|string|regex:/^0\d{9,10}$/',
         ]);
 
         if ($validator->fails()) {
             return response()->json([
                 'success' => false,
-                'message' => 'Invalid phone number format',
+                'message' => '電話番号は0で始まる10桁または11桁の数字で入力してください',
                 'errors' => $validator->errors()
             ], 422);
         }
 
         $phoneNumber = $request->phone;
         
-        // Format phone number for Twilio
+        // Format phone number for Twilio - remove leading 0 and add 81
         $phoneNumber = $this->formatPhoneNumberForTwilio($phoneNumber);
 
         $isVerified = $this->twilioService->isPhoneVerified($phoneNumber);
@@ -132,35 +132,22 @@ class SmsVerificationController extends Controller
 
     /**
      * Format phone number for Twilio
-     * Handles cases where users input numbers like 70, 80, 90
+     * Remove leading 0 and add 81 for Japanese phone numbers
      */
     private function formatPhoneNumberForTwilio($phoneNumber)
     {
-        // Remove any non-digit characters except +
-        $phoneNumber = preg_replace('/[^0-9+]/', '', $phoneNumber);
+        // Remove any non-digit characters
+        $phoneNumber = preg_replace('/[^0-9]/', '', $phoneNumber);
         
-        // If it starts with +, it's already formatted
-        if (str_starts_with($phoneNumber, '+')) {
-            return $phoneNumber;
+        // Ensure it starts with 0 (Japanese format)
+        if (!str_starts_with($phoneNumber, '0')) {
+            throw new \InvalidArgumentException('Phone number must start with 0');
         }
         
-        // Handle cases where user inputs 70, 80, 90, etc.
-        if (strlen($phoneNumber) <= 2) {
-            // Add +0 prefix for short numbers like 70, 80, 90
-            return '+0' . $phoneNumber;
-        }
+        // Remove leading 0 and add +81
+        $formattedNumber = '+81' . ltrim($phoneNumber, '0');
         
-        // Handle Japanese phone numbers (10-11 digits starting with 0)
-        if (strlen($phoneNumber) >= 10 && str_starts_with($phoneNumber, '0')) {
-            return '+81' . ltrim($phoneNumber, '0');
-        }
-        
-        // Handle other cases - assume it's a Japanese number
-        if (!str_starts_with($phoneNumber, '+')) {
-            return '+81' . ltrim($phoneNumber, '0');
-        }
-        
-        return $phoneNumber;
+        return $formattedNumber;
     }
 
     /**
@@ -169,12 +156,16 @@ class SmsVerificationController extends Controller
      */
     public function testPhoneFormatting(Request $request)
     {
-        $testNumbers = ['70', '80', '90', '07012345678', '+817012345678', '1234567890'];
+        $testNumbers = ['09012345678', '08012345678', '07012345678'];
         $results = [];
         
         foreach ($testNumbers as $number) {
-            $formatted = $this->formatPhoneNumberForTwilio($number);
-            $results[$number] = $formatted;
+            try {
+                $formatted = $this->formatPhoneNumberForTwilio($number);
+                $results[$number] = $formatted;
+            } catch (\Exception $e) {
+                $results[$number] = 'Error: ' . $e->getMessage();
+            }
         }
         
         return response()->json([

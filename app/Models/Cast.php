@@ -112,4 +112,23 @@ class Cast extends Authenticatable
     {
         return $this->hasMany(Feedback::class);
     }
+
+    /**
+     * Get concierge messages for this cast
+     */
+    public function conciergeMessages()
+    {
+        return $this->hasMany(ConciergeMessage::class, 'user_id')->where('user_type', 'cast');
+    }
+
+    /**
+     * Get unread concierge messages count
+     */
+    public function getUnreadConciergeCountAttribute()
+    {
+        return $this->conciergeMessages()
+            ->where('is_concierge', true)
+            ->where('is_read', false)
+            ->count();
+    }
 }

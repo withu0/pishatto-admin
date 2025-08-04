@@ -60,6 +60,10 @@ class ConciergeController extends Controller
             'messages' => $messages,
             'stats' => $stats,
             'filters' => $request->only(['status', 'message_type', 'category', 'search', 'user_type']),
+            'flash' => [
+                'success' => session('success'),
+                'error' => session('error'),
+            ],
         ]);
     }
 
@@ -133,45 +137,48 @@ class ConciergeController extends Controller
     /**
      * Update the specified concierge message
      */
-    public function update(Request $request, ConciergeMessage $concierge): JsonResponse
+    public function update(Request $request, ConciergeMessage $concierge)
     {
-        $validated = $request->validate([
-            'user_id' => 'required|integer',
-            'user_type' => 'required|in:guest,cast',
-            'message' => 'required|string|max:1000',
-            'message_type' => 'required|in:inquiry,support,reservation,payment,technical,general',
-            'category' => 'required|in:urgent,normal,low',
-            'status' => 'required|in:pending,in_progress,resolved,closed',
-            'admin_notes' => 'nullable|string',
-            'assigned_admin_id' => 'nullable|integer|exists:users,id',
-            'is_concierge' => 'boolean',
-        ]);
+        try {
+            $validated = $request->validate([
+                'user_id' => 'required|integer',
+                'user_type' => 'required|in:guest,cast',
+                'message' => 'required|string|max:1000',
+                'message_type' => 'required|in:inquiry,support,reservation,payment,technical,general',
+                'category' => 'required|in:urgent,normal,low',
+                'status' => 'required|in:pending,in_progress,resolved,closed',
+                'admin_notes' => 'nullable|string',
+                'assigned_admin_id' => 'nullable|integer|exists:users,id',
+                'is_concierge' => 'boolean',
+            ]);
 
-        // Set resolved_at if status is resolved
-        if ($validated['status'] === 'resolved' && $concierge->status !== 'resolved') {
-            $validated['resolved_at'] = now();
+            // Set resolved_at if status is resolved
+            if ($validated['status'] === 'resolved' && $concierge->status !== 'resolved') {
+                $validated['resolved_at'] = now();
+            }
+
+            $concierge->update($validated);
+
+            return redirect()->route('admin.concierge.show', $concierge)
+                ->with('success', 'コンシェルジュメッセージが更新されました。');
+        } catch (\Exception $e) {
+            return back()->withErrors(['error' => '更新に失敗しました: ' . $e->getMessage()]);
         }
-
-        $concierge->update($validated);
-
-        return response()->json([
-            'success' => true,
-            'message' => 'コンシェルジュメッセージが更新されました。',
-            'data' => $concierge->fresh(),
-        ]);
     }
 
     /**
      * Remove the specified concierge message
      */
-    public function destroy(ConciergeMessage $concierge): JsonResponse
+    public function destroy(ConciergeMessage $concierge)
     {
-        $concierge->delete();
+        try {
+            $concierge->delete();
 
-        return response()->json([
-            'success' => true,
-            'message' => 'コンシェルジュメッセージが削除されました。',
-        ]);
+            return redirect()->route('admin.concierge.index')
+                ->with('success', 'コンシェルジュメッセージが削除されました。');
+        } catch (\Exception $e) {
+            return back()->withErrors(['error' => '削除に失敗しました: ' . $e->getMessage()]);
+        }
     }
 
     /**
