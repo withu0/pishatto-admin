@@ -160,6 +160,15 @@ Route::put('/admin/payment-details/{paymentDetailId}', [App\Http\Controllers\Adm
 
 // Receipt routes
 Route::get('/receipts/{userType}/{userId}', [PaymentController::class, 'receipts']);
+Route::post('/receipts', [PaymentController::class, 'createReceipt']);
+Route::get('/receipts/{receiptId}', [PaymentController::class, 'getReceipt']);
+
+// Admin Receipt routes
+Route::get('/admin/receipts', [App\Http\Controllers\Admin\ReceiptsController::class, 'getReceiptsData']);
+Route::get('/admin/receipts/{id}', [App\Http\Controllers\Admin\ReceiptsController::class, 'show']);
+Route::post('/admin/receipts', [App\Http\Controllers\Admin\ReceiptsController::class, 'store']);
+Route::put('/admin/receipts/{id}', [App\Http\Controllers\Admin\ReceiptsController::class, 'update']);
+Route::delete('/admin/receipts/{id}', [App\Http\Controllers\Admin\ReceiptsController::class, 'destroy']);
 
 // Payout routes
 Route::post('/payouts/request', [PaymentController::class, 'requestPayout']);

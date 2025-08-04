@@ -154,9 +154,9 @@ class CastPaymentController extends Controller
                 // Create point transaction record
                 PointTransaction::create([
                     'cast_id' => $castId,
-                    'type' => 'immediate_payment',
+                    'type' => 'convert',
                     'amount' => -$request->amount, // Negative for deduction
-                    'description' => 'Immediate payment withdrawal'
+                    'description' => 'Immediate payment withdrawal - converted points to money'
                 ]);
 
                 DB::commit();

@@ -17,7 +17,7 @@ class ConciergeMessageSeeder extends Seeder
             [
                 'user_id' => 1,
                 'user_type' => 'guest',
-                'message' => 'こんにちは！patoコンシェルジュです。何かお手伝いできることはありますか？',
+                'message' => 'こんにちは！pishattoコンシェルジュです。何かお手伝いできることはありますか？',
                 'is_concierge' => true,
                 'is_read' => false,
                 'message_type' => 'general',
@@ -169,7 +169,7 @@ class ConciergeMessageSeeder extends Seeder
             [
                 'user_id' => 1,
                 'user_type' => 'cast',
-                'message' => 'こんにちは！patoコンシェルジュです。何かお手伝いできることはありますか？',
+                'message' => 'こんにちは！pishattoコンシェルジュです。何かお手伝いできることはありますか？',
                 'is_concierge' => true,
                 'is_read' => false,
                 'message_type' => 'general',

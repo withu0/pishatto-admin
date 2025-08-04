@@ -200,11 +200,11 @@ class ConciergeController extends Controller
             'success' => true,
             'data' => [
                 'welcome_message' => [
-                    'title' => 'pato',
+                    'title' => 'pishatto',
                     'subtitle' => 'ようこそ',
                     'content' => [
                         'はじめまして。',
-                        'patoコンシェルジュの',
+                        'pishattoコンシェルジュの',
                         'パッとくんと申します。',
                         '「お問い合わせ窓口」として',
                         '24時間体制でサポートさせていただきます。お困りの際は',
@@ -213,7 +213,7 @@ class ConciergeController extends Controller
                     ]
                 ],
                 'concierge_info' => [
-                    'name' => 'patoコンシェルジュ',
+                    'name' => 'pishattoコンシェルジュ',
                     'age' => '11歳',
                     'avatar' => 'concierge-avatar.png'
                 ]

@@ -14,6 +14,7 @@ use App\Http\Controllers\Admin\MessagesController;
 use App\Http\Controllers\Admin\ChatController;
 use App\Http\Controllers\Admin\IdentityVerificationController;
 use App\Http\Controllers\Admin\ConciergeController;
+use App\Http\Controllers\Admin\ReceiptsController;
 
 use App\Http\Controllers\AdminController;
 
@@ -71,7 +72,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::put('admin/sales/{payment}', [App\Http\Controllers\Admin\SalesController::class, 'update'])->name('admin.sales.update');
     Route::delete('admin/sales/{payment}', [App\Http\Controllers\Admin\SalesController::class, 'destroy'])->name('admin.sales.destroy');
     Route::get('admin/sales/guests', [App\Http\Controllers\Admin\SalesController::class, 'getGuests'])->name('admin.sales.guests');
-    Route::get('admin/receipts', fn() => Inertia::render('admin/receipts'))->name('admin.receipts');
+    Route::get('admin/receipts', [ReceiptsController::class, 'index'])->name('admin.receipts');
     Route::get('admin/payments', [AdminController::class, 'payments'])->name('admin.payments');
     Route::resource('admin/payment-details', App\Http\Controllers\Admin\PaymentDetailController::class, ['as' => 'admin']);
     Route::get('admin/notifications', [App\Http\Controllers\Admin\AdminNewsController::class, 'index'])->name('admin.notifications');

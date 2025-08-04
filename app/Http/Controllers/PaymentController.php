@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use Illuminate\Http\Request;
 use App\Models\Payment;
 use App\Models\Receipt;
+use App\Models\PointTransaction;
 use App\Services\PayJPService;
 use App\Services\CustomerService;
 use App\Services\PointTransactionService;
@@ -135,6 +136,24 @@ class PaymentController extends Controller
                     $model->points = $newPoints;
                     $model->save();
 
+                    // Create point transaction record for the direct charge
+                    $pointTransactionData = [
+                        'type' => 'buy',
+                        'amount' => $request->amount,
+                        'description' => "Direct charge point purchase - {$request->amount} points",
+                    ];
+
+                    // Set the appropriate user ID based on user type
+                    if ($request->user_type === 'guest') {
+                        $pointTransactionData['guest_id'] = $request->user_id;
+                        $pointTransactionData['cast_id'] = null;
+                    } else {
+                        $pointTransactionData['cast_id'] = $request->user_id;
+                        $pointTransactionData['guest_id'] = null;
+                    }
+
+                    PointTransaction::create($pointTransactionData);
+
                     $response['points_added'] = $request->amount;
                     $response['total_points'] = $newPoints;
                     $response['user'] = $model->fresh();
@@ -144,7 +163,8 @@ class PaymentController extends Controller
                         'user_type' => $request->user_type,
                         'amount' => $request->amount,
                         'previous_points' => $currentPoints,
-                        'new_points' => $newPoints
+                        'new_points' => $newPoints,
+                        'point_transaction_created' => true
                     ]);
                 }
             }
@@ -256,6 +276,24 @@ class PaymentController extends Controller
             $model->points = $newPoints;
             $model->save();
 
+            // Create point transaction record for the purchase
+            $pointTransactionData = [
+                'type' => 'buy',
+                'amount' => $request->amount,
+                'description' => "Point purchase - {$request->amount} points",
+            ];
+
+            // Set the appropriate user ID based on user type
+            if ($request->user_type === 'guest') {
+                $pointTransactionData['guest_id'] = $request->user_id;
+                $pointTransactionData['cast_id'] = null;
+            } else {
+                $pointTransactionData['cast_id'] = $request->user_id;
+                $pointTransactionData['guest_id'] = null;
+            }
+
+            PointTransaction::create($pointTransactionData);
+
             // Log successful payment and points update
             Log::info('Payment processed successfully and points added', [
                 'user_id' => $request->user_id,
@@ -265,7 +303,8 @@ class PaymentController extends Controller
                 'charge_id' => $result['charge']['id'] ?? 'unknown',
                 'customer_id' => $model->payjp_customer_id,
                 'previous_points' => $currentPoints,
-                'new_points' => $newPoints
+                'new_points' => $newPoints,
+                'point_transaction_created' => true
             ]);
 
             return response()->json([
@@ -344,6 +383,144 @@ class PaymentController extends Controller
             ->get();
 
         return response()->json(['receipts' => $receipts]);
+    }
+
+    /**
+     * Create a new receipt
+     */
+    public function createReceipt(Request $request)
+    {
+        $request->validate([
+            'user_type' => 'required|in:guest,cast',
+            'user_id' => 'required|integer',
+            'payment_id' => 'nullable|integer|exists:payments,id',
+            'recipient_name' => 'required|string|max:255',
+            'amount' => 'required|numeric|min:0',
+            'purpose' => 'required|string|max:255',
+        ]);
+
+        try {
+            // Generate unique receipt number
+            $receiptNumber = 'R' . date('Ymd') . str_pad(Receipt::whereDate('created_at', today())->count() + 1, 6, '0', STR_PAD_LEFT);
+            
+            $taxRate = 10.00; // 10% tax rate
+            $taxAmount = $request->amount * ($taxRate / 100);
+            $totalAmount = $request->amount + $taxAmount;
+
+            $receipt = Receipt::create([
+                'receipt_number' => $receiptNumber,
+                'user_type' => $request->user_type,
+                'user_id' => $request->user_id,
+                'payment_id' => $request->payment_id,
+                'recipient_name' => $request->recipient_name,
+                'amount' => $request->amount,
+                'tax_amount' => $taxAmount,
+                'tax_rate' => $taxRate,
+                'total_amount' => $totalAmount,
+                'purpose' => $request->purpose,
+                'issued_at' => now(),
+                'html_content' => $this->generateReceiptHtml($receiptNumber, $request->recipient_name, $request->amount, $taxAmount, $totalAmount, $request->purpose),
+            ]);
+
+            return response()->json([
+                'success' => true,
+                'receipt' => $receipt,
+                'message' => '領収書が正常に作成されました'
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('Receipt creation failed: ' . $e->getMessage());
+            return response()->json([
+                'success' => false,
+                'error' => '領収書の作成に失敗しました'
+            ], 500);
+        }
+    }
+
+    /**
+     * Get a specific receipt
+     */
+    public function getReceipt($receiptId)
+    {
+        try {
+            $receipt = Receipt::findOrFail($receiptId);
+            
+            return response()->json([
+                'success' => true,
+                'receipt' => $receipt
+            ]);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'error' => '領収書が見つかりません'
+            ], 404);
+        }
+    }
+
+    /**
+     * Generate receipt HTML content
+     */
+    private function generateReceiptHtml($receiptNumber, $recipientName, $amount, $taxAmount, $totalAmount, $purpose)
+    {
+        $issuedDate = now()->format('Y年m月d日');
+        $formattedAmount = number_format($amount);
+        $formattedTaxAmount = number_format($taxAmount);
+        $formattedTotalAmount = number_format($totalAmount);
+
+        return "
+        <div style='font-family: Arial, sans-serif; max-width: 400px; margin: 0 auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1);'>
+            <div style='text-align: center; font-size: 24px; font-weight: bold; margin-bottom: 20px;'>領収書</div>
+            
+            <div style='text-align: right; font-size: 12px; margin-bottom: 20px;'>
+                <div>No. {$receiptNumber}</div>
+                <div>{$issuedDate}</div>
+            </div>
+            
+            <div style='margin-bottom: 20px;'>
+                <div style='font-size: 16px; margin-bottom: 10px;'>{$recipientName} 様</div>
+                <div style='border-bottom: 1px solid #ccc; height: 30px;'></div>
+            </div>
+            
+            <div style='text-align: center; margin: 30px 0;'>
+                <div style='border: 2px solid #000; padding: 20px; font-size: 28px; font-weight: bold;'>
+                    ¥{$formattedTotalAmount}-
+                </div>
+            </div>
+            
+            <div style='text-align: center; margin-bottom: 30px;'>
+                <div style='font-size: 14px;'>但し {$purpose} として</div>
+            </div>
+            
+            <div style='text-align: center; margin-bottom: 30px;'>
+                <div style='font-size: 14px;'>上記正に、領収致しました。</div>
+            </div>
+            
+            <div style='display: flex; justify-content: space-between;'>
+                <div style='flex: 1;'>
+                    <div style='border: 1px dashed #ccc; padding: 10px; margin-bottom: 10px; font-size: 10px; text-align: center;'>
+                        電子領収書につき印紙不要
+                    </div>
+                    <div style='font-size: 12px;'>
+                        <div style='font-weight: bold; margin-bottom: 5px;'>内訳</div>
+                        <div>税抜き金額 ¥{$formattedAmount}-</div>
+                        <div>消費税額 ¥{$formattedTaxAmount}-</div>
+                        <div>消費税率 10%</div>
+                    </div>
+                </div>
+                
+                <div style='flex: 1; text-align: right;'>
+                    <div style='font-size: 12px;'>
+                        <div style='font-weight: bold; margin-bottom: 5px;'>株式会社キネカ</div>
+                        <div>〒106-0032</div>
+                        <div>東京都港区六本木4丁目8-7</div>
+                        <div>六本木三河台ビル</div>
+                        <div>TEL: 03-5860-6178</div>
+                        <div>登録番号:T3010401129426</div>
+                    </div>
+                </div>
+            </div>
+        </div>";
     }
 
     /**
