@@ -8,6 +8,7 @@ use App\Models\Notification;
 use App\Models\Guest;
 use App\Models\Cast;
 use App\Events\NotificationSent;
+use App\Events\AdminNewsPublished;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Inertia\Inertia;
@@ -63,9 +64,10 @@ class AdminNewsController extends Controller
             'published_at' => $validated['status'] === 'published' ? now() : null,
         ]);
 
-        // If the news is published, send notifications to users
+        // If the news is published, send notifications to users and broadcast
         if ($validated['status'] === 'published') {
             $this->sendNotificationsToUsers($news);
+            broadcast(new AdminNewsPublished($news))->toOthers();
         }
 
         return redirect()->route('admin.notifications')->with('success', 'お知らせが作成されました。');
@@ -95,9 +97,10 @@ class AdminNewsController extends Controller
             'published_at' => $willBePublished ? now() : null,
         ]);
 
-        // If the news is being published for the first time, send notifications
+        // If the news is being published for the first time, send notifications and broadcast
         if (!$wasPublished && $willBePublished) {
             $this->sendNotificationsToUsers($news);
+            broadcast(new AdminNewsPublished($news))->toOthers();
         }
 
         return redirect()->route('admin.notifications')->with('success', 'お知らせが更新されました。');
@@ -116,8 +119,9 @@ class AdminNewsController extends Controller
             'published_at' => now(),
         ]);
 
-        // Send notifications to users
+        // Send notifications to users and broadcast
         $this->sendNotificationsToUsers($news);
+        broadcast(new AdminNewsPublished($news))->toOthers();
 
         return redirect()->route('admin.notifications')->with('success', 'お知らせが公開されました。');
     }

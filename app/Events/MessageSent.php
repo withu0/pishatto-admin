@@ -20,6 +20,23 @@ class MessageSent implements ShouldBroadcast
 
     public function broadcastOn()
     {
-        return new Channel('chat.' . $this->message->chat_id);
+        $channels = [new Channel('chat.' . $this->message->chat_id)];
+        
+        // Also broadcast to user channels for real-time notifications
+        if ($this->message->sender_guest_id) {
+            // Message from guest, notify cast
+            $chat = $this->message->chat;
+            if ($chat && $chat->cast_id) {
+                $channels[] = new Channel('user.' . $chat->cast_id);
+            }
+        } else if ($this->message->sender_cast_id) {
+            // Message from cast, notify guest
+            $chat = $this->message->chat;
+            if ($chat && $chat->guest_id) {
+                $channels[] = new Channel('user.' . $chat->guest_id);
+            }
+        }
+        
+        return $channels;
     }
 }

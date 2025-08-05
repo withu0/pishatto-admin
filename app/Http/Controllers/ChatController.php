@@ -220,14 +220,22 @@ class ChatController extends Controller
             ->orderBy('created_at', 'asc') 
             ->get();
         // Mark all messages as read for this user
+        $messagesMarkedAsRead = false;
         foreach ($messages as $msg) {
             if ($userType === 'guest' && $msg->sender_cast_id && $msg->is_read == false && $msg->chat->guest_id == $userId) {
                 $msg->is_read = true;
                 $msg->save();
+                $messagesMarkedAsRead = true;
             } else if ($userType === 'cast' && $msg->sender_guest_id && $msg->is_read == false && $msg->chat->cast_id == $userId) {
                 $msg->is_read = true;
                 $msg->save();
+                $messagesMarkedAsRead = true;
             }
+        }
+        
+        // Broadcast MessagesRead event if any messages were marked as read
+        if ($messagesMarkedAsRead) {
+            event(new \App\Events\MessagesRead($chatId, $userId, $userType));
         }
         return response()->json(['messages' => $messages]);
     }
@@ -556,6 +564,61 @@ class ChatController extends Controller
         return response()->json([
             'participants' => $participants,
             'group' => $group
+        ]);
+    }
+
+    public function markChatRead(Request $request, $chatId)
+    {
+        $validated = $request->validate([
+            'user_id' => 'required|integer',
+            'user_type' => 'required|in:guest,cast',
+        ]);
+
+        $userId = $validated['user_id'];
+        $userType = $validated['user_type'];
+
+        // Verify the chat exists and user has access
+        $chat = \App\Models\Chat::find($chatId);
+        if (!$chat) {
+            return response()->json(['message' => 'Chat not found'], 404);
+        }
+
+        // Check if user is part of this chat
+        $userInChat = false;
+        if ($userType === 'guest' && $chat->guest_id == $userId) {
+            $userInChat = true;
+        } elseif ($userType === 'cast' && $chat->cast_id == $userId) {
+            $userInChat = true;
+        }
+
+        if (!$userInChat) {
+            return response()->json(['message' => 'Not authorized to access this chat'], 403);
+        }
+
+        // Mark all unread messages as read for this user
+        $messagesMarkedAsRead = false;
+        $messages = \App\Models\Message::where('chat_id', $chatId)->get();
+        
+        foreach ($messages as $msg) {
+            if ($userType === 'guest' && $msg->sender_cast_id && $msg->is_read == false && $msg->chat->guest_id == $userId) {
+                $msg->is_read = true;
+                $msg->save();
+                $messagesMarkedAsRead = true;
+            } else if ($userType === 'cast' && $msg->sender_guest_id && $msg->is_read == false && $msg->chat->cast_id == $userId) {
+                $msg->is_read = true;
+                $msg->save();
+                $messagesMarkedAsRead = true;
+            }
+        }
+        
+        // Broadcast MessagesRead event if any messages were marked as read
+        if ($messagesMarkedAsRead) {
+            event(new \App\Events\MessagesRead($chatId, $userId, $userType));
+        }
+
+        return response()->json([
+            'message' => 'Messages marked as read successfully',
+            'messages_marked' => $messagesMarkedAsRead
         ]);
     }
 } 

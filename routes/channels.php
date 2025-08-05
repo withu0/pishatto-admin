@@ -64,3 +64,16 @@ Broadcast::channel('reservation.{reservationId}', function ($user, $reservationI
 Broadcast::channel('tweets', function () {
     return true;
 });
+
+// Admin news channels
+Broadcast::channel('admin-news', function () {
+    return true;
+});
+
+Broadcast::channel('admin-news.guest', function () {
+    return true;
+});
+
+Broadcast::channel('admin-news.cast', function () {
+    return true;
+});
