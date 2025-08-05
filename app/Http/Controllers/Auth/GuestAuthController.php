@@ -4,6 +4,11 @@ namespace App\Http\Controllers\Auth;
 
 use App\Http\Controllers\Controller;
 use App\Models\Guest;
+use App\Models\Cast;
+use App\Models\Chat;
+use App\Models\ChatGroup;
+use App\Models\Like;
+use App\Models\AdminNews;
 use App\Models\ChatFavorite;        
 use App\Models\PointTransaction;
 use Illuminate\Http\Request;
@@ -141,7 +146,7 @@ class GuestAuthController extends Controller
 
     public function likeStatus($cast_id, $guest_id)
     {
-        $like = \App\Models\Like::where('cast_id', $cast_id)->where('guest_id', $guest_id)->first();
+                    $like = Like::where('cast_id', $cast_id)->where('guest_id', $guest_id)->first();
         return response()->json(['liked' => $like ? true : false]);
     }
 
@@ -152,11 +157,11 @@ class GuestAuthController extends Controller
         if (!$castId || !$guestId) {
             return response()->json(['message' => 'cast_id and guest_id are required'], 422);
         }
-        $like = \App\Models\Like::where('cast_id', $castId)->where('guest_id', $guestId)->first();
+        $like = Like::where('cast_id', $castId)->where('guest_id', $guestId)->first();
         if ($like) {
             return response()->json(['liked' => false, 'message' => 'Already liked']);
         } else {
-            \App\Models\Like::create(['cast_id' => $castId, 'guest_id' => $guestId]);
+            Like::create(['cast_id' => $castId, 'guest_id' => $guestId]);
             return response()->json(['liked' => true]);
         }
     }
@@ -280,9 +285,13 @@ class GuestAuthController extends Controller
             DB::beginTransaction();
 
             // Create the reservation
-            $reservation = Reservation::create($request->only([
-                'guest_id', 'type', 'scheduled_at', 'location', 'duration', 'details', 'time'
-            ]));
+            $data = $request->only([
+                'guest_id', 'type', 'location', 'duration', 'details', 'time'
+            ]);
+            $data['scheduled_at'] = \Carbon\Carbon::parse($request->scheduled_at);
+            $data['type'] = 'pishatto';
+            
+            $reservation = Reservation::create($data);
 
             // Calculate required points for this reservation (including night time bonus)
             $requiredPoints = $this->pointTransactionService->calculateReservationPointsLegacy($reservation);
@@ -372,9 +381,217 @@ class GuestAuthController extends Controller
         }
     }
 
+    public function createFreeCall(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'guest_id' => 'required|exists:guests,id',
+            'scheduled_at' => 'required|date',
+            'location' => 'nullable|string|max:255',
+            'duration' => 'nullable|integer',
+            'details' => 'nullable|string',
+            'time' => 'nullable|string|max:10',
+            'cast_counts' => 'required|array',
+            'cast_counts.royal_vip' => 'required|integer|min:0',
+            'cast_counts.vip' => 'required|integer|min:0',
+            'cast_counts.premium' => 'required|integer|min:0',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'message' => 'Validation failed',
+                'errors' => $validator->errors()
+            ], 422);
+        }
+
+        try {
+            DB::beginTransaction();
+
+            // Get available casts based on location and counts
+            $availableCasts = $this->getAvailableCastsForFreeCall(
+                $request->location ?? '東京都',
+                $request->cast_counts
+            );
+
+            // Extract cast IDs for storage
+            $castIds = $availableCasts->pluck('id')->toArray();
+
+            // Create the reservation with type 'free'
+            $reservation = Reservation::create([
+                'guest_id' => $request->guest_id,
+                'type' => 'free',
+                'scheduled_at' => \Carbon\Carbon::parse($request->scheduled_at),
+                'location' => $request->location,
+                'duration' => $request->duration,
+                'details' => $request->details,
+                'time' => $request->time,
+                'cast_ids' => $castIds,
+            ]);
+
+            // Calculate required points for this reservation
+            $requiredPoints = $this->pointTransactionService->calculateReservationPointsLegacy($reservation);
+
+            // Get the guest and check if they have enough points
+            $guest = Guest::find($request->guest_id);
+            if (!$guest) {
+                DB::rollBack();
+                return response()->json(['message' => 'Guest not found'], 404);
+            }
+
+            if ($guest->points < $requiredPoints) {
+                DB::rollBack();
+                return response()->json([
+                    'message' => 'Insufficient points',
+                    'required_points' => $requiredPoints,
+                    'available_points' => $guest->points
+                ], 400);
+            }
+
+            // Deduct points from guest
+            $guest->points -= $requiredPoints;
+            $guest->save();
+
+            // Create a pending point transaction record
+            PointTransaction::create([
+                'guest_id' => $guest->id,
+                'cast_id' => null,
+                'type' => 'pending',
+                'amount' => $requiredPoints,
+                'reservation_id' => $reservation->id,
+                'description' => "Free call reservation created - {$reservation->duration} hours (pending)"
+            ]);
+
+            // Create chat group for this reservation
+            $chatGroup = ChatGroup::create([
+                'reservation_id' => $reservation->id,
+                'cast_ids' => $castIds,
+                'name' => "Free Call - {$guest->nickname}",
+                'created_at' => now(),
+            ]);
+
+            // Create individual chats for each selected cast
+            $selectedCasts = [];
+            
+            foreach ($availableCasts as $cast) {
+                $chat = Chat::create([
+                    'guest_id' => $guest->id,
+                    'cast_id' => $cast->id,
+                    'reservation_id' => $reservation->id,
+                    'group_id' => $chatGroup->id,
+                ]);
+                
+                $selectedCasts[] = [
+                    'id' => $cast->id,
+                    'nickname' => $cast->nickname,
+                    'avatar' => $cast->avatar,
+                    'chat_id' => $chat->id,
+                ];
+            }
+
+            DB::commit();
+
+            // Broadcast reservation creation
+            event(new \App\Events\ReservationUpdated($reservation));
+            
+            return response()->json([
+                'reservation' => $reservation,
+                'chat_group' => $chatGroup,
+                'selected_casts' => $selectedCasts,
+                'cast_counts' => $request->cast_counts,
+                'points_deducted' => $requiredPoints,
+                'remaining_points' => $guest->points
+            ], 201);
+
+        } catch (\Exception $e) {
+            DB::rollBack();
+            \Log::error('createFreeCall error: ' . $e->getMessage() . "\n" . $e->getTraceAsString());
+            return response()->json([
+                'message' => 'Failed to create free call',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    private function getAvailableCastsForFreeCall($location, $castCounts)
+    {
+        $royalVipCount = $castCounts['royal_vip'] ?? 0;
+        $vipCount = $castCounts['vip'] ?? 0;
+        $premiumCount = $castCounts['premium'] ?? 0;
+        $totalCasts = $royalVipCount + $vipCount + $premiumCount;
+        
+        \Log::info('getAvailableCastsForFreeCall called', [
+            'location' => $location,
+            'castCounts' => $castCounts,
+            'royalVipCount' => $royalVipCount,
+            'vipCount' => $vipCount,
+            'premiumCount' => $premiumCount,
+            'totalCasts' => $totalCasts
+        ]);
+        
+        // Get all available casts in the specified location first
+        $availableCasts = Cast::where('location', $location)
+            ->where('status', 'active')
+            ->inRandomOrder()
+            ->get();
+            
+        \Log::info('Available casts in location', [
+            'location' => $location,
+            'count' => $availableCasts->count(),
+            'cast_ids' => $availableCasts->pluck('id')->toArray()
+        ]);
+        
+        // If not enough in location, get from other locations
+        if ($availableCasts->count() < $totalCasts) {
+            $remainingCount = $totalCasts - $availableCasts->count();
+            $additionalCasts = Cast::where('status', 'active')
+                ->where('location', '!=', $location)
+                ->inRandomOrder()
+                ->limit($remainingCount)
+                ->get();
+                
+            \Log::info('Additional casts from other locations', [
+                'remainingCount' => $remainingCount,
+                'additionalCount' => $additionalCasts->count(),
+                'additional_cast_ids' => $additionalCasts->pluck('id')->toArray()
+            ]);
+            
+            $availableCasts = $availableCasts->merge($additionalCasts);
+        }
+        
+        // If still not enough, get any available casts
+        if ($availableCasts->count() < $totalCasts) {
+            $finalRemainingCount = $totalCasts - $availableCasts->count();
+            $finalCasts = Cast::where('status', 'active')
+                ->whereNotIn('id', $availableCasts->pluck('id'))
+                ->inRandomOrder()
+                ->limit($finalRemainingCount)
+                ->get();
+                
+            \Log::info('Final additional casts', [
+                'finalRemainingCount' => $finalRemainingCount,
+                'finalCount' => $finalCasts->count(),
+                'final_cast_ids' => $finalCasts->pluck('id')->toArray()
+            ]);
+            
+            $availableCasts = $availableCasts->merge($finalCasts);
+        }
+        
+        // Take only the required number of casts
+        $selectedCasts = $availableCasts->take($totalCasts);
+
+        \Log::info('Final selected casts', [
+            'totalRequested' => $totalCasts,
+            'totalSelected' => $selectedCasts->count(),
+            'selected_cast_ids' => $selectedCasts->pluck('id')->toArray(),
+            'selected_cast_nicknames' => $selectedCasts->pluck('nickname')->toArray(),
+            'selected_cast_grades' => $selectedCasts->pluck('grade')->toArray()
+        ]);
+
+        return $selectedCasts;
+    }
+
     public function listReservations($guest_id)
     {
-        $reservations = \App\Models\Reservation::where('guest_id', $guest_id)->orderBy('scheduled_at', 'desc')->get();
+        $reservations = Reservation::where('guest_id', $guest_id)->orderBy('scheduled_at', 'desc')->get();
         return response()->json(['reservations' => $reservations]);
     }
 
@@ -390,63 +607,172 @@ class GuestAuthController extends Controller
     public function getUserChats($userType, $userId)
     {
         if ($userType === 'guest') {
-            $chats = \App\Models\Chat::where('guest_id', $userId)->with(['cast', 'messages'])->get();
-            $result = $chats->map(function ($chat) use ($userId) {
-                // Count unread messages for this guest in this chat
-                $unread = $chat->messages->where('is_read', false)
-                    ->filter(function($msg) {
-                        return $msg->sender_cast_id && !$msg->is_read;
-                    })->count();
-                return [
-                    'id' => $chat->id,
-                    'avatar' => $chat->cast ? $chat->cast->avatar : null,
-                    'cast_id' => $chat->cast ? $chat->cast->id : null,
-                    'cast_nickname' => $chat->cast ? $chat->cast->nickname : null,
-                    'last_message' => $chat->messages->last()->message ?? '',
-                    'updated_at' => $chat->updated_at ?? null,
-                    'created_at' => $chat->created_at ?? null,
-                    'unread' => $unread,
-                ];
-            });
+            $chats = Chat::where('guest_id', $userId)->with(['cast', 'messages', 'group'])->get();
+            
+            // Group chats by group_id
+            $groupedChats = $chats->groupBy('group_id');
+            $result = [];
+            
+            foreach ($groupedChats as $groupId => $groupChats) {
+                if ($groupId) {
+                    // This is a group chat - combine all casts into one chat entry
+                    $firstChat = $groupChats->first();
+                    $group = $firstChat->group;
+                    
+                    // Get all casts in this group
+                    $casts = $groupChats->map(function($chat) {
+                        return $chat->cast;
+                    })->filter();
+                    
+                    // Combine all messages from all chats in this group
+                    $allMessages = $groupChats->flatMap(function($chat) {
+                        return $chat->messages;
+                    })->sortBy('created_at');
+                    
+                    // Count unread messages for this guest in this group
+                    $unread = $allMessages->where('is_read', false)
+                        ->filter(function($msg) {
+                            return $msg->sender_cast_id && !$msg->is_read;
+                        })->count();
+                    
+                    $result[] = [
+                        'id' => $firstChat->id, // Use first chat ID as group chat ID
+                        'group_id' => $groupId,
+                        'is_group_chat' => true,
+                        'group_name' => $group ? $group->name : 'Group Chat',
+                        'casts' => $casts->map(function($cast) {
+                            return [
+                                'id' => $cast->id,
+                                'nickname' => $cast->nickname,
+                                'avatar' => $cast->avatar
+                            ];
+                        })->toArray(),
+                        'avatar' => $casts->first() ? $casts->first()->avatar : null,
+                        'cast_id' => $casts->first() ? $casts->first()->id : null,
+                        'cast_nickname' => $casts->count() > 1 ? 
+                            $group->name ?? 'Group Chat' : 
+                            ($casts->first() ? $casts->first()->nickname : 'Unknown'),
+                        'last_message' => $allMessages->last() ? $allMessages->last()->message : '',
+                        'updated_at' => $allMessages->last() ? $allMessages->last()->created_at : $firstChat->created_at,
+                        'created_at' => $firstChat->created_at,
+                        'unread' => $unread,
+                    ];
+                } else {
+                    // Individual chats (not group chats)
+                    foreach ($groupChats as $chat) {
+                        $unread = $chat->messages->where('is_read', false)
+                            ->filter(function($msg) {
+                                return $msg->sender_cast_id && !$msg->is_read;
+                            })->count();
+                        
+                        $result[] = [
+                            'id' => $chat->id,
+                            'is_group_chat' => false,
+                            'avatar' => $chat->cast ? $chat->cast->avatar : null,
+                            'cast_id' => $chat->cast ? $chat->cast->id : null,
+                            'cast_nickname' => $chat->cast ? $chat->cast->nickname : null,
+                            'last_message' => $chat->messages->last() ? $chat->messages->last()->message : '',
+                            'updated_at' => $chat->messages->last() ? $chat->messages->last()->created_at : $chat->created_at,
+                            'created_at' => $chat->created_at,
+                            'unread' => $unread,
+                        ];
+                    }
+                }
+            }
+            
             return response()->json(['chats' => $result]);
         } else {
             // For cast, join reservation and guest to get guest avatar
-            $chats = \App\Models\Chat::where('cast_id', $userId)->with(['guest', 'reservation.guest', 'messages'])->get();
-            $result = $chats->map(function ($chat) use ($userId) {
-                $guest = $chat->guest;
-                if (!$guest && $chat->reservation && $chat->reservation->guest) {
-                    $guest = $chat->reservation->guest;
+            $chats = Chat::where('cast_id', $userId)->with(['guest', 'reservation.guest', 'messages', 'group'])->get();
+            
+            // Group chats by group_id
+            $groupedChats = $chats->groupBy('group_id');
+            $result = [];
+            
+            foreach ($groupedChats as $groupId => $groupChats) {
+                if ($groupId) {
+                    // This is a group chat - combine all guests into one chat entry
+                    $firstChat = $groupChats->first();
+                    $group = $firstChat->group;
+                    
+                    // Get all guests in this group (should be the same guest for all chats)
+                    $guests = $groupChats->map(function($chat) {
+                        $guest = $chat->guest;
+                        if (!$guest && $chat->reservation && $chat->reservation->guest) {
+                            $guest = $chat->reservation->guest;
+                        }
+                        return $guest;
+                    })->filter();
+                    
+                    // Combine all messages from all chats in this group
+                    $allMessages = $groupChats->flatMap(function($chat) {
+                        return $chat->messages;
+                    })->sortBy('created_at');
+                    
+                    // Count unread messages for this cast in this group
+                    $unread = $allMessages->where('is_read', false)
+                        ->filter(function($msg) {
+                            return $msg->sender_guest_id && !$msg->is_read;
+                        })->count();
+                    
+                    $guest = $guests->first();
+                    
+                    $result[] = [
+                        'id' => $firstChat->id, // Use first chat ID as group chat ID
+                        'group_id' => $groupId,
+                        'is_group_chat' => true,
+                        'group_name' => $group ? $group->name : 'Group Chat',
+                        'avatar' => $guest ? $guest->avatar : null,
+                        'guest_id' => $guest ? $guest->id : null,
+                        'guest_nickname' => $guest ? $guest->nickname : null,
+                        'guest_age' => $guest ? $guest->birth_year : null,
+                        'last_message' => $allMessages->last() ? $allMessages->last()->message : '',
+                        'updated_at' => $allMessages->last() ? $allMessages->last()->created_at : $firstChat->created_at,
+                        'created_at' => $firstChat->created_at,
+                        'unread' => $unread,
+                    ];
+                } else {
+                    // Individual chats (not group chats)
+                    foreach ($groupChats as $chat) {
+                        $guest = $chat->guest;
+                        if (!$guest && $chat->reservation && $chat->reservation->guest) {
+                            $guest = $chat->reservation->guest;
+                        }
+                        
+                        $unread = $chat->messages->where('is_read', false)
+                            ->filter(function($msg) {
+                                return $msg->sender_guest_id && !$msg->is_read;
+                            })->count();
+                        
+                        $result[] = [
+                            'id' => $chat->id,
+                            'is_group_chat' => false,
+                            'avatar' => $guest ? $guest->avatar : null,
+                            'guest_id' => $guest ? $guest->id : null,
+                            'guest_nickname' => $guest ? $guest->nickname : null,
+                            'guest_age' => $guest ? $guest->birth_year : null,
+                            'last_message' => $chat->messages->last() ? $chat->messages->last()->message : '',
+                            'updated_at' => $chat->messages->last() ? $chat->messages->last()->created_at : $chat->created_at,
+                            'created_at' => $chat->created_at,
+                            'unread' => $unread,
+                        ];
+                    }
                 }
-                // Count unread messages for this cast in this chat
-                $unread = $chat->messages->where('is_read', false)
-                    ->filter(function($msg) {
-                        return $msg->sender_guest_id && !$msg->is_read;
-                    })->count();
-                return [
-                    'id' => $chat->id,
-                    'avatar' => $guest ? $guest->avatar : null,
-                    'guest_id' => $guest ? $guest->id : null,
-                    'guest_nickname' => $guest ? $guest->nickname : null,
-                    'guest_age' => $guest ? $guest->birth_year : null,
-                    'last_message' => $chat->messages->last()->message ?? '',
-                    'updated_at' => $chat->created_at ?? null,
-                    'created_at' => $chat->created_at ?? null,
-                    'unread' => $unread,
-                ];
-            });
+            }
+            
             return response()->json(['chats' => $result]);
         }
     }
 
     public function allChats()
     {
-        $chats = \App\Models\Chat::all();
+        $chats = Chat::all();
         return response()->json(['chats' => $chats]);
     }
 
     public function getReservationById($id)
     {
-        $reservation = \App\Models\Reservation::find($id);
+        $reservation = Reservation::find($id);
         if (!$reservation) {
             return response()->json(['message' => 'Reservation not found'], 404);
         }
@@ -455,7 +781,7 @@ class GuestAuthController extends Controller
 
     public function repeatGuests(Request $request)
     {
-        $guests = \App\Models\Guest::withCount('reservations')
+        $guests = Guest::withCount('reservations')
             ->having('reservations_count', '>', 1)
             ->get(['id', 'nickname', 'avatar']);
         
@@ -472,7 +798,7 @@ class GuestAuthController extends Controller
 
     public function getProfileById($id)
     {
-        $guest = \App\Models\Guest::find($id);
+        $guest = Guest::find($id);
         if (!$guest) {
             return response()->json(['message' => 'Guest not found'], 404);
         }
@@ -495,7 +821,7 @@ class GuestAuthController extends Controller
             // For notifications with cast_id, fetch cast information
             foreach ($notifications as $notification) {
                 if ($notification->cast_id) {
-                    $cast = \App\Models\Cast::find($notification->cast_id);
+                    $cast = Cast::find($notification->cast_id);
                     if ($cast) {
                         $notification->cast = [
                             'id' => $cast->id,
@@ -528,7 +854,7 @@ class GuestAuthController extends Controller
     // Mark all notifications as read for a user
     public function markAllNotificationsRead($userType, $userId)
     {
-        \App\Models\Notification::where('user_type', $userType)
+        Notification::where('user_type', $userType)
             ->where('user_id', $userId)
             ->where('read', false)
             ->update(['read' => true]);
@@ -544,6 +870,22 @@ class GuestAuthController extends Controller
             return response()->json(['success' => true]);
         }
         return response()->json(['success' => false, 'message' => 'Notification not found'], 404);
+    }
+
+    // Get unread notification count for a user
+    public function getUnreadNotificationCount($userType, $userId)
+    {
+        try {
+            $count = Notification::where('user_type', $userType)
+                ->where('user_id', $userId)
+                ->where('read', false)
+                ->count();
+
+            return response()->json(['count' => $count]);
+        } catch (\Exception $e) {
+            \Log::error('Error fetching unread notification count', ['error' => $e->getMessage(), 'trace' => $e->getTraceAsString()]);
+            return response()->json(['error' => 'Failed to fetch unread notification count'], 500);
+        }
     }
 
     // Add this method to fetch all guest phone numbers
@@ -575,7 +917,20 @@ class GuestAuthController extends Controller
                     'errors' => $validator->errors()
                 ], 422);
             }
-            $reservation->fill($request->only(['scheduled_at', 'duration', 'location', 'details', 'time', 'started_at', 'ended_at']));
+            $data = $request->only(['duration', 'location', 'details', 'time']);
+            
+            // Handle datetime fields properly
+            if ($request->has('scheduled_at')) {
+                $data['scheduled_at'] = \Carbon\Carbon::parse($request->scheduled_at);
+            }
+            if ($request->has('started_at')) {
+                $data['started_at'] = \Carbon\Carbon::parse($request->started_at);
+            }
+            if ($request->has('ended_at')) {
+                $data['ended_at'] = \Carbon\Carbon::parse($request->ended_at);
+            }
+            
+            $reservation->fill($data);
 
             // Points calculation logic
             if ($reservation->started_at && $reservation->ended_at) {
@@ -926,7 +1281,7 @@ class GuestAuthController extends Controller
         $chatId = $request->input('chat_id');
         
         $guest = Guest::findOrFail($guestId);
-        $chat = \App\Models\Chat::findOrFail($chatId);
+        $chat = Chat::findOrFail($chatId);
         
         if ($guest->chatFavorites()->where('chat_id', $chatId)->exists()) {
             return response()->json(['favorited' => true, 'message' => 'Already favorited']);
@@ -995,7 +1350,7 @@ class GuestAuthController extends Controller
     public function getAdminNews($userType, $userId = null)
     {
         // Import AdminNews model
-        $adminNews = \App\Models\AdminNews::where('status', 'published')
+        $adminNews = AdminNews::where('status', 'published')
             ->where(function($query) use ($userType) {
                 $query->where('target_type', 'all')
                       ->orWhere('target_type', $userType);

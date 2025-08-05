@@ -16,6 +16,7 @@ class Chat extends Model
         'guest_id',
         'cast_id',
         'reservation_id',
+        'group_id',
     ];
 
     public function guest()
@@ -36,6 +37,11 @@ class Chat extends Model
     public function reservation()
     {
         return $this->belongsTo(\App\Models\Reservation::class, 'reservation_id');
+    }
+
+    public function group()
+    {
+        return $this->belongsTo(ChatGroup::class, 'group_id');
     }
 
     public function favorites()

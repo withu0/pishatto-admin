@@ -226,6 +226,109 @@ class AdminController extends Controller
         ]);
     }
 
+    public function approveMultipleApplications(Request $request)
+    {
+        $validated = $request->validate([
+            'admin_id' => 'required|exists:users,id',
+            'reservation_id' => 'required|exists:reservations,id',
+            'cast_ids' => 'required|array|min:1',
+            'cast_ids.*' => 'exists:casts,id',
+        ]);
+
+        $reservation = \App\Models\Reservation::findOrFail($validated['reservation_id']);
+        
+        if ($reservation->type !== 'pishatto') {
+            return response()->json([
+                'message' => 'Multiple cast selection is only allowed for pishatto reservations'
+            ], 400);
+        }
+
+        \DB::transaction(function () use ($reservation, $validated) {
+            // Update reservation with multiple cast IDs
+            $reservation->update([
+                'active' => false,
+                'cast_ids' => $validated['cast_ids'],
+            ]);
+
+            // Approve selected applications
+            ReservationApplication::where('reservation_id', $reservation->id)
+                ->whereIn('cast_id', $validated['cast_ids'])
+                ->where('status', 'pending')
+                ->update([
+                    'status' => 'approved',
+                    'approved_at' => now(),
+                    'approved_by' => $validated['admin_id'],
+                ]);
+
+            // Reject all other pending applications for this reservation
+            ReservationApplication::where('reservation_id', $reservation->id)
+                ->whereNotIn('cast_id', $validated['cast_ids'])
+                ->where('status', 'pending')
+                ->update([
+                    'status' => 'rejected',
+                    'rejected_at' => now(),
+                    'rejected_by' => $validated['admin_id'],
+                    'rejection_reason' => 'Other casts were selected for this reservation',
+                ]);
+
+            // Create chat group with multiple casts
+            $chatGroup = \App\Models\ChatGroup::create([
+                'reservation_id' => $reservation->id,
+                'cast_ids' => $validated['cast_ids'],
+                'name' => 'プレミアム予約 - ' . $reservation->location,
+                'created_at' => now(),
+            ]);
+
+            // Notify guest
+            $guestNotification = \App\Models\Notification::create([
+                'user_id' => $reservation->guest_id,
+                'user_type' => 'guest',
+                'type' => 'order_matched',
+                'reservation_id' => $reservation->id,
+                'message' => '予約が複数のキャストにマッチされました',
+                'read' => false,
+            ]);
+
+            // Notify approved casts
+            foreach ($validated['cast_ids'] as $castId) {
+                \App\Models\Notification::create([
+                    'user_id' => $castId,
+                    'user_type' => 'cast',
+                    'type' => 'application_approved',
+                    'reservation_id' => $reservation->id,
+                    'message' => 'プレミアム予約の応募が承認されました',
+                    'read' => false,
+                ]);
+            }
+
+            // Notify rejected casts
+            $rejectedApplications = ReservationApplication::where('reservation_id', $reservation->id)
+                ->where('status', 'rejected')
+                ->get();
+
+            foreach ($rejectedApplications as $rejectedApp) {
+                \App\Models\Notification::create([
+                    'user_id' => $rejectedApp->cast_id,
+                    'user_type' => 'cast',
+                    'type' => 'application_rejected',
+                    'reservation_id' => $reservation->id,
+                    'message' => '予約の応募が却下されました',
+                    'read' => false,
+                ]);
+            }
+
+            // Update rankings
+            $rankingService = app(\App\Services\RankingService::class);
+            $rankingService->updateRealTimeRankings($reservation->location ?? '全国');
+        });
+
+        return response()->json([
+            'message' => 'Multiple applications approved successfully',
+            'chat_group' => $chatGroup ?? null,
+            'reservation' => $reservation->fresh()
+        ]);
+    }
+
     /**
      * Show payments management page with real data
      */

@@ -4,7 +4,7 @@ import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
-import { Edit, Trash2, Plus, Check, X, Eye, RefreshCw, User, Calendar, MapPin, Clock, MessageCircle, Star, Mail, Phone, MapPin as LocationIcon, CalendarDays, Award, Heart, Languages, DollarSign, Clock as TimeIcon, Users, Star as StarIcon } from 'lucide-react';
+import { Edit, Trash2, Plus, Check, X, Eye, RefreshCw, User, Calendar, MapPin, Clock, MessageCircle, Star, Mail, Phone, MapPin as LocationIcon, CalendarDays, Award, Heart, Languages, DollarSign, Clock as TimeIcon, Users, Star as StarIcon, CheckCircle } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { router } from '@inertiajs/react';
 
@@ -71,8 +71,11 @@ export default function AdminReservationApplications({ applications: initialAppl
     const [selectedApplication, setSelectedApplication] = useState<ReservationApplication | null>(null);
     const [showRejectModal, setShowRejectModal] = useState(false);
     const [showDetailModal, setShowDetailModal] = useState(false);
+    const [showMultiCastModal, setShowMultiCastModal] = useState(false);
     const [rejectionReason, setRejectionReason] = useState('');
     const [isRefreshing, setIsRefreshing] = useState(false);
+    const [selectedCasts, setSelectedCasts] = useState<ReservationApplication[]>([]);
+    const [currentReservation, setCurrentReservation] = useState<ReservationApplication['reservation'] | null>(null);
 
     const filtered = applications.filter(
         (app) => 
@@ -169,6 +172,72 @@ export default function AdminReservationApplications({ applications: initialAppl
     const closeDetailModal = () => {
         setShowDetailModal(false);
         setSelectedApplication(null);
+    };
+
+    // New function to handle multi-cast selection for pishatto calls
+    const handleMultiCastSelection = (reservation: ReservationApplication['reservation']) => {
+        setCurrentReservation(reservation);
+        // Get all pending applications for this reservation
+        const pendingApps = applications.filter(app => 
+            app.reservation.id === reservation.id && app.status === 'pending'
+        );
+        setSelectedCasts(pendingApps);
+        setShowMultiCastModal(true);
+    };
+
+    const handleMultiCastApprove = async () => {
+        if (!currentReservation || selectedCasts.length === 0) return;
+
+        try {
+            const response = await fetch(`/admin/reservation-applications/multi-approve`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '',
+                },
+                body: JSON.stringify({
+                    admin_id: 1, // TODO: Get actual admin ID
+                    reservation_id: currentReservation.id,
+                    cast_ids: selectedCasts.map(app => app.cast.id),
+                }),
+            });
+
+            if (response.ok) {
+                const result = await response.json();
+                setApplications(prev => prev.map(app => 
+                    selectedCasts.some(selected => selected.id === app.id)
+                        ? { ...app, status: 'approved' as const }
+                        : app.reservation.id === currentReservation.id && app.status === 'pending'
+                            ? { ...app, status: 'rejected' as const }
+                            : app
+                ));
+                setShowMultiCastModal(false);
+                setSelectedCasts([]);
+                setCurrentReservation(null);
+                // Show success message
+                alert('複数のキャストが正常に承認されました');
+            } else {
+                console.error('Failed to approve multiple applications');
+                alert('複数キャストの承認に失敗しました');
+            }
+        } catch (error) {
+            console.error('Error approving multiple applications:', error);
+        }
+    };
+
+    const toggleCastSelection = (application: ReservationApplication) => {
+        setSelectedCasts(prev => {
+            const isSelected = prev.some(app => app.id === application.id);
+            if (isSelected) {
+                return prev.filter(app => app.id !== application.id);
+            } else {
+                return [...prev, application];
+            }
+        });
+    };
+
+    const isCastSelected = (application: ReservationApplication) => {
+        return selectedCasts.some(app => app.id === application.id);
     };
 
     // Update applications when props change
@@ -289,6 +358,16 @@ export default function AdminReservationApplications({ applications: initialAppl
                                                             >
                                                                 <Check className="w-4 h-4" />
                                                             </Button>
+                                                            {item.reservation.type === 'pishatto' && (
+                                                                <Button 
+                                                                    size="sm" 
+                                                                    variant="outline" 
+                                                                    className="bg-blue-600 hover:bg-blue-700 text-white"
+                                                                    onClick={() => handleMultiCastSelection(item.reservation)}
+                                                                >
+                                                                    <Users className="w-4 h-4" />
+                                                                </Button>
+                                                            )}
                                                             <Button 
                                                                 size="sm" 
                                                                 variant="destructive"
@@ -732,6 +811,130 @@ export default function AdminReservationApplications({ applications: initialAppl
                                 className="flex-1"
                             >
                                 却下
+                            </Button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Multi-Cast Selection Modal */}
+            {showMultiCastModal && currentReservation && (
+                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+                    <div className="bg-white rounded-lg p-6 max-w-4xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+                        <div className="flex items-center justify-between mb-6">
+                            <h3 className="text-xl font-semibold text-gray-900">
+                                複数キャスト選択 - プレミアム予約
+                            </h3>
+                            <Button 
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => {
+                                    setShowMultiCastModal(false);
+                                    setSelectedCasts([]);
+                                    setCurrentReservation(null);
+                                }}
+                            >
+                                <X className="w-5 h-5" />
+                            </Button>
+                        </div>
+
+                        {/* Reservation Info */}
+                        <div className="bg-blue-50 rounded-lg p-4 mb-6">
+                            <h4 className="font-semibold text-blue-900 mb-2">予約情報</h4>
+                            <div className="grid grid-cols-2 gap-4 text-sm">
+                                <div>
+                                    <span className="text-blue-600">場所:</span> {currentReservation.location || '未設定'}
+                                </div>
+                                <div>
+                                    <span className="text-blue-600">時間:</span> {formatDate(currentReservation.scheduled_at)}
+                                </div>
+                                <div>
+                                    <span className="text-blue-600">期間:</span> {currentReservation.duration || 1}時間
+                                </div>
+                                <div>
+                                    <span className="text-blue-600">タイプ:</span> プレミアム
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Cast Selection */}
+                        <div className="mb-6">
+                            <h4 className="font-semibold text-gray-900 mb-4">
+                                応募キャスト一覧 ({selectedCasts.length} 人中選択中)
+                            </h4>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                {selectedCasts.map((application) => (
+                                    <div 
+                                        key={application.id}
+                                        className={`border rounded-lg p-4 cursor-pointer transition-colors ${
+                                            isCastSelected(application) 
+                                                ? 'border-blue-500 bg-blue-50' 
+                                                : 'border-gray-200 hover:border-gray-300'
+                                        }`}
+                                        onClick={() => toggleCastSelection(application)}
+                                    >
+                                        <div className="flex items-center justify-between">
+                                            <div className="flex items-center space-x-3">
+                                                <div className="w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center">
+                                                    {application.cast.avatar ? (
+                                                        <img 
+                                                            src={application.cast.avatar} 
+                                                            alt={application.cast.nickname}
+                                                            className="w-10 h-10 rounded-full object-cover"
+                                                        />
+                                                    ) : (
+                                                        <span className="text-lg font-bold text-gray-600">
+                                                            {application.cast.nickname.charAt(0)}
+                                                        </span>
+                                                    )}
+                                                </div>
+                                                <div>
+                                                    <h5 className="font-medium text-gray-900">
+                                                        {application.cast.nickname}
+                                                    </h5>
+                                                    <p className="text-sm text-gray-600">
+                                                        キャスト #{application.cast.id}
+                                                    </p>
+                                                    {application.cast.points && (
+                                                        <p className="text-sm text-yellow-600">
+                                                            {application.cast.points}P
+                                                        </p>
+                                                    )}
+                                                </div>
+                                            </div>
+                                            <div className="flex items-center">
+                                                {isCastSelected(application) ? (
+                                                    <CheckCircle className="w-5 h-5 text-blue-600" />
+                                                ) : (
+                                                    <div className="w-5 h-5 border-2 border-gray-300 rounded-full" />
+                                                )}
+                                            </div>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+
+                        {/* Action Buttons */}
+                        <div className="flex justify-end space-x-3 pt-4 border-t border-gray-200">
+                            <Button 
+                                variant="outline"
+                                onClick={() => {
+                                    setShowMultiCastModal(false);
+                                    setSelectedCasts([]);
+                                    setCurrentReservation(null);
+                                }}
+                            >
+                                キャンセル
+                            </Button>
+                            <Button 
+                                variant="default"
+                                className="bg-blue-600 hover:bg-blue-700"
+                                onClick={handleMultiCastApprove}
+                                disabled={selectedCasts.length === 0}
+                            >
+                                <Users className="w-4 h-4 mr-2" />
+                                選択したキャストを承認 ({selectedCasts.length}人)
                             </Button>
                         </div>
                     </div>

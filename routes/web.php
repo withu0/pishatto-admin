@@ -81,6 +81,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::get('admin/reservation-applications', [AdminController::class, 'reservationApplications'])->name('admin.reservation-applications');
     Route::post('admin/reservation-applications/{applicationId}/approve', [AdminController::class, 'approveApplication'])->name('admin.reservation-applications.approve');
     Route::post('admin/reservation-applications/{applicationId}/reject', [AdminController::class, 'rejectApplication'])->name('admin.reservation-applications.reject');
+    Route::post('admin/reservation-applications/multi-approve', [AdminController::class, 'approveMultipleApplications'])->name('admin.reservation-applications.multi-approve');
     
     // Identity Verification Management
     Route::get('admin/identity-verifications', [IdentityVerificationController::class, 'index'])->name('admin.identity-verifications');

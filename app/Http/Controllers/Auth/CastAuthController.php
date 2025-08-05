@@ -146,6 +146,24 @@ class CastAuthController extends Controller
         ]);
     }
 
+    public function getAvailableCasts(Request $request)
+    {
+        $location = $request->query('location', '東京都');
+        $limit = $request->query('limit', 50);
+        
+        $casts = \App\Models\Cast::where('location', $location)
+            ->where('status', 'active')
+            ->inRandomOrder()
+            ->limit($limit)
+            ->get(['id', 'nickname', 'avatar', 'location', 'grade']);
+            
+        return response()->json([
+            'casts' => $casts,
+            'total' => $casts->count(),
+            'location' => $location
+        ]);
+    }
+
     public function getCastPassportData($id)
     {
         $cast = \App\Models\Cast::find($id);
@@ -340,6 +358,13 @@ class CastAuthController extends Controller
             return response()->json(['liked' => false]);
         } else {
             \App\Models\Like::create(['guest_id' => $guestId, 'cast_id' => $castId]);
+            
+            // Send notification if enabled
+            $cast = \App\Models\Cast::find($castId);
+            if ($cast) {
+                \App\Services\NotificationService::sendLikeNotification($guestId, $castId, $cast->nickname);
+            }
+            
             return response()->json(['liked' => true]);
         }
     }
@@ -384,14 +409,7 @@ class CastAuthController extends Controller
         // Create notification for the guest about the cast visit
         $cast = \App\Models\Cast::find($castId);
         if ($cast) {
-            \App\Models\Notification::create([
-                'user_id' => $guestId,
-                'user_type' => 'guest',
-                'type' => 'cast_visit',
-                'message' => "{$cast->nickname}さんがあなたのプロフィールを見ました",
-                'read' => false,
-                'cast_id' => $castId, // Store cast_id for reference
-            ]);
+            \App\Services\NotificationService::sendFootprintNotification($guestId, $castId, $cast->nickname);
         }
         
         return response()->json(['success' => true]);

@@ -98,6 +98,7 @@ class ReservationApplicationController extends Controller
             $reservation->update([
                 'active' => false,
                 'cast_id' => $application->cast_id,
+                'cast_ids' => [$application->cast_id], // Store as array for consistency
             ]);
 
             // Reject all other pending applications for this reservation

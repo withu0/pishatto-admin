@@ -14,6 +14,7 @@ class Reservation extends Model
     protected $fillable = [
         'guest_id',
         'cast_id',
+        'cast_ids',
         'type',
         'scheduled_at',
         'location',
@@ -25,6 +26,14 @@ class Reservation extends Model
         'started_at',
         'ended_at',
         'points_earned',
+    ];
+
+    protected $casts = [
+        'scheduled_at' => 'datetime',
+        'created_at' => 'datetime',
+        'started_at' => 'datetime',
+        'ended_at' => 'datetime',
+        'cast_ids' => 'array',
     ];
 
     public function guest()

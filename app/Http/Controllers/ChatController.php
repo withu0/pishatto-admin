@@ -6,6 +6,7 @@ use Illuminate\Http\Request;
 use App\Models\Chat;
 use App\Models\Message;
 use App\Models\Gift;
+use Illuminate\Support\Facades\DB; // Added for DB facade
 
 class ChatController extends Controller
 {
@@ -13,7 +14,7 @@ class ChatController extends Controller
     {
         $userId = $request->query('user_id');
         $userType = $request->query('user_type'); // 'guest' or 'cast'
-        $chats = Chat::with(['guest', 'cast', 'messages' => function($q) {
+        $chats = Chat::with(['guest', 'cast', 'group', 'messages' => function($q) {
             $q->orderBy('created_at', 'desc');
         }])->get();
 
@@ -22,6 +23,7 @@ class ChatController extends Controller
             $name = $user->nickname ?? 'Unknown';
             $avatar = $user->avatar ?? '/assets/avatar/default.png';
             $lastMessage = $chat->messages->first();
+            
             // Count unread messages for this user in this chat
             $unread = $chat->messages->where('is_read', false)
                 ->filter(function($msg) use ($userId, $userType) {
@@ -32,7 +34,8 @@ class ChatController extends Controller
                     }
                     return false;
                 })->count();
-            return [
+            
+            $chatData = [
                 'id' => $chat->id,
                 'avatar' => $avatar,
                 'name' => $name,
@@ -40,6 +43,15 @@ class ChatController extends Controller
                 'timestamp' => $lastMessage ? $lastMessage->created_at : now(),
                 'unread' => $unread,
             ];
+
+            // Add group information if this is a group chat
+            if ($chat->group_id) {
+                $chatData['group_id'] = $chat->group_id;
+                $chatData['group_name'] = $chat->group->name ?? 'Group Chat';
+                $chatData['is_group_chat'] = true;
+            }
+
+            return $chatData;
         });
 
         return response()->json($result);
@@ -268,6 +280,58 @@ class ChatController extends Controller
         return response()->json(['chat' => $chat, 'created' => true]);
     }
 
+    // Create a chat group with multiple participants
+    public function createChatGroup(Request $request)
+    {
+        $validated = $request->validate([
+            'name' => 'required|string|max:255',
+            'guest_id' => 'required|exists:guests,id',
+            'cast_ids' => 'required|array|min:1',
+            'cast_ids.*' => 'exists:casts,id',
+            'reservation_id' => 'nullable|exists:reservations,id',
+        ]);
+
+        try {
+            DB::beginTransaction();
+
+            // Create chat group
+            $chatGroup = \App\Models\ChatGroup::create([
+                'reservation_id' => $validated['reservation_id'],
+                'cast_ids' => $validated['cast_ids'],
+                'name' => $validated['name'],
+                'created_at' => now(),
+            ]);
+
+            // Create individual chats for each cast
+            $chats = [];
+            foreach ($validated['cast_ids'] as $castId) {
+                $chat = \App\Models\Chat::create([
+                    'guest_id' => $validated['guest_id'],
+                    'cast_id' => $castId,
+                    'reservation_id' => $validated['reservation_id'],
+                    'group_id' => $chatGroup->id,
+                ]);
+                $chats[] = $chat;
+            }
+
+            DB::commit();
+
+            return response()->json([
+                'chat_group' => $chatGroup,
+                'chats' => $chats,
+                'message' => 'Chat group created successfully'
+            ], 201);
+
+        } catch (\Exception $e) {
+            DB::rollBack();
+            \Log::error('createChatGroup error: ' . $e->getMessage());
+            return response()->json([
+                'message' => 'Failed to create chat group',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
     public function show($chatId)
     {
         $chat = \App\Models\Chat::with(['guest', 'cast', 'messages', 'reservation'])->find($chatId);
@@ -329,5 +393,169 @@ class ChatController extends Controller
         $chat->delete();
 
         return response()->json(['message' => 'Chat deleted successfully']);
+    }
+
+    public function sendGroupMessage(Request $request)
+    {
+        $validated = $request->validate([
+            'group_id' => 'required|exists:chat_groups,id',
+            'message' => 'nullable|string',
+            'image' => 'nullable|image|mimes:jpeg,png,jpg,gif,webp|max:4096',
+            'gift_id' => 'nullable|exists:gifts,id',
+            'sender_guest_id' => 'nullable|exists:guests,id',
+            'sender_cast_id' => 'nullable|exists:casts,id',
+        ]);
+
+        try {
+            DB::beginTransaction();
+
+            // Get the first chat in the group to use as the message chat_id
+            $firstChat = \App\Models\Chat::where('group_id', $validated['group_id'])->first();
+            if (!$firstChat) {
+                return response()->json(['message' => 'No chat found for this group'], 404);
+            }
+
+            $validated['chat_id'] = $firstChat->id;
+            $validated['created_at'] = now();
+
+            // Handle image upload
+            if ($request->hasFile('image')) {
+                $file = $request->file('image');
+                $fileName = time() . '_' . $file->getClientOriginalName();
+                $path = $file->storeAs('chat_images', $fileName, 'public');
+                $validated['image'] = 'chat_images/' . $fileName;
+            }
+
+            $message = \App\Models\Message::create($validated);
+            $message->load(['guest', 'cast']);
+
+            // Broadcast to all participants in the group
+            event(new \App\Events\GroupMessageSent($message, $validated['group_id']));
+
+            // Handle gift logic if present
+            if ($request->input('gift_id')) {
+                $chat = $message->chat;
+                if ($chat && $message->sender_guest_id && $chat->cast_id) {
+                    $gift = \App\Models\Gift::find($request->input('gift_id'));
+                    
+                    if ($gift && $gift->points > 0) {
+                        $guest = \App\Models\Guest::find($message->sender_guest_id);
+                        $cast = \App\Models\Cast::find($chat->cast_id);
+                        
+                        if ($guest && $cast && $guest->points >= $gift->points) {
+                            $guest->points -= $gift->points;
+                            $guest->save();
+                            
+                            $cast->points += $gift->points;
+                            $cast->save();
+                            
+                            \App\Models\PointTransaction::create([
+                                'guest_id' => $guest->id,
+                                'cast_id' => $cast->id,
+                                'type' => 'gift',
+                                'amount' => $gift->points,
+                                'reservation_id' => $chat->reservation_id,
+                                'description' => "Gift sent: {$gift->name}",
+                                'gift_type' => 'sent'
+                            ]);
+                        }
+                    }
+                }
+            }
+
+            DB::commit();
+
+            return response()->json([
+                'message' => $message,
+                'group_id' => $validated['group_id']
+            ], 201);
+
+        } catch (\Exception $e) {
+            DB::rollBack();
+            \Log::error('sendGroupMessage error: ' . $e->getMessage());
+            return response()->json([
+                'message' => 'Failed to send group message',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    public function getGroupMessages($groupId, Request $request)
+    {
+        $userType = $request->query('user_type'); // 'guest' or 'cast'
+        $userId = $request->query('user_id');
+
+        // Verify user is part of this group
+        $group = \App\Models\ChatGroup::find($groupId);
+        if (!$group) {
+            return response()->json(['message' => 'Group not found'], 404);
+        }
+
+        $userInGroup = \App\Models\Chat::where('group_id', $groupId)
+            ->where(function($query) use ($userId, $userType) {
+                if ($userType === 'guest') {
+                    $query->where('guest_id', $userId);
+                } else {
+                    $query->where('cast_id', $userId);
+                }
+            })->exists();
+
+        if (!$userInGroup) {
+            return response()->json(['message' => 'Not authorized to access this group'], 403);
+        }
+
+        // Get all chats in this group
+        $chats = \App\Models\Chat::where('group_id', $groupId)->pluck('id');
+        
+        // Get all messages from all chats in this group
+        $messages = \App\Models\Message::whereIn('chat_id', $chats)
+            ->with(['guest', 'cast', 'gift'])
+            ->orderBy('created_at', 'asc')
+            ->get();
+
+        // Load reservation information for the group
+        $group->load('reservation');
+        
+        return response()->json([
+            'messages' => $messages,
+            'group' => $group
+        ]);
+    }
+
+    public function getGroupParticipants($groupId)
+    {
+        $group = \App\Models\ChatGroup::find($groupId);
+        if (!$group) {
+            return response()->json(['message' => 'Group not found'], 404);
+        }
+
+        $chats = \App\Models\Chat::where('group_id', $groupId)
+            ->with(['guest', 'cast'])
+            ->get();
+
+        $participants = [];
+        foreach ($chats as $chat) {
+            if ($chat->guest) {
+                $participants[] = [
+                    'id' => $chat->guest->id,
+                    'type' => 'guest',
+                    'nickname' => $chat->guest->nickname,
+                    'avatar' => $chat->guest->avatar,
+                ];
+            }
+            if ($chat->cast) {
+                $participants[] = [
+                    'id' => $chat->cast->id,
+                    'type' => 'cast',
+                    'nickname' => $chat->cast->nickname,
+                    'avatar' => $chat->cast->avatar,
+                ];
+            }
+        }
+
+        return response()->json([
+            'participants' => $participants,
+            'group' => $group
+        ]);
     }
 } 

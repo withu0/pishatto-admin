@@ -46,6 +46,8 @@ Route::post('/cast/login', [CastAuthController::class, 'login']);
 Route::post('/cast/profile', [CastAuthController::class, 'updateProfile']);
 Route::post('/cast/register', [CastAuthController::class, 'register']);
 Route::post('/guest/reservation', [GuestAuthController::class, 'createReservation']);
+Route::post('/guest/free-call', [GuestAuthController::class, 'createFreeCall']);
+Route::get('/casts/available', [CastAuthController::class, 'getAvailableCasts']);
 Route::get('/cast/profile/{id}', [CastAuthController::class, 'getProfile']);
 Route::get('/guest/reservations/{guest_id}', [GuestAuthController::class, 'listReservations']);
 Route::get('/reservations/all', [CastAuthController::class, 'allReservations']);
@@ -78,9 +80,15 @@ Route::post('/guests/visit', [CastAuthController::class, 'recordGuestVisit']);
 Route::get('/casts/visit-history/{guestId}', [CastAuthController::class, 'visitHistory']);
 
 Route::get('/notifications/{userType}/{userId}', [GuestAuthController::class, 'getNotifications']);
+Route::get('/notifications/{userType}/{userId}/unread-count', [GuestAuthController::class, 'getUnreadNotificationCount']);
 Route::post('/notifications/read/{id}', [GuestAuthController::class, 'markNotificationRead']);
 Route::post('/notifications/read-all/{userType}/{userId}', [GuestAuthController::class, 'markAllNotificationsRead']);
 Route::delete('/notifications/{id}', [GuestAuthController::class, 'deleteNotification']);
+
+// Notification settings routes
+Route::get('/notification-settings', [App\Http\Controllers\NotificationSettingsController::class, 'getSettings']);
+Route::post('/notification-settings', [App\Http\Controllers\NotificationSettingsController::class, 'updateSettings']);
+Route::get('/notification-settings/check', [App\Http\Controllers\NotificationSettingsController::class, 'isEnabled']);
 
 // Avatar serving route
 Route::get('/avatars/{filename}', [GuestAuthController::class, 'getAvatar']);
@@ -191,6 +199,10 @@ Route::post('/cast/avatar-upload', [CastAuthController::class, 'uploadAvatar']);
 Route::delete('/cast/avatar-delete', [CastAuthController::class, 'deleteAvatar']);
 Route::post('/guests/like', [GuestAuthController::class, 'likeGuest']);
 Route::post('/chats/create', [ChatController::class, 'createChat']);
+Route::post('/chats/create-group', [ChatController::class, 'createChatGroup']);
+Route::post('/chats/group-message', [ChatController::class, 'sendGroupMessage']);
+Route::get('/chats/group/{groupId}/messages', [ChatController::class, 'getGroupMessages']);
+Route::get('/chats/group/{groupId}/participants', [ChatController::class, 'getGroupParticipants']);
 Route::get('/guests/like-status/{cast_id}/{guest_id}', [GuestAuthController::class, 'likeStatus']);
 Route::get('/ranking', [RankingController::class, 'getRanking']);
 Route::post('/ranking/clear-cache', [RankingController::class, 'clearRankingCache']);

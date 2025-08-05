@@ -29,6 +29,25 @@ Broadcast::channel('chat.{chatId}', function ($user, $chatId) {
     return true;
 });
 
+Broadcast::channel('group.{groupId}', function ($user, $groupId) {
+    // Check if user is part of this group
+    $group = \App\Models\ChatGroup::find($groupId);
+    if (!$group) return false;
+
+    // Check if user is the guest or one of the casts in this group
+    $chats = \App\Models\Chat::where('group_id', $groupId)->get();
+    
+    foreach ($chats as $chat) {
+        if ($user instanceof \App\Models\Guest && $chat->guest_id === $user->id) {
+            return true;
+        }
+        if ($user instanceof \App\Models\Cast && $chat->cast_id === $user->id) {
+            return true;
+        }
+    }
+    
+    return false;
+});
 
 Broadcast::channel('user.{userId}', function ($user, $userId) {
     return (int) $user->id === (int) $userId;
