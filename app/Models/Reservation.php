@@ -18,6 +18,8 @@ class Reservation extends Model
         'type',
         'scheduled_at',
         'location',
+        'meeting_location',
+        'reservation_name',
         'duration',
         'details',
         'created_at',

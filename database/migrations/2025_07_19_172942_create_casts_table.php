@@ -24,6 +24,7 @@ return new class extends Migration
             $table->string('residence', 100)->nullable();
             $table->string('birthplace', 100)->nullable();
             $table->text('profile_text')->nullable();
+            $table->enum('category', ['プレミアム', 'VIP', 'ロイヤルVIP'])->default('プレミアム');
             $table->timestamps();
         });
     }

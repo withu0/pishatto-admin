@@ -66,8 +66,58 @@ class CastAuthController extends Controller
 
     public function allReservations()
     {
-        $reservations = \App\Models\Reservation::orderBy('scheduled_at', 'desc')->get();
-        return response()->json(['reservations' => $reservations]);
+        try {
+            $reservations = \App\Models\Reservation::where('type', 'free')
+                ->orderBy('scheduled_at', 'desc')
+                ->get();
+            
+            // Get all casts to calculate points based on their categories
+            $casts = \App\Models\Cast::all()->keyBy('id');
+            
+            // Add calculated points to each reservation
+            $reservations->each(function ($reservation) use ($casts) {
+                // Calculate points based on cast category and duration
+                // Formula: category_points * duration * 60 / 30
+                $totalPoints = 0;
+                
+                // Check if reservation has cast_ids
+                if ($reservation->cast_ids) {
+                    $castIds = $reservation->cast_ids;
+                    if (is_array($castIds) && !empty($castIds)) {
+                        // Calculate points based on the first cast's category (or average if multiple)
+                        $categoryPoints = 0;
+                        $castCount = 0;
+                        
+                        foreach ($castIds as $castId) {
+                            if (isset($casts[$castId])) {
+                                $categoryPoints += $casts[$castId]->getCategoryPointsAttribute();
+                                $castCount++;
+                            }
+                        }
+                        
+                        if ($castCount > 0) {
+                            $averageCategoryPoints = $categoryPoints / $castCount;
+                            $duration = $reservation->duration ?? 1;
+                            $totalPoints = $averageCategoryPoints * $duration * 60 / 30;
+                        }
+                    }
+                }
+                
+                // Fallback to default calculation if no cast_ids or casts not found
+                if ($totalPoints === 0) {
+                    $defaultCategoryPoints = 9000; // Default to プレミアム
+                    $duration = $reservation->duration ?? 1;
+                    $totalPoints = $defaultCategoryPoints * $duration * 60 / 30;
+                }
+                
+                $reservation->calculated_points = $totalPoints;
+            });
+            
+            return response()->json(['reservations' => $reservations]);
+        } catch (\Exception $e) {
+            \Log::error('Error in allReservations: ' . $e->getMessage());
+            return response()->json(['reservations' => [], 'error' => $e->getMessage()], 500);
+        }
     }
 
     public function getProfile($id)
@@ -249,102 +299,59 @@ class CastAuthController extends Controller
     {
         $query = Cast::query();
         
-        // Search functionality for age and height
-        if ($request->has('search') && !empty($request->search)) {
-            $search = $request->search;
-            
-            // Debug: Log the search term
-            \Log::info('Search term: ' . $search);
-            
-            // Parse search terms (e.g., "25歳 160cm" or "25 160")
-            $searchTerms = preg_split('/[\s,]+/', $search);
-            
-            foreach ($searchTerms as $term) {
-                $term = trim($term);
-                \Log::info('Processing term: ' . $term);
-                
-                // Check if it's an age (number followed by 歳 or just number)
-                if (preg_match('/^(\d+)(歳|才)?$/', $term, $matches)) {
-                    $age = (int)$matches[1];
-                    $currentYear = date('Y');
-                    $birthYear = $currentYear - $age;
-                    \Log::info('Age search: age=' . $age . ', birthYear=' . $birthYear);
-                    $query->where('birth_year', '>=', $birthYear)
-                          ->where('birth_year', '<=', $birthYear + 1);
-                }
-                // Check if it's a height (number followed by cm or just number)
-                elseif (preg_match('/^(\d+)(cm|センチ)?$/', $term, $matches)) {
-                    $height = (int)$matches[1];
-                    \Log::info('Height search: height=' . $height);
-                    // Allow some tolerance (±5cm)
-                    $query->where('height', '>=', $height - 5)
-                          ->where('height', '<=', $height + 5);
-                }
-                // Check if it's just a number (could be age or height)
-                elseif (is_numeric($term)) {
-                    $number = (int)$term;
-                    // If number is between 140-200, treat as height
-                    if ($number >= 140 && $number <= 200) {
-                        \Log::info('Numeric height search: height=' . $number);
-                        $query->where('height', '>=', $number - 5)
-                              ->where('height', '<=', $number + 5);
-                    }
-                    // If number is between 18-80, treat as age
-                    elseif ($number >= 18 && $number <= 80) {
-                        $currentYear = date('Y');
-                        $birthYear = $currentYear - $number;
-                        \Log::info('Numeric age search: age=' . $number . ', birthYear=' . $birthYear);
-                        $query->where('birth_year', '>=', $birthYear)
-                              ->where('birth_year', '<=', $birthYear + 1);
-                    }
-                }
-                // General text search for nickname and profile_text
-                else {
-                    \Log::info('Text search: term=' . $term);
-                    $query->where(function($q) use ($term) {
-                        $q->where('nickname', 'like', "%{$term}%")
-                          ->orWhere('profile_text', 'like', "%{$term}%")
-                          ->orWhere('residence', 'like', "%{$term}%")
-                          ->orWhere('birthplace', 'like', "%{$term}%");
-                    });
-                }
-            }
+        // Apply area filter if provided
+        if ($request->has('area') && $request->area) {
+            $query->where('residence', $request->area);
         }
         
-        // Optional filter: area (favorite_area or location)
-        if ($request->has('area') && !empty($request->area)) {
-            $query->where(function($q) use ($request) {
-                $q->where('residence', 'like', "%{$request->area}%")
-                  ->orWhere('birthplace', 'like', "%{$request->area}%");
+        // Apply search filter if provided
+        if ($request->has('search') && $request->search) {
+            $search = $request->search;
+            $query->where(function($q) use ($search) {
+                $q->where('nickname', 'like', "%{$search}%")
+                  ->orWhere('name', 'like', "%{$search}%");
             });
         }
         
-        // Optional sort
-        if ($request->has('sort') && !empty($request->sort)) {
-            if ($request->sort === 'newest') {
-                $query->orderBy('created_at', 'desc');
-            } elseif ($request->sort === 'oldest') {
-                $query->orderBy('created_at', 'asc');
-            } elseif ($request->sort === 'most_liked') {
-                $query->withCount('likes')->orderBy('likes_count', 'desc');
-            } elseif ($request->sort === 'most_active') {
-                $query->orderBy('updated_at', 'desc');
-            }
-        } else {
-            // Default sorting by creation date (newest first)
-            $query->orderBy('created_at', 'desc');
-        }
+        // Apply sorting
+        $sort = $request->get('sort', 'created_at');
+        $order = $request->get('order', 'desc');
         
-        // Debug: Log the SQL query
-        \Log::info('SQL Query: ' . $query->toSql());
-        \Log::info('SQL Bindings: ' . json_encode($query->getBindings()));
+        switch ($sort) {
+            case 'created_at':
+                $query->orderBy('created_at', $order);
+                break;
+            case 'nickname':
+                $query->orderBy('nickname', $order);
+                break;
+            case 'popularity':
+                // You can implement popularity sorting based on your requirements
+                $query->orderBy('created_at', 'desc');
+                break;
+            default:
+                $query->orderBy('created_at', 'desc');
+        }
         
         $casts = $query->get();
         
-        // Log the number of results
-        \Log::info('Number of casts found: ' . $casts->count());
-        
         return response()->json(['casts' => $casts]);
+    }
+
+    public function getCastCountsByLocation()
+    {
+        try {
+            $counts = Cast::select('residence', \DB::raw('count(*) as count'))
+                ->whereNotNull('residence')
+                ->where('residence', '!=', '')
+                ->groupBy('residence')
+                ->pluck('count', 'residence')
+                ->toArray();
+            
+            return response()->json($counts);
+        } catch (\Exception $e) {
+            \Log::error('Error in getCastCountsByLocation: ' . $e->getMessage());
+            return response()->json([], 500);
+        }
     }
 
     // Like or unlike a cast

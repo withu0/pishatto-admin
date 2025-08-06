@@ -8,6 +8,7 @@ use App\Models\Reservation;
 use App\Models\Cast;
 use App\Models\Guest;
 use App\Models\Chat;
+use App\Models\ChatGroup;
 use App\Models\Notification;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -120,6 +121,10 @@ class ReservationApplicationController extends Controller
                 'reservation_id' => $reservation->id,
                 'message' => '予約の応募が承認されました',
                 'read' => false,
+            ]);
+
+            $updateChatGroup=ChatGroup::where('reservation_id', $reservation->id)->update([
+                'cast_ids' => array_merge($chat->cast_ids, [$application->cast_id]),
             ]);
 
             // Notify rejected casts

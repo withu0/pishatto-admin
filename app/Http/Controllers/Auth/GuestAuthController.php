@@ -270,10 +270,13 @@ class GuestAuthController extends Controller
             'type' => 'nullable|in:free,pishatto',
             'scheduled_at' => 'required|date',
             'location' => 'nullable|string|max:255',
+            'meeting_location' => 'nullable|string|max:255',
+            'reservation_name' => 'nullable|string|max:255',
             'duration' => 'nullable|integer',
             'details' => 'nullable|string',
             'time' => 'nullable|string|max:10',
         ]);
+
         if ($validator->fails()) {
             return response()->json([
                 'message' => 'Validation failed',
@@ -286,7 +289,7 @@ class GuestAuthController extends Controller
 
             // Create the reservation
             $data = $request->only([
-                'guest_id', 'type', 'location', 'duration', 'details', 'time'
+                'guest_id', 'type', 'location', 'meeting_location', 'reservation_name', 'duration', 'details', 'time'
             ]);
             $data['scheduled_at'] = \Carbon\Carbon::parse($request->scheduled_at);
             $data['type'] = 'pishatto';
@@ -303,15 +306,6 @@ class GuestAuthController extends Controller
                 return response()->json(['message' => 'Guest not found'], 404);
             }
 
-            \Log::info('Reservation creation - point calculation', [
-                'reservation_id' => $reservation->id,
-                'guest_id' => $guest->id,
-                'guest_points_before' => $guest->points,
-                'required_points' => $requiredPoints,
-                'duration' => $reservation->duration,
-                'details' => $reservation->details
-            ]);
-
             if ($guest->points < $requiredPoints) {
                 DB::rollBack();
                 return response()->json([
@@ -325,13 +319,6 @@ class GuestAuthController extends Controller
             $guest->points -= $requiredPoints;
             $guest->save();
 
-            \Log::info('Points deducted from guest', [
-                'reservation_id' => $reservation->id,
-                'guest_id' => $guest->id,
-                'points_deducted' => $requiredPoints,
-                'guest_points_after' => $guest->points
-            ]);
-
             // Create a pending point transaction record
             $pendingTransaction = PointTransaction::create([
                 'guest_id' => $guest->id,
@@ -342,21 +329,42 @@ class GuestAuthController extends Controller
                 'description' => "Reservation created - {$reservation->duration} hours (pending)"
             ]);
 
-            \Log::info('Pending point transaction created', [
-                'transaction_id' => $pendingTransaction->id,
+
+            DB::commit();
+// Create chat group for this reservation without any casts
+            $chatGroup = ChatGroup::create([
                 'reservation_id' => $reservation->id,
-                'guest_id' => $guest->id,
-                'amount' => $requiredPoints
+                'cast_ids' => [], // No casts initially
+                'name' => "フリーコール: {$guest->nickname}",
+                'created_at' => now(),
             ]);
+
+            // Create a special "guest-only" chat for the group so it appears in the message screen
+            // $guestChat = Chat::create([
+            //     'guest_id' => $guest->id,
+            //     'cast_id' => null, // No cast assigned yet
+            //     'reservation_id' => $reservation->id,
+            //     'group_id' => $chatGroup->id,
+            //     'created_at' => now(),
+            // ]);
+
+            
+            // No individual chats created initially since no casts are selected
+            $selectedCasts = [];
 
             DB::commit();
 
-            \Log::info('Reservation created successfully', [
-                'reservation_id' => $reservation->id,
-                'guest_id' => $guest->id,
+            // Broadcast reservation creation
+            event(new \App\Events\ReservationUpdated($reservation));
+            
+            return response()->json([
+                'reservation' => $reservation,
+                'chat_group' => $chatGroup,
+                'selected_casts' => $selectedCasts,
+                'cast_counts' => $request->cast_counts,
                 'points_deducted' => $requiredPoints,
                 'remaining_points' => $guest->points
-            ]);
+            ], 201);
 
             // Real-time ranking update for guest
             $rankingService = app(\App\Services\RankingService::class);
@@ -406,16 +414,7 @@ class GuestAuthController extends Controller
         try {
             DB::beginTransaction();
 
-            // Get available casts based on location and counts
-            $availableCasts = $this->getAvailableCastsForFreeCall(
-                $request->location ?? '東京都',
-                $request->cast_counts
-            );
-
-            // Extract cast IDs for storage
-            $castIds = $availableCasts->pluck('id')->toArray();
-
-            // Create the reservation with type 'free'
+            // Create the reservation with type 'free' without any casts initially
             $reservation = Reservation::create([
                 'guest_id' => $request->guest_id,
                 'type' => 'free',
@@ -424,68 +423,38 @@ class GuestAuthController extends Controller
                 'duration' => $request->duration,
                 'details' => $request->details,
                 'time' => $request->time,
-                'cast_ids' => $castIds,
+                'cast_ids' => [], // No casts initially selected
             ]);
 
-            // Calculate required points for this reservation
-            $requiredPoints = $this->pointTransactionService->calculateReservationPointsLegacy($reservation);
+            // Calculate required points for this reservation (will be 0 since no casts)
+            $requiredPoints = 0; // No points deducted initially since no casts are selected
 
-            // Get the guest and check if they have enough points
+            // Get the guest
             $guest = Guest::find($request->guest_id);
             if (!$guest) {
                 DB::rollBack();
                 return response()->json(['message' => 'Guest not found'], 404);
             }
 
-            if ($guest->points < $requiredPoints) {
-                DB::rollBack();
-                return response()->json([
-                    'message' => 'Insufficient points',
-                    'required_points' => $requiredPoints,
-                    'available_points' => $guest->points
-                ], 400);
-            }
-
-            // Deduct points from guest
-            $guest->points -= $requiredPoints;
-            $guest->save();
-
-            // Create a pending point transaction record
-            PointTransaction::create([
-                'guest_id' => $guest->id,
-                'cast_id' => null,
-                'type' => 'pending',
-                'amount' => $requiredPoints,
-                'reservation_id' => $reservation->id,
-                'description' => "Free call reservation created - {$reservation->duration} hours (pending)"
-            ]);
-
-            // Create chat group for this reservation
+            // Create chat group for this reservation without any casts
             $chatGroup = ChatGroup::create([
                 'reservation_id' => $reservation->id,
-                'cast_ids' => $castIds,
+                'cast_ids' => [], // No casts initially
                 'name' => "Free Call - {$guest->nickname}",
                 'created_at' => now(),
             ]);
 
-            // Create individual chats for each selected cast
+            // Create a special "guest-only" chat for the group so it appears in the message screen
+            $guestChat = Chat::create([
+                'guest_id' => $guest->id,
+                'cast_id' => null, // No cast assigned yet
+                'reservation_id' => $reservation->id,
+                'group_id' => $chatGroup->id,
+                'created_at' => now(),
+            ]);
+
+            // No individual chats created initially since no casts are selected
             $selectedCasts = [];
-            
-            foreach ($availableCasts as $cast) {
-                $chat = Chat::create([
-                    'guest_id' => $guest->id,
-                    'cast_id' => $cast->id,
-                    'reservation_id' => $reservation->id,
-                    'group_id' => $chatGroup->id,
-                ]);
-                
-                $selectedCasts[] = [
-                    'id' => $cast->id,
-                    'nickname' => $cast->nickname,
-                    'avatar' => $cast->avatar,
-                    'chat_id' => $chat->id,
-                ];
-            }
 
             DB::commit();
 
@@ -619,7 +588,7 @@ class GuestAuthController extends Controller
                     $firstChat = $groupChats->first();
                     $group = $firstChat->group;
                     
-                    // Get all casts in this group
+                    // Get all casts in this group (filter out null casts for guest-only chats)
                     $casts = $groupChats->map(function($chat) {
                         return $chat->cast;
                     })->filter();
@@ -635,6 +604,9 @@ class GuestAuthController extends Controller
                             return $msg->sender_cast_id && !$msg->is_read;
                         })->count();
                     
+                    // Check if this is a guest-only group (no casts assigned yet)
+                    $isGuestOnlyGroup = $casts->isEmpty();
+                    
                     $result[] = [
                         'id' => $firstChat->id, // Use first chat ID as group chat ID
                         'group_id' => $groupId,
@@ -649,9 +621,11 @@ class GuestAuthController extends Controller
                         })->toArray(),
                         'avatar' => $casts->first() ? $casts->first()->avatar : null,
                         'cast_id' => $casts->first() ? $casts->first()->id : null,
-                        'cast_nickname' => $casts->count() > 1 ? 
-                            $group->name ?? 'Group Chat' : 
-                            ($casts->first() ? $casts->first()->nickname : 'Unknown'),
+                        'cast_nickname' => $isGuestOnlyGroup ? 
+                            ($group->name ?? 'フリーコール') : 
+                            ($casts->count() > 1 ? 
+                                $group->name ?? 'Group Chat' : 
+                                ($casts->first() ? $casts->first()->nickname : 'Unknown')),
                         'last_message' => $allMessages->last() ? $allMessages->last()->message : '',
                         'updated_at' => $allMessages->last() ? $allMessages->last()->created_at : $firstChat->created_at,
                         'created_at' => $firstChat->created_at,
@@ -1369,6 +1343,54 @@ class GuestAuthController extends Controller
             });
 
         return response()->json(['news' => $adminNews]);
+    }
+
+    /**
+     * Deduct points from a guest
+     */
+    public function deductPoints(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'guest_id' => 'required|exists:guests,id',
+            'amount' => 'required|integer|min:1',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'message' => 'Validation failed',
+                'errors' => $validator->errors()
+            ], 422);
+        }
+
+        try {
+            $guest = Guest::findOrFail($request->guest_id);
+            
+            // Check if guest has enough points
+            if ($guest->points < $request->amount) {
+                return response()->json([
+                    'message' => 'Insufficient points',
+                    'available_points' => $guest->points,
+                    'requested_amount' => $request->amount
+                ], 400);
+            }
+
+            // Deduct points
+            $guest->points -= $request->amount;
+            $guest->save();
+
+            return response()->json([
+                'message' => 'Points deducted successfully',
+                'guest_id' => $guest->id,
+                'amount_deducted' => $request->amount,
+                'remaining_points' => $guest->points
+            ]);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'message' => 'Failed to deduct points',
+                'error' => $e->getMessage()
+            ], 500);
+        }
     }
 
     /**

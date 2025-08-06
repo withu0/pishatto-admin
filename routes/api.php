@@ -16,6 +16,7 @@ use App\Http\Controllers\ReservationApplicationController;
 use App\Http\Controllers\ConciergeController;
 use App\Models\Feedback;
 use App\Http\Controllers\Admin\LocationController;
+use App\Http\Controllers\Api\GradeController;
 
 /*
 |--------------------------------------------------------------------------
@@ -71,7 +72,9 @@ Route::post('/reservations/{id}/cancel', [GuestAuthController::class, 'cancelRes
 Route::post('/reservations/{id}/refund', [GuestAuthController::class, 'refundUnusedPoints']);
 Route::get('/guests/repeat', [GuestAuthController::class, 'repeatGuests']);
 Route::get('/guest/profile/id/{id}', [GuestAuthController::class, 'getProfileById']);
+Route::post('/guests/deduct-points', [GuestAuthController::class, 'deductPoints']);
 Route::get('/casts', [CastAuthController::class, 'list']);
+Route::get('/casts/counts-by-location', [CastAuthController::class, 'getCastCountsByLocation']);
 Route::get('/casts/profile/{id}', [CastAuthController::class, 'getCastProfile']);
 Route::get('/casts/points/{id}', [CastAuthController::class, 'getCastPointsData']);
 Route::get('/casts/passport/{id}', [CastAuthController::class, 'getCastPassportData']);
@@ -101,6 +104,7 @@ Route::post('/payments/token', [PaymentController::class, 'createToken']);
 
 // Point transaction routes
 Route::get('/point-transactions/{userType}/{userId}', [PaymentController::class, 'getPointTransactions']);
+Route::post('/point-transactions', [PaymentController::class, 'createPointTransaction']);
 
 // Badge routes
 Route::get('/badges', function () {
@@ -238,3 +242,10 @@ Route::get('/admin-news/{userType}', [GuestAuthController::class, 'getAdminNews'
 
 // Public API routes for locations
 Route::get('/locations/active', [LocationController::class, 'getActiveLocations']);
+
+// Grade API routes
+Route::get('/grades/guest/{guest_id}', [GradeController::class, 'getGuestGrade']);
+Route::post('/grades/guest/update', [GradeController::class, 'updateGuestGrade']);
+Route::get('/grades/info', [GradeController::class, 'getAllGradesInfo']);
+Route::get('/grades/{grade}/benefits', [GradeController::class, 'getGradeBenefits']);
+Route::post('/grades/update-all', [GradeController::class, 'updateAllGrades']);

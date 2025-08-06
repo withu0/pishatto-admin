@@ -273,17 +273,26 @@ class ChatController extends Controller
     {
         $castId = $request->input('cast_id');
         $guestId = $request->input('guest_id');
+        $reservationId = $request->input('reservation_id');
+        
         if (!$castId || !$guestId) {
             return response()->json(['message' => 'cast_id and guest_id are required'], 422);
         }
+        
+        // Check if chat already exists for this cast and guest
         $chat = \App\Models\Chat::where('cast_id', $castId)->where('guest_id', $guestId)->first();
         if ($chat) {
+            // Update reservation_id if provided and not already set
+            if ($reservationId && !$chat->reservation_id) {
+                $chat->update(['reservation_id' => $reservationId]);
+            }
             return response()->json(['chat' => $chat, 'created' => false]);
         }
+        
         $chat = \App\Models\Chat::create([
             'cast_id' => $castId,
             'guest_id' => $guestId,
-            'reservation_id' => null,
+            'reservation_id' => $reservationId,
         ]);
         return response()->json(['chat' => $chat, 'created' => true]);
     }
@@ -532,7 +541,7 @@ class ChatController extends Controller
 
     public function getGroupParticipants($groupId)
     {
-        $group = \App\Models\ChatGroup::find($groupId);
+        $group = \App\Models\ChatGroup::with('reservation.guest')->find($groupId);
         if (!$group) {
             return response()->json(['message' => 'Group not found'], 404);
         }
@@ -541,25 +550,53 @@ class ChatController extends Controller
             ->with(['guest', 'cast'])
             ->get();
 
+
+
         $participants = [];
+        $seenGuests = [];
+        $seenCasts = [];
+        
+        // Add participants from individual chats
         foreach ($chats as $chat) {
-            if ($chat->guest) {
+            if ($chat->guest && !in_array($chat->guest->id, $seenGuests)) {
                 $participants[] = [
                     'id' => $chat->guest->id,
                     'type' => 'guest',
                     'nickname' => $chat->guest->nickname,
                     'avatar' => $chat->guest->avatar,
                 ];
+                $seenGuests[] = $chat->guest->id;
             }
-            if ($chat->cast) {
+            if ($chat->cast && !in_array($chat->cast->id, $seenCasts)) {
                 $participants[] = [
                     'id' => $chat->cast->id,
                     'type' => 'cast',
                     'nickname' => $chat->cast->nickname,
                     'avatar' => $chat->cast->avatar,
                 ];
+                $seenCasts[] = $chat->cast->id;
             }
         }
+        
+        // Also add casts from the group's cast_ids array
+        if ($group->cast_ids && is_array($group->cast_ids)) {
+            $groupCasts = \App\Models\Cast::whereIn('id', $group->cast_ids)->get();
+            foreach ($groupCasts as $cast) {
+                if (!in_array($cast->id, $seenCasts)) {
+                    $participants[] = [
+                        'id' => $cast->id,
+                        'type' => 'cast',
+                        'nickname' => $cast->nickname,
+                        'avatar' => $cast->avatar,
+                    ];
+                    $seenCasts[] = $cast->id;
+                }
+            }
+        }
+        
+
+
+
 
         return response()->json([
             'participants' => $participants,

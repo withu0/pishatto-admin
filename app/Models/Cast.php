@@ -28,6 +28,7 @@ class Cast extends Authenticatable
         'payjp_customer_id',
         'payment_info',
         'points',
+        'category',
         'created_at',
         'updated_at',
     ];
@@ -67,6 +68,23 @@ class Cast extends Authenticatable
             $this->attributes['avatar'] = implode(',', $value);
         } else {
             $this->attributes['avatar'] = $value;
+        }
+    }
+
+    /**
+     * Get the category points based on the cast's category
+     */
+    public function getCategoryPointsAttribute()
+    {
+        switch ($this->category) {
+            case 'プレミアム':
+                return 9000;
+            case 'VIP':
+                return 12000;
+            case 'ロイヤルVIP':
+                return 15000;
+            default:
+                return 9000; // Default to プレミアム
         }
     }
 

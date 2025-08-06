@@ -15,6 +15,7 @@ use App\Http\Controllers\Admin\ChatController;
 use App\Http\Controllers\Admin\IdentityVerificationController;
 use App\Http\Controllers\Admin\ConciergeController;
 use App\Http\Controllers\Admin\ReceiptsController;
+use App\Http\Controllers\Admin\GradeController;
 
 use App\Http\Controllers\AdminController;
 
@@ -90,6 +91,13 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::get('admin/identity-verifications/stats', [IdentityVerificationController::class, 'stats'])->name('admin.identity-verifications.stats');
     Route::get('admin/identity-verifications/debug', [IdentityVerificationController::class, 'debug'])->name('admin.identity-verifications.debug');
     Route::get('admin/identity-verifications/test-storage', [IdentityVerificationController::class, 'testStorage'])->name('admin.identity-verifications.test-storage');
+    
+    // Grade Management routes
+    Route::get('admin/grades', [GradeController::class, 'index'])->name('admin.grades');
+    Route::post('admin/grades/update-all', [GradeController::class, 'updateAllGrades'])->name('admin.grades.update-all');
+    Route::post('admin/grades/update-guest', [GradeController::class, 'updateGuestGrade'])->name('admin.grades.update-guest');
+    Route::get('admin/grades/stats', [GradeController::class, 'getGradeStats'])->name('admin.grades.stats');
+    Route::get('admin/grades/{grade}/guests', [GradeController::class, 'getGuestsByGrade'])->name('admin.grades.guests');
 });
 
 

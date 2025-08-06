@@ -95,28 +95,61 @@ class ReservationApplicationController extends Controller
 
             // Update reservation
             $reservation = $application->reservation;
-            $reservation->update([
-                'active' => false,
-                'cast_id' => $application->cast_id,
-                'cast_ids' => [$application->cast_id], // Store as array for consistency
-            ]);
-
-            // Reject all other pending applications for this reservation
-            ReservationApplication::where('reservation_id', $reservation->id)
-                ->where('id', '!=', $application->id)
-                ->where('status', 'pending')
-                ->update([
-                    'status' => 'rejected',
-                    'rejected_at' => now(),
-                    'rejected_by' => $validated['admin_id'],
-                    'rejection_reason' => 'Another cast was approved for this reservation',
+            $existingCastIds = $reservation->cast_ids ?? [];
+            // Only add cast_id if not already in the array
+            if (!in_array($application->cast_id, $existingCastIds)) {
+                $reservation->update([
+                    'active' => false,
+                    'cast_id' => $application->cast_id,
+                    'cast_ids' => array_merge($existingCastIds, [$application->cast_id]), // Store as array for consistency
                 ]);
+            } else {
+                $reservation->update([
+                    'active' => false,
+                    'cast_id' => $application->cast_id,
+                ]);
+            }
 
-            // Create chat group
+            // For pishatto reservations, don't reject other applications immediately
+            // For regular reservations, reject all other pending applications
+            if ($reservation->type !== 'pishatto') {
+                ReservationApplication::where('reservation_id', $reservation->id)
+                    ->where('id', '!=', $application->id)
+                    ->where('status', 'pending')
+                    ->update([
+                        'status' => 'rejected',
+                        'rejected_at' => now(),
+                        'rejected_by' => $validated['admin_id'],
+                        'rejection_reason' => 'Another cast was approved for this reservation',
+                    ]);
+            }
+
+            // Find existing chat group for this reservation and update cast_ids
+            $chatGroup = \App\Models\ChatGroup::where('reservation_id', $reservation->id)->first();
+            if ($chatGroup) {
+                $existingCastIds = $chatGroup->cast_ids ?? [];
+                // Only add cast_id if not already in the array
+                if (!in_array($application->cast_id, $existingCastIds)) {
+                    $chatGroup->update([
+                        'cast_ids' => array_merge($existingCastIds, [$application->cast_id]),
+                    ]);
+                }
+            } else {
+                // Fallback: create new chat group if none exists
+                $chatGroup = \App\Models\ChatGroup::create([
+                    'reservation_id' => $reservation->id,
+                    'cast_ids' => [$application->cast_id],
+                    'name' => '予約 - ' . $reservation->location,
+                    'created_at' => now(),
+                ]);
+            }
+
+            // Create individual chat for backward compatibility
             $chat = Chat::create([
                 'guest_id' => $reservation->guest_id,
                 'cast_id' => $application->cast_id,
                 'reservation_id' => $reservation->id,
+                'group_id' => $chatGroup->id,
             ]);
 
             // Notify guest
@@ -168,6 +201,7 @@ class ReservationApplicationController extends Controller
         return response()->json([
             'message' => 'Application approved successfully',
             'chat' => $chat ?? null,
+            'chat_group' => $chatGroup ?? null,
             'reservation' => $application->reservation->fresh()
         ]);
     }

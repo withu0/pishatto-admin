@@ -107,6 +107,7 @@ export default function AdminReservationApplications({ applications: initialAppl
     };
 
     const handleApprove = async (applicationId: number) => {
+        console.log("AOO", applicationId);
         if (!confirm('この応募を承認しますか？')) return;
         
         try {
@@ -117,9 +118,11 @@ export default function AdminReservationApplications({ applications: initialAppl
                     'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '',
                 },
                 body: JSON.stringify({
-                    admin_id: 1 // TODO: Get from auth context
+                    admin_id: 1, 
+                    cast_id:selectedApplication?.cast.id
                 }),
             });
+
             
             if (response.ok) {
                 // Refresh the data after successful approval

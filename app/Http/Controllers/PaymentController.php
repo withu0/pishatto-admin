@@ -10,6 +10,7 @@ use App\Services\PayJPService;
 use App\Services\CustomerService;
 use App\Services\PointTransactionService;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Validator;
 
 class PaymentController extends Controller
 {
@@ -993,6 +994,69 @@ class PaymentController extends Controller
             return response()->json([
                 'success' => false,
                 'error' => 'ポイント取引履歴の取得中にエラーが発生しました',
+            ], 500);
+        }
+    }
+
+    /**
+     * Create a new point transaction
+     */
+    public function createPointTransaction(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'user_type' => 'required|in:guest,cast',
+            'user_id' => 'required|integer',
+            'amount' => 'required|integer',
+            'type' => 'required|in:buy,transfer,convert,gift,pending',
+            'reservation_id' => 'nullable|integer|exists:reservations,id',
+            'description' => 'nullable|string|max:255',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'message' => 'Validation failed',
+                'errors' => $validator->errors()
+            ], 422);
+        }
+
+        try {
+            // Create point transaction directly
+            $transactionData = [
+                'amount' => $request->amount,
+                'type' => $request->type,
+                'reservation_id' => $request->reservation_id,
+                'description' => $request->description,
+            ];
+
+            // Set the appropriate user ID field based on user type
+            if ($request->user_type === 'guest') {
+                $transactionData['guest_id'] = $request->user_id;
+                $transactionData['cast_id'] = null;
+            } else {
+                $transactionData['cast_id'] = $request->user_id;
+                $transactionData['guest_id'] = null;
+            }
+
+            $transaction = PointTransaction::create($transactionData);
+            
+            return response()->json([
+                'success' => true,
+                'transaction' => $transaction,
+                'message' => 'Point transaction created successfully'
+            ], 201);
+
+        } catch (\Exception $e) {
+            Log::error('Point transaction creation failed: ' . $e->getMessage(), [
+                'user_id' => $request->user_id,
+                'user_type' => $request->user_type,
+                'amount' => $request->amount,
+                'type' => $request->type,
+                'trace' => $e->getTraceAsString()
+            ]);
+            
+            return response()->json([
+                'success' => false,
+                'error' => 'ポイント取引の作成中にエラーが発生しました',
             ], 500);
         }
     }

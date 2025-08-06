@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { Edit, ArrowLeft, MapPin, Calendar, Phone, MessageCircle, Gift, Heart, Users, CreditCard, Shield, Download, ZoomIn } from 'lucide-react';
+import { Edit, ArrowLeft, MapPin, Calendar, Phone, MessageCircle, Gift, Heart, Users, CreditCard, Shield, Download, ZoomIn, Trophy, TrendingUp } from 'lucide-react';
 import { useState } from 'react';
 
 interface Guest {
@@ -34,6 +34,9 @@ interface Guest {
     payjp_customer_id?: string;
     payment_info?: string;
     points: number;
+    grade?: string;
+    grade_points?: number;
+    grade_updated_at?: string;
     identity_verification_completed?: 'pending' | 'success' | 'failed';
     identity_verification?: string;
     status?: 'active' | 'inactive' | 'suspended';
@@ -86,6 +89,76 @@ export default function GuestShow({ guest }: Props) {
         }
     };
 
+    const getGradeBadge = (grade?: string) => {
+        const gradeNames: { [key: string]: string } = {
+            'green': 'グリーン',
+            'orange': 'オレンジ',
+            'bronze': 'ブロンズ',
+            'silver': 'シルバー',
+            'gold': 'ゴールド',
+            'platinum': 'プラチナ',
+            'centurion': 'センチュリオン',
+        };
+
+        const gradeColors: { [key: string]: string } = {
+            'green': 'bg-green-500',
+            'orange': 'bg-orange-500',
+            'bronze': 'bg-amber-600',
+            'silver': 'bg-gray-400',
+            'gold': 'bg-yellow-500',
+            'platinum': 'bg-purple-500',
+            'centurion': 'bg-yellow-600',
+        };
+
+        const gradeName = gradeNames[grade || 'green'] || 'グリーン';
+        const gradeColor = gradeColors[grade || 'green'] || 'bg-green-500';
+
+        return (
+            <Badge className={`${gradeColor} text-white`}>
+                {gradeName}
+            </Badge>
+        );
+    };
+
+    const getNextGradeInfo = (currentGrade?: string, gradePoints?: number) => {
+        const gradeThresholds: { [key: string]: number } = {
+            'green': 0,
+            'orange': 100000,
+            'bronze': 300000,
+            'silver': 500000,
+            'gold': 1000000,
+            'platinum': 6000000,
+            'centurion': 30000000,
+        };
+
+        const gradeNames: { [key: string]: string } = {
+            'green': 'グリーン',
+            'orange': 'オレンジ',
+            'bronze': 'ブロンズ',
+            'silver': 'シルバー',
+            'gold': 'ゴールド',
+            'platinum': 'プラチナ',
+            'centurion': 'センチュリオン',
+        };
+
+        const grades = ['green', 'orange', 'bronze', 'silver', 'gold', 'platinum', 'centurion'];
+        const currentGradeIndex = grades.indexOf(currentGrade || 'green');
+        const nextGrade = grades[currentGradeIndex + 1];
+        
+        if (!nextGrade) return null;
+
+        const currentPoints = gradePoints || 0;
+        const nextThreshold = gradeThresholds[nextGrade];
+        const pointsNeeded = nextThreshold - currentPoints;
+
+        return {
+            nextGrade,
+            nextGradeName: gradeNames[nextGrade],
+            pointsNeeded,
+            progress: Math.min((currentPoints / nextThreshold) * 100, 100),
+        };
+    };
+
     const [isDialogOpen, setIsDialogOpen] = useState(false);
     const [selectedImageUrl, setSelectedImageUrl] = useState<string | null>(null);
 
@@ -98,6 +171,8 @@ export default function GuestShow({ guest }: Props) {
         setIsDialogOpen(false);
         setSelectedImageUrl(null);
     };
+
+    const nextGradeInfo = getNextGradeInfo(guest.grade, guest.grade_points);
 
     return (
         <AppLayout breadcrumbs={[
@@ -144,6 +219,7 @@ export default function GuestShow({ guest }: Props) {
                                     {getVerificationBadge(guest.identity_verification_completed)}
                                     {getStatusBadge(guest.status)}
                                     <Badge variant="secondary">{guest.points.toLocaleString()} pt</Badge>
+                                    {getGradeBadge(guest.grade)}
                                 </div>
 
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -218,6 +294,59 @@ export default function GuestShow({ guest }: Props) {
                                         )}
                                     </div>
                                 </div>
+                            </CardContent>
+                        </Card>
+
+                        <Card>
+                            <CardHeader>
+                                <CardTitle className="flex items-center gap-2">
+                                    <Trophy className="w-5 h-5" />
+                                    グレード情報
+                                </CardTitle>
+                            </CardHeader>
+                            <CardContent className="space-y-4">
+                                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                    <div className="text-center p-4 bg-muted rounded-lg">
+                                        <Trophy className="w-8 h-8 mx-auto mb-2 text-yellow-500" />
+                                        <div className="text-lg font-bold">{getGradeBadge(guest.grade)}</div>
+                                        <div className="text-sm text-muted-foreground">現在のグレード</div>
+                                    </div>
+                                    <div className="text-center p-4 bg-muted rounded-lg">
+                                        <TrendingUp className="w-8 h-8 mx-auto mb-2 text-blue-500" />
+                                        <div className="text-2xl font-bold">{(guest.grade_points || 0).toLocaleString()}</div>
+                                        <div className="text-sm text-muted-foreground">グレードポイント</div>
+                                    </div>
+                                    {nextGradeInfo && (
+                                        <div className="text-center p-4 bg-muted rounded-lg">
+                                            <div className="text-lg font-bold">{nextGradeInfo.nextGradeName}</div>
+                                            <div className="text-sm text-muted-foreground">次のグレード</div>
+                                            <div className="text-xs text-muted-foreground mt-1">
+                                                あと {nextGradeInfo.pointsNeeded.toLocaleString()} pt
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+
+                                {nextGradeInfo && (
+                                    <div className="space-y-2">
+                                        <div className="flex justify-between text-sm">
+                                            <span>次のグレードまでの進捗</span>
+                                            <span>{Math.round(nextGradeInfo.progress)}%</span>
+                                        </div>
+                                        <div className="w-full bg-gray-200 rounded-full h-2">
+                                            <div 
+                                                className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+                                                style={{ width: `${nextGradeInfo.progress}%` }}
+                                            ></div>
+                                        </div>
+                                    </div>
+                                )}
+
+                                {guest.grade_updated_at && (
+                                    <div className="text-sm text-muted-foreground">
+                                        最終更新: {new Date(guest.grade_updated_at).toLocaleDateString('ja-JP')}
+                                    </div>
+                                )}
                             </CardContent>
                         </Card>
 
