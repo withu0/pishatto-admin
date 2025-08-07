@@ -12,7 +12,10 @@ return new class extends Migration
     public function up(): void
     {
         Schema::table('casts', function (Blueprint $table) {
-            $table->enum('category', ['プレミアム', 'VIP', 'ロイヤルVIP'])->default('プレミアム')->after('profile_text');
+            // Only add category column if it doesn't already exist
+            if (!Schema::hasColumn('casts', 'category')) {
+                $table->enum('category', ['プレミアム', 'VIP', 'ロイヤルVIP'])->default('プレミアム')->after('profile_text');
+            }
         });
     }
 
@@ -22,7 +25,10 @@ return new class extends Migration
     public function down(): void
     {
         Schema::table('casts', function (Blueprint $table) {
-            $table->dropColumn('category');
+            // Only drop category column if it exists
+            if (Schema::hasColumn('casts', 'category')) {
+                $table->dropColumn('category');
+            }
         });
     }
 };

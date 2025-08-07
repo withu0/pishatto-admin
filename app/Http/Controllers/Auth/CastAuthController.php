@@ -534,7 +534,7 @@ class CastAuthController extends Controller
         $reservation->ended_at = now();
         $reservation->save();
         
-        // Calculate points and process transaction
+        // Calculate points and process transaction using the service
         $pointService = app(\App\Services\PointTransactionService::class);
         
         $success = $pointService->processReservationCompletion($reservation);
@@ -543,9 +543,28 @@ class CastAuthController extends Controller
             return response()->json(['message' => 'Failed to process point transaction'], 500);
         }
         
+        // Get the updated reservation with points_earned
+        $reservation->refresh();
+        
+        // Find the pending transaction to get refund information
+        $pendingTransaction = \App\Models\PointTransaction::where('reservation_id', $reservation->id)
+            ->where('type', 'pending')
+            ->first();
+        
+        $refundTransaction = \App\Models\PointTransaction::where('reservation_id', $reservation->id)
+            ->where('type', 'convert')
+            ->where('description', 'like', '%refunded unused points%')
+            ->first();
+
+        $refundAmount = $refundTransaction ? $refundTransaction->amount : 0;
+        $reservedAmount = $pendingTransaction ? $pendingTransaction->amount : 0;
+        
         return response()->json([
             'reservation' => $reservation, 
-            'message' => 'Reservation completed and points transferred successfully'
+            'message' => 'Reservation completed and points transferred successfully',
+            'points_transferred' => $reservation->points_earned,
+            'points_reserved' => $reservedAmount,
+            'points_refunded' => $refundAmount
         ]);
     }
 

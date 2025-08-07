@@ -400,7 +400,7 @@ class GuestAuthController extends Controller
         try {
             DB::beginTransaction();
 
-            // Create the reservation with type 'free' without any casts initially
+            // Create the reservation with type 'free'
             $reservation = Reservation::create([
                 'guest_id' => $request->guest_id,
                 'type' => 'free',
@@ -413,14 +413,26 @@ class GuestAuthController extends Controller
                 'custom_duration_hours' => $request->custom_duration_hours,
             ]);
 
-            // Calculate required points for this reservation (will be 0 since no casts)
-            $requiredPoints = 0; // No points deducted initially since no casts are selected
+            // Calculate required points for this reservation
+            $requiredPoints = $this->pointTransactionService->calculateReservationPointsLegacy($reservation);
 
             // Get the guest
             $guest = Guest::find($request->guest_id);
             if (!$guest) {
                 DB::rollBack();
                 return response()->json(['message' => 'Guest not found'], 404);
+            }
+
+            // Use the service to process free call creation (deduct points and create pending transaction)
+            $success = $this->pointTransactionService->processFreeCallCreation($reservation, $requiredPoints);
+            
+            if (!$success) {
+                DB::rollBack();
+                return response()->json([
+                    'message' => 'Insufficient points',
+                    'required_points' => $requiredPoints,
+                    'available_points' => $guest->points
+                ], 400);
             }
 
             // Create chat group for this reservation after creation
@@ -516,7 +528,10 @@ class GuestAuthController extends Controller
                 return response()->json(['message' => 'Guest not found'], 404);
             }
 
-            if ($guest->points < $requiredPoints) {
+            // Use the service to process free call creation (deduct points and create pending transaction)
+            $success = $this->pointTransactionService->processFreeCallCreation($reservation, $requiredPoints);
+            
+            if (!$success) {
                 DB::rollBack();
                 return response()->json([
                     'message' => 'Insufficient points',
@@ -525,20 +540,6 @@ class GuestAuthController extends Controller
                 ], 400);
             }
 
-            // Deduct points and add to grade_points
-            $guest->points -= $requiredPoints;
-            $guest->grade_points += $requiredPoints;
-            $guest->save();
-
-            // Create pending transaction
-            PointTransaction::create([
-                'guest_id' => $guest->id,
-                'type' => 'pending',
-                'amount' => $requiredPoints,
-                'reservation_id' => $reservation->id,
-                'description' => "Free call reservation - {$reservation->duration} hours (pending)"
-            ]);
-
             // Create chat group for this reservation without any casts
             $chatGroup = ChatGroup::create([
                 'reservation_id' => $reservation->id,
@@ -546,7 +547,6 @@ class GuestAuthController extends Controller
                 'name' => "Free Call Reservation - {$guest->nickname}",
                 'created_at' => now(),
             ]);
-
 
             // No individual chats created initially since no casts are selected
             $selectedCasts = [];
@@ -1090,11 +1090,19 @@ class GuestAuthController extends Controller
             $refundAmount = $refundTransaction ? $refundTransaction->amount : 0;
             $reservedAmount = $pendingTransaction ? $pendingTransaction->amount : 0;
 
+            // Calculate night time bonus and extension fee for detailed response
+            $nightTimeBonus = $this->pointTransactionService->calculateNightTimeBonus($reservation->started_at);
+            $extensionFee = $this->pointTransactionService->calculateExtensionFee($reservation);
+            $basePoints = $this->pointTransactionService->calculateReservationPoints($reservation);
+
             \Log::info('Reservation completion processed successfully', [
                 'reservation_id' => $reservation->id,
                 'guest_id' => $reservation->guest_id,
                 'cast_id' => $cast->id,
                 'points_earned' => $reservation->points_earned,
+                'base_points' => $basePoints,
+                'night_time_bonus' => $nightTimeBonus,
+                'extension_fee' => $extensionFee,
                 'points_reserved' => $reservedAmount,
                 'points_refunded' => $refundAmount
             ]);
@@ -1103,6 +1111,9 @@ class GuestAuthController extends Controller
                 'message' => 'Reservation completed successfully',
                 'reservation' => $reservation,
                 'points_transferred' => $reservation->points_earned,
+                'base_points' => $basePoints,
+                'night_time_bonus' => $nightTimeBonus,
+                'extension_fee' => $extensionFee,
                 'points_reserved' => $reservedAmount,
                 'points_refunded' => $refundAmount
             ]);
@@ -1135,35 +1146,15 @@ class GuestAuthController extends Controller
                 ], 400);
             }
 
-            // Find the pending point transaction for this reservation
-            $pendingTransaction = PointTransaction::where('reservation_id', $reservation->id)
-                ->where('type', 'pending')
-                ->first();
-
-            if (!$pendingTransaction) {
+            // Use the service to refund unused points
+            $success = $this->pointTransactionService->refundUnusedPoints($reservation);
+            
+            if (!$success) {
                 DB::rollBack();
                 return response()->json([
-                    'message' => 'No pending point transaction found for this reservation'
-                ], 400);
+                    'message' => 'Failed to refund points'
+                ], 500);
             }
-
-            // Get the guest
-            $guest = $reservation->guest;
-            if (!$guest) {
-                DB::rollBack();
-                return response()->json([
-                    'message' => 'Guest not found'
-                ], 404);
-            }
-
-            // Refund points to guest
-            $guest->points += $pendingTransaction->amount;
-            $guest->save();
-
-            // Update the pending transaction to cancelled
-            $pendingTransaction->type = 'convert';
-            $pendingTransaction->description = "Reservation cancelled - refunded {$pendingTransaction->amount} points";
-            $pendingTransaction->save();
 
             // Mark reservation as cancelled
             $reservation->active = false;
@@ -1171,16 +1162,28 @@ class GuestAuthController extends Controller
 
             DB::commit();
 
+            // Get the updated guest points
+            $guest = $reservation->guest;
+            $guest->refresh();
+
+            // Find the refund transaction to get the refund amount
+            $refundTransaction = PointTransaction::where('reservation_id', $reservation->id)
+                ->where('type', 'convert')
+                ->where('description', 'like', '%refunded all points%')
+                ->first();
+
+            $refundAmount = $refundTransaction ? $refundTransaction->amount : 0;
+
             \Log::info('Reservation cancelled and points refunded', [
                 'reservation_id' => $reservation->id,
                 'guest_id' => $guest->id,
-                'points_refunded' => $pendingTransaction->amount
+                'points_refunded' => $refundAmount
             ]);
 
             return response()->json([
                 'message' => 'Reservation cancelled successfully',
                 'reservation' => $reservation,
-                'points_refunded' => $pendingTransaction->amount,
+                'points_refunded' => $refundAmount,
                 'remaining_points' => $guest->points
             ]);
 
@@ -1189,6 +1192,81 @@ class GuestAuthController extends Controller
             \Log::error('cancelReservation error: ' . $e->getMessage() . "\n" . $e->getTraceAsString());
             return response()->json([
                 'message' => 'Failed to cancel reservation',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Get detailed point breakdown for a reservation
+     */
+    public function getPointBreakdown(Request $request, $id)
+    {
+        try {
+            $reservation = Reservation::with(['guest', 'cast'])->findOrFail($id);
+            
+            // Calculate base points
+            $basePoints = $this->pointTransactionService->calculateReservationPoints($reservation);
+            
+            // Calculate night time bonus
+            $nightTimeBonus = $this->pointTransactionService->calculateNightTimeBonus($reservation->started_at);
+            
+            // Calculate extension fee
+            $extensionFee = $this->pointTransactionService->calculateExtensionFee($reservation);
+            
+            // Calculate total points
+            $totalPoints = $basePoints + $nightTimeBonus + $extensionFee;
+            
+            // Get pending transaction for reserved points
+            $pendingTransaction = PointTransaction::where('reservation_id', $reservation->id)
+                ->where('type', 'pending')
+                ->first();
+            
+            $reservedPoints = $pendingTransaction ? $pendingTransaction->amount : 0;
+            $unusedPoints = $reservedPoints - $totalPoints;
+            
+            // Calculate extension details if applicable
+            $extensionDetails = null;
+            if ($reservation->started_at && $reservation->ended_at) {
+                $startedAt = \Carbon\Carbon::parse($reservation->started_at);
+                $endedAt = \Carbon\Carbon::parse($reservation->ended_at);
+                $scheduledDuration = $reservation->duration * 60; // Convert hours to minutes
+                $actualDuration = $endedAt->diffInMinutes($startedAt);
+                
+                if ($actualDuration > $scheduledDuration) {
+                    $exceededMinutes = $actualDuration - $scheduledDuration;
+                    $extensionDetails = [
+                        'scheduled_duration_minutes' => $scheduledDuration,
+                        'actual_duration_minutes' => $actualDuration,
+                        'exceeded_minutes' => $exceededMinutes,
+                        'extension_multiplier' => \App\Services\PointTransactionService::EXTENSION_MULTIPLIER
+                    ];
+                }
+            }
+            
+            return response()->json([
+                'reservation_id' => $reservation->id,
+                'base_points' => $basePoints,
+                'night_time_bonus' => $nightTimeBonus,
+                'extension_fee' => $extensionFee,
+                'total_points' => $totalPoints,
+                'reserved_points' => $reservedPoints,
+                'unused_points' => $unusedPoints,
+                'extension_details' => $extensionDetails,
+                'night_time_bonus_applied' => $nightTimeBonus > 0,
+                'extension_fee_applied' => $extensionFee > 0,
+                'calculation_breakdown' => [
+                    'formula' => 'Base Points + Night Time Bonus + Extension Fee',
+                    'base_points_formula' => "Cast Grade Points × (Duration in Minutes ÷ 30)",
+                    'night_time_bonus_formula' => "4000 points if started between 12 AM and 5 AM",
+                    'extension_fee_formula' => "Base Points per Minute × Exceeded Minutes × 1.5"
+                ]
+            ]);
+
+        } catch (\Exception $e) {
+            \Log::error('getPointBreakdown error: ' . $e->getMessage() . "\n" . $e->getTraceAsString());
+            return response()->json([
+                'message' => 'Failed to calculate point breakdown',
                 'error' => $e->getMessage()
             ], 500);
         }

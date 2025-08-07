@@ -17,26 +17,60 @@ return new class extends Migration
             // $table->dropIndex(['guest_id']);
             // $table->dropColumn('guest_id');
             
-            // Add new columns
-            $table->string('receipt_number')->unique()->after('id');
-            $table->enum('user_type', ['guest', 'cast'])->after('receipt_number');
-            $table->unsignedBigInteger('user_id')->after('user_type');
-            $table->string('recipient_name')->after('user_id');
-            $table->decimal('amount', 10, 2)->after('recipient_name');
-            $table->decimal('tax_amount', 10, 2)->after('amount');
-            $table->decimal('tax_rate', 5, 2)->default(10.00)->after('tax_amount');
-            $table->decimal('total_amount', 10, 2)->after('tax_rate');
-            $table->string('purpose')->after('total_amount');
-            $table->string('company_name')->after('purpose');
-            $table->text('company_address')->after('company_name');
-            $table->string('company_phone')->after('company_address');
-            $table->string('registration_number')->after('company_phone');
-            $table->enum('status', ['draft', 'issued', 'cancelled'])->after('registration_number');
-            $table->string('pdf_url')->nullable()->after('status');
-            $table->longText('html_content')->nullable()->after('pdf_url');
+            // Add new columns only if they don't exist
+            if (!Schema::hasColumn('receipts', 'receipt_number')) {
+                $table->string('receipt_number')->unique()->after('id');
+            }
+            if (!Schema::hasColumn('receipts', 'user_type')) {
+                $table->enum('user_type', ['guest', 'cast'])->after('receipt_number');
+            }
+            if (!Schema::hasColumn('receipts', 'user_id')) {
+                $table->unsignedBigInteger('user_id')->after('user_type');
+            }
+            if (!Schema::hasColumn('receipts', 'recipient_name')) {
+                $table->string('recipient_name')->after('user_id');
+            }
+            if (!Schema::hasColumn('receipts', 'amount')) {
+                $table->decimal('amount', 10, 2)->after('recipient_name');
+            }
+            if (!Schema::hasColumn('receipts', 'tax_amount')) {
+                $table->decimal('tax_amount', 10, 2)->after('amount');
+            }
+            if (!Schema::hasColumn('receipts', 'tax_rate')) {
+                $table->decimal('tax_rate', 5, 2)->default(10.00)->after('tax_amount');
+            }
+            if (!Schema::hasColumn('receipts', 'total_amount')) {
+                $table->decimal('total_amount', 10, 2)->after('tax_rate');
+            }
+            if (!Schema::hasColumn('receipts', 'purpose')) {
+                $table->string('purpose')->after('total_amount');
+            }
+            if (!Schema::hasColumn('receipts', 'company_name')) {
+                $table->string('company_name')->after('purpose');
+            }
+            if (!Schema::hasColumn('receipts', 'company_address')) {
+                $table->text('company_address')->after('company_name');
+            }
+            if (!Schema::hasColumn('receipts', 'company_phone')) {
+                $table->string('company_phone')->after('company_address');
+            }
+            if (!Schema::hasColumn('receipts', 'registration_number')) {
+                $table->string('registration_number')->after('company_phone');
+            }
+            if (!Schema::hasColumn('receipts', 'status')) {
+                $table->enum('status', ['draft', 'issued', 'cancelled'])->after('registration_number');
+            }
+            if (!Schema::hasColumn('receipts', 'pdf_url')) {
+                $table->string('pdf_url')->nullable()->after('status');
+            }
+            if (!Schema::hasColumn('receipts', 'html_content')) {
+                $table->longText('html_content')->nullable()->after('pdf_url');
+            }
             
-            // Add indexes
-            $table->index(['user_type', 'user_id']);
+            // Add indexes only if they don't exist
+            if (!Schema::hasIndex('receipts', 'receipts_user_type_user_id_index')) {
+                $table->index(['user_type', 'user_id']);
+            }
         });
     }
 

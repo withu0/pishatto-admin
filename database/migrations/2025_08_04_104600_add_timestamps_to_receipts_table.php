@@ -12,7 +12,10 @@ return new class extends Migration
     public function up(): void
     {
         Schema::table('receipts', function (Blueprint $table) {
-            $table->timestamps();
+            // Only add timestamps if they don't already exist
+            if (!Schema::hasColumn('receipts', 'created_at') && !Schema::hasColumn('receipts', 'updated_at')) {
+                $table->timestamps();
+            }
         });
     }
 
@@ -22,7 +25,10 @@ return new class extends Migration
     public function down(): void
     {
         Schema::table('receipts', function (Blueprint $table) {
-            $table->dropTimestamps();
+            // Only drop timestamps if they exist
+            if (Schema::hasColumn('receipts', 'created_at') && Schema::hasColumn('receipts', 'updated_at')) {
+                $table->dropTimestamps();
+            }
         });
     }
 };
