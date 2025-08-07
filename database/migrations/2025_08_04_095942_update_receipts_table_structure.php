@@ -13,9 +13,9 @@ return new class extends Migration
     {
         Schema::table('receipts', function (Blueprint $table) {
             // Drop existing columns
-            $table->dropForeign(['guest_id']);
-            $table->dropIndex(['guest_id']);
-            $table->dropColumn('guest_id');
+            // $table->dropForeign(['guest_id']);
+            // $table->dropIndex(['guest_id']);
+            // $table->dropColumn('guest_id');
             
             // Add new columns
             $table->string('receipt_number')->unique()->after('id');
