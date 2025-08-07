@@ -30,8 +30,8 @@ return new class extends Migration
             $table->string('company_name')->after('purpose');
             $table->text('company_address')->after('company_name');
             $table->string('company_phone')->after('company_address');
-            $table->string('registration_number')->default('登録番号:T3010401129426')->after('company_phone');
-            $table->enum('status', ['draft', 'issued', 'cancelled'])->default('issued')->after('registration_number');
+            $table->string('registration_number')->after('company_phone');
+            $table->enum('status', ['draft', 'issued', 'cancelled'])->after('registration_number');
             $table->string('pdf_url')->nullable()->after('status');
             $table->longText('html_content')->nullable()->after('pdf_url');
             
