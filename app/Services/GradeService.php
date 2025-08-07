@@ -3,7 +3,10 @@
 namespace App\Services;
 
 use App\Models\Guest;
+use App\Models\Cast;
 use App\Models\PointTransaction;
+use App\Models\Reservation;
+use App\Models\Feedback;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 
@@ -98,6 +101,81 @@ class GradeService
         ],
     ];
 
+    // Cast grade thresholds (FP-based)
+    const CAST_GRADE_THRESHOLDS = [
+        'beginner' => 0,      // Default grade
+        'green' => 500000,    // 500,000 FP
+        'orange' => 1000000,  // 1,000,000 FP
+        'bronze' => 2000000,  // 2,000,000 FP
+        'silver' => 5000000,  // 5,000,000 FP
+        'gold' => 10000000,   // 10,000,000 FP
+        'platinum' => 30000000, // 30,000,000 FP
+    ];
+
+    // Cast grade display names in Japanese
+    const CAST_GRADE_NAMES = [
+        'beginner' => 'ビギナー',
+        'green' => 'グリーン',
+        'orange' => 'オレンジ',
+        'bronze' => 'ブロンズ',
+        'silver' => 'シルバー',
+        'gold' => 'ゴールド',
+        'platinum' => 'プラチナ',
+    ];
+
+    // Cast grade benefits
+    const CAST_GRADE_BENEFITS = [
+        'beginner' => [
+            'easy_message' => false,
+            'suspension_system' => false,
+            'auto_goodbye_message' => false,
+            'welcome_message' => false,
+            'transfer_fee_discount' => false,
+        ],
+        'green' => [
+            'easy_message' => false,
+            'suspension_system' => false,
+            'auto_goodbye_message' => false,
+            'welcome_message' => false,
+            'transfer_fee_discount' => false,
+        ],
+        'orange' => [
+            'easy_message' => true,
+            'suspension_system' => false,
+            'auto_goodbye_message' => false,
+            'welcome_message' => false,
+            'transfer_fee_discount' => false,
+        ],
+        'bronze' => [
+            'easy_message' => true,
+            'suspension_system' => true,
+            'auto_goodbye_message' => false,
+            'welcome_message' => false,
+            'transfer_fee_discount' => false,
+        ],
+        'silver' => [
+            'easy_message' => true,
+            'suspension_system' => true,
+            'auto_goodbye_message' => true,
+            'welcome_message' => false,
+            'transfer_fee_discount' => false,
+        ],
+        'gold' => [
+            'easy_message' => true,
+            'suspension_system' => true,
+            'auto_goodbye_message' => true,
+            'welcome_message' => true,
+            'transfer_fee_discount' => true,
+        ],
+        'platinum' => [
+            'easy_message' => true,
+            'suspension_system' => true,
+            'auto_goodbye_message' => true,
+            'welcome_message' => true,
+            'transfer_fee_discount' => true,
+        ],
+    ];
+
     /**
      * Calculate and update guest grade based on their usage points
      */
@@ -148,9 +226,15 @@ class GradeService
      */
     public function calculateUsagePoints(Guest $guest): int
     {
-        return PointTransaction::where('guest_id', $guest->id)
-            ->where('type', 'buy')
+        // Sum all point transactions representing actual spending
+        $spent = \App\Models\PointTransaction::where('guest_id', $guest->id)
+            ->whereIn('type', ['pending', 'transfer'])
             ->sum('amount');
+        // Subtract all refund transactions
+        $refunded = \App\Models\PointTransaction::where('guest_id', $guest->id)
+            ->where('type', 'convert')
+            ->sum('amount');
+        return max(0, $spent - $refunded);
     }
 
     /**
@@ -266,5 +350,257 @@ class GradeService
         });
 
         return $results;
+    }
+
+    /**
+     * Calculate and update cast grade based on their FP (Friend Points)
+     */
+    public function calculateAndUpdateCastGrade(Cast $cast): array
+    {
+        $currentGrade = $cast->grade ?? 'beginner';
+        $currentGradePoints = $cast->grade_points ?? 0;
+        
+        // Calculate total FP from various sources
+        $totalFP = $this->calculateCastFP($cast);
+        
+        // Determine new grade based on FP
+        $newGrade = $this->determineCastGrade($totalFP);
+        
+        // Check if grade should be updated
+        if ($newGrade !== $currentGrade) {
+            $cast->update([
+                'grade' => $newGrade,
+                'grade_points' => $totalFP,
+                'grade_updated_at' => now(),
+            ]);
+            
+            return [
+                'old_grade' => $currentGrade,
+                'new_grade' => $newGrade,
+                'grade_points' => $totalFP,
+                'upgraded' => true,
+            ];
+        }
+        
+        // Update grade points even if grade didn't change
+        if ($totalFP !== $currentGradePoints) {
+            $cast->update([
+                'grade_points' => $totalFP,
+            ]);
+        }
+        
+        return [
+            'old_grade' => $currentGrade,
+            'new_grade' => $currentGrade,
+            'grade_points' => $totalFP,
+            'upgraded' => false,
+        ];
+    }
+
+    /**
+     * Calculate cast FP from various sources
+     */
+    public function calculateCastFP(Cast $cast): int
+    {
+        $totalFP = 0;
+        
+        // Get reservations for this cast
+        $reservations = Reservation::where('cast_ids', 'like', '%' . $cast->id . '%')
+            ->orWhere('cast_ids', 'like', $cast->id . ',%')
+            ->orWhere('cast_ids', 'like', '%,' . $cast->id)
+            ->orWhere('cast_ids', $cast->id)
+            ->get();
+        
+        foreach ($reservations as $reservation) {
+            // Base FP from reservation duration and cast category
+            $duration = $reservation->duration ?? 1;
+            $categoryPoints = $this->getCastCategoryPoints($cast->category ?? 'プレミアム');
+            $baseFP = $categoryPoints * $duration * 60 / 30; // Convert to FP
+            
+            // Add bonus FP for repeat guests
+            $repeatBonus = $this->calculateRepeatBonus($cast->id, $reservation->guest_id);
+            
+            // Add bonus FP for positive feedback
+            $feedbackBonus = $this->calculateFeedbackBonus($cast->id, $reservation->id);
+            
+            $totalFP += $baseFP + $repeatBonus + $feedbackBonus;
+        }
+        
+        return $totalFP;
+    }
+
+    /**
+     * Get cast category points
+     */
+    private function getCastCategoryPoints(string $category): int
+    {
+        switch ($category) {
+            case 'ロイヤルVIP':
+                return 15000;
+            case 'VIP':
+                return 12000;
+            case 'プレミアム':
+            default:
+                return 9000;
+        }
+    }
+
+    /**
+     * Calculate repeat bonus FP
+     */
+    private function calculateRepeatBonus(int $castId, int $guestId): int
+    {
+        $repeatCount = Reservation::where('cast_ids', 'like', '%' . $castId . '%')
+            ->where('guest_id', $guestId)
+            ->count();
+        
+        if ($repeatCount > 1) {
+            return 50000 * ($repeatCount - 1); // 50,000 FP per repeat
+        }
+        
+        return 0;
+    }
+
+    /**
+     * Calculate feedback bonus FP
+     */
+    private function calculateFeedbackBonus(int $castId, int $reservationId): int
+    {
+        $feedback = Feedback::where('cast_id', $castId)
+            ->where('reservation_id', $reservationId)
+            ->first();
+        
+        if ($feedback && $feedback->rating >= 4) {
+            return 100000; // 100,000 FP for good feedback
+        }
+        
+        return 0;
+    }
+
+    /**
+     * Determine cast grade based on FP
+     */
+    public function determineCastGrade(int $fp): string
+    {
+        if ($fp >= self::CAST_GRADE_THRESHOLDS['platinum']) {
+            return 'platinum';
+        } elseif ($fp >= self::CAST_GRADE_THRESHOLDS['gold']) {
+            return 'gold';
+        } elseif ($fp >= self::CAST_GRADE_THRESHOLDS['silver']) {
+            return 'silver';
+        } elseif ($fp >= self::CAST_GRADE_THRESHOLDS['bronze']) {
+            return 'bronze';
+        } elseif ($fp >= self::CAST_GRADE_THRESHOLDS['orange']) {
+            return 'orange';
+        } elseif ($fp >= self::CAST_GRADE_THRESHOLDS['green']) {
+            return 'green';
+        } else {
+            return 'beginner';
+        }
+    }
+
+    /**
+     * Get cast grade information
+     */
+    public function getCastGradeInfo(Cast $cast): array
+    {
+        $grade = $cast->grade ?? 'beginner';
+        $gradePoints = $cast->grade_points ?? 0;
+        
+        // Calculate next grade threshold
+        $nextGrade = $this->getNextCastGrade($grade);
+        $nextGradeThreshold = $nextGrade ? self::CAST_GRADE_THRESHOLDS[$nextGrade] : null;
+        $pointsToNextGrade = $nextGradeThreshold ? $nextGradeThreshold - $gradePoints : 0;
+        
+        // Calculate detailed FP breakdown
+        $fpBreakdown = $this->calculateCastFPBreakdown($cast);
+        
+        return [
+            'current_grade' => $grade,
+            'current_grade_name' => self::CAST_GRADE_NAMES[$grade],
+            'grade_points' => $gradePoints,
+            'next_grade' => $nextGrade,
+            'next_grade_name' => $nextGrade ? self::CAST_GRADE_NAMES[$nextGrade] : null,
+            'points_to_next_grade' => $pointsToNextGrade,
+            'benefits' => self::CAST_GRADE_BENEFITS[$grade],
+            'all_benefits' => self::CAST_GRADE_BENEFITS,
+            'grade_names' => self::CAST_GRADE_NAMES,
+            'fp_breakdown' => $fpBreakdown,
+        ];
+    }
+
+    /**
+     * Get the next cast grade level
+     */
+    public function getNextCastGrade(string $currentGrade): ?string
+    {
+        $grades = array_keys(self::CAST_GRADE_THRESHOLDS);
+        $currentIndex = array_search($currentGrade, $grades);
+        
+        if ($currentIndex === false || $currentIndex >= count($grades) - 1) {
+            return null;
+        }
+        
+        return $grades[$currentIndex + 1];
+    }
+
+    /**
+     * Calculate detailed FP breakdown for cast
+     */
+    private function calculateCastFPBreakdown(Cast $cast): array
+    {
+        $reservations = Reservation::where('cast_ids', 'like', '%' . $cast->id . '%')
+            ->orWhere('cast_ids', 'like', $cast->id . ',%')
+            ->orWhere('cast_ids', 'like', '%,' . $cast->id)
+            ->orWhere('cast_ids', $cast->id)
+            ->get();
+        
+        $repeatPoints = 0;
+        $giftPoints = 0;
+        $extensionCount = 0;
+        $wantToMeetAgainCount = 0;
+        $newGuestCount = 0;
+        $repeaterCount = 0;
+        
+        foreach ($reservations as $reservation) {
+            // Calculate repeat points
+            $repeatCount = Reservation::where('cast_ids', 'like', '%' . $cast->id . '%')
+                ->where('guest_id', $reservation->guest_id)
+                ->count();
+            
+            if ($repeatCount > 1) {
+                $repeatPoints += 50000 * ($repeatCount - 1);
+                $repeaterCount++;
+            } else {
+                $newGuestCount++;
+            }
+            
+            // Calculate gift points (simplified)
+            $giftPoints += 10000; // Base gift points per reservation
+            
+            // Count extensions (60min+)
+            if (($reservation->duration ?? 1) > 1) {
+                $extensionCount++;
+            }
+            
+            // Count "want to meet again" (simplified as positive feedback)
+            $feedback = Feedback::where('cast_id', $cast->id)
+                ->where('reservation_id', $reservation->id)
+                ->where('rating', '>=', 4)
+                ->first();
+            
+            if ($feedback) {
+                $wantToMeetAgainCount++;
+            }
+        }
+        
+        return [
+            'repeat_points' => $repeatPoints,
+            'gift_points' => $giftPoints,
+            'extension_count' => $extensionCount,
+            'want_to_meet_again_count' => $wantToMeetAgainCount,
+            'new_guest_count' => $newGuestCount,
+            'repeater_count' => $repeaterCount,
+        ];
     }
 } 

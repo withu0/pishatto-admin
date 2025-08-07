@@ -48,6 +48,7 @@ Route::post('/cast/profile', [CastAuthController::class, 'updateProfile']);
 Route::post('/cast/register', [CastAuthController::class, 'register']);
 Route::post('/guest/reservation', [GuestAuthController::class, 'createReservation']);
 Route::post('/guest/free-call', [GuestAuthController::class, 'createFreeCall']);
+Route::post('/guest/free-call-reservation', [GuestAuthController::class, 'createFreeCallReservation']);
 Route::get('/casts/available', [CastAuthController::class, 'getAvailableCasts']);
 Route::get('/cast/profile/{id}', [CastAuthController::class, 'getProfile']);
 Route::get('/guest/reservations/{guest_id}', [GuestAuthController::class, 'listReservations']);
@@ -246,6 +247,8 @@ Route::get('/locations/active', [LocationController::class, 'getActiveLocations'
 // Grade API routes
 Route::get('/grades/guest/{guest_id}', [GradeController::class, 'getGuestGrade']);
 Route::post('/grades/guest/update', [GradeController::class, 'updateGuestGrade']);
+Route::get('/grades/cast/{cast_id}', [GradeController::class, 'getCastGrade']);
+Route::post('/grades/cast/update', [GradeController::class, 'updateCastGrade']);
 Route::get('/grades/info', [GradeController::class, 'getAllGradesInfo']);
 Route::get('/grades/{grade}/benefits', [GradeController::class, 'getGradeBenefits']);
 Route::post('/grades/update-all', [GradeController::class, 'updateAllGrades']);

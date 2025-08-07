@@ -24,10 +24,10 @@ class ReservationApplicationController extends Controller
 
         // Check if reservation is still active
         $reservation = Reservation::find($validated['reservation_id']);
-        if (!$reservation->active) {
+        if (!$reservation) {
             return response()->json([
-                'message' => 'Reservation is no longer active'
-            ], 400);
+                'message' => 'Reservation not found'
+            ], 404);
         }
 
         // Check if cast already applied

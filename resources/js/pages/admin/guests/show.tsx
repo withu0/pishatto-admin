@@ -101,13 +101,14 @@ export default function GuestShow({ guest }: Props) {
         };
 
         const gradeColors: { [key: string]: string } = {
+            'beginner': 'bg-amber-300',
             'green': 'bg-green-500',
             'orange': 'bg-orange-500',
             'bronze': 'bg-amber-600',
-            'silver': 'bg-gray-400',
-            'gold': 'bg-yellow-500',
-            'platinum': 'bg-purple-500',
-            'centurion': 'bg-yellow-600',
+            'silver': 'bg-gray-300',
+            'gold': 'bg-yellow-300',
+            'platinum': 'bg-gray-200',
+            'centurion': 'bg-amber-500',
         };
 
         const gradeName = gradeNames[grade || 'green'] || 'グリーン';

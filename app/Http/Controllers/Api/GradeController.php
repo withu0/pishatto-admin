@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Guest;
+use App\Models\Cast;
 use App\Services\GradeService;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
@@ -42,6 +43,41 @@ class GradeController extends Controller
 
         $guest = Guest::findOrFail($request->guest_id);
         $gradeUpdate = $this->gradeService->calculateAndUpdateGrade($guest);
+
+        return response()->json([
+            'success' => true,
+            'data' => $gradeUpdate,
+            'message' => $gradeUpdate['upgraded'] 
+                ? 'Grade updated successfully!' 
+                : 'Grade information updated.',
+        ]);
+    }
+
+    /**
+     * Get grade information for a cast
+     */
+    public function getCastGrade(Request $request, $cast_id): JsonResponse
+    {
+        $cast = Cast::findOrFail($cast_id);
+        $gradeInfo = $this->gradeService->getCastGradeInfo($cast);
+
+        return response()->json([
+            'success' => true,
+            'data' => $gradeInfo,
+        ]);
+    }
+
+    /**
+     * Update grade for a specific cast
+     */
+    public function updateCastGrade(Request $request): JsonResponse
+    {
+        $request->validate([
+            'cast_id' => 'required|integer|exists:casts,id',
+        ]);
+
+        $cast = Cast::findOrFail($request->cast_id);
+        $gradeUpdate = $this->gradeService->calculateAndUpdateCastGrade($cast);
 
         return response()->json([
             'success' => true,

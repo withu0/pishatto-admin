@@ -22,16 +22,19 @@ use App\Models\Notification;
 use App\Models\Badge;
 use App\Services\PointTransactionService;
 use App\Services\TwilioService;
+use App\Services\GradeService;
 
 class GuestAuthController extends Controller
 {
     protected $pointTransactionService;
     protected $twilioService;
+    protected $gradeService;
 
-    public function __construct(PointTransactionService $pointTransactionService, TwilioService $twilioService)
+    public function __construct(PointTransactionService $pointTransactionService, TwilioService $twilioService, GradeService $gradeService)
     {
-        $this->pointTransactionService = $pointTransactionService;
+    $this->pointTransactionService = $pointTransactionService;
         $this->twilioService = $twilioService;
+        $this->gradeService = $gradeService;
     }
 
     public function register(Request $request)
@@ -267,6 +270,7 @@ class GuestAuthController extends Controller
     {
         $validator = Validator::make($request->all(), [
             'guest_id' => 'required|exists:guests,id',
+            'cast_id' => 'nullable|exists:casts,id',
             'type' => 'nullable|in:free,pishatto',
             'scheduled_at' => 'required|date',
             'location' => 'nullable|string|max:255',
@@ -289,7 +293,7 @@ class GuestAuthController extends Controller
 
             // Create the reservation
             $data = $request->only([
-                'guest_id', 'type', 'location', 'meeting_location', 'reservation_name', 'duration', 'details', 'time'
+                'guest_id', 'type', 'location', 'meeting_location', 'reservation_name', 'duration', 'details', 'time', 'cast_id'
             ]);
             $data['scheduled_at'] = \Carbon\Carbon::parse($request->scheduled_at);
             $data['type'] = 'pishatto';
@@ -319,6 +323,9 @@ class GuestAuthController extends Controller
             $guest->points -= $requiredPoints;
             $guest->save();
 
+            // Update guest grade_points and grade
+            $this->gradeService->calculateAndUpdateGrade($guest);
+
             // Create a pending point transaction record
             $pendingTransaction = PointTransaction::create([
                 'guest_id' => $guest->id,
@@ -329,42 +336,18 @@ class GuestAuthController extends Controller
                 'description' => "Reservation created - {$reservation->duration} hours (pending)"
             ]);
 
-
-            DB::commit();
-// Create chat group for this reservation without any casts
-            $chatGroup = ChatGroup::create([
+            // Create a special "guest-only" chat for the group so it appears in the message screen
+            $guestChat = Chat::create([
+                'guest_id' => $guest->id,
+                'cast_id' => null, // No cast assigned yet
                 'reservation_id' => $reservation->id,
-                'cast_ids' => [], // No casts initially
-                'name' => "フリーコール: {$guest->nickname}",
                 'created_at' => now(),
             ]);
 
-            // Create a special "guest-only" chat for the group so it appears in the message screen
-            // $guestChat = Chat::create([
-            //     'guest_id' => $guest->id,
-            //     'cast_id' => null, // No cast assigned yet
-            //     'reservation_id' => $reservation->id,
-            //     'group_id' => $chatGroup->id,
-            //     'created_at' => now(),
-            // ]);
-
-            
             // No individual chats created initially since no casts are selected
             $selectedCasts = [];
 
             DB::commit();
-
-            // Broadcast reservation creation
-            event(new \App\Events\ReservationUpdated($reservation));
-            
-            return response()->json([
-                'reservation' => $reservation,
-                'chat_group' => $chatGroup,
-                'selected_casts' => $selectedCasts,
-                'cast_counts' => $request->cast_counts,
-                'points_deducted' => $requiredPoints,
-                'remaining_points' => $guest->points
-            ], 201);
 
             // Real-time ranking update for guest
             $rankingService = app(\App\Services\RankingService::class);
@@ -375,6 +358,8 @@ class GuestAuthController extends Controller
             
             return response()->json([
                 'reservation' => $reservation,
+                'guestChat' => $guestChat,
+                'selected_casts' => $selectedCasts,
                 'points_deducted' => $requiredPoints,
                 'remaining_points' => $guest->points
             ], 201);
@@ -396,6 +381,7 @@ class GuestAuthController extends Controller
             'scheduled_at' => 'required|date',
             'location' => 'nullable|string|max:255',
             'duration' => 'nullable|integer',
+            'custom_duration_hours' => 'nullable|integer|min:4|max:24',
             'details' => 'nullable|string',
             'time' => 'nullable|string|max:10',
             'cast_counts' => 'required|array',
@@ -424,6 +410,7 @@ class GuestAuthController extends Controller
                 'details' => $request->details,
                 'time' => $request->time,
                 'cast_ids' => [], // No casts initially selected
+                'custom_duration_hours' => $request->custom_duration_hours,
             ]);
 
             // Calculate required points for this reservation (will be 0 since no casts)
@@ -436,7 +423,7 @@ class GuestAuthController extends Controller
                 return response()->json(['message' => 'Guest not found'], 404);
             }
 
-            // Create chat group for this reservation without any casts
+            // Create chat group for this reservation after creation
             $chatGroup = ChatGroup::create([
                 'reservation_id' => $reservation->id,
                 'cast_ids' => [], // No casts initially
@@ -475,6 +462,88 @@ class GuestAuthController extends Controller
             \Log::error('createFreeCall error: ' . $e->getMessage() . "\n" . $e->getTraceAsString());
             return response()->json([
                 'message' => 'Failed to create free call',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    public function createFreeCallReservation(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'guest_id' => 'required|exists:guests,id',
+            'scheduled_at' => 'required|date',
+            'location' => 'nullable|string|max:255',
+            'duration' => 'nullable|integer',
+            'custom_duration_hours' => 'nullable|integer|min:4|max:24',
+            'details' => 'nullable|string',
+            'time' => 'nullable|string|max:10',
+            'cast_counts' => 'required|array',
+            'cast_counts.royal_vip' => 'required|integer|min:0',
+            'cast_counts.vip' => 'required|integer|min:0',
+            'cast_counts.premium' => 'required|integer|min:0',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'message' => 'Validation failed',
+                'errors' => $validator->errors()
+            ], 422);
+        }
+
+        try {
+            DB::beginTransaction();
+
+            // Create the reservation with type 'free'
+            $reservation = Reservation::create([
+                'guest_id' => $request->guest_id,
+                'type' => 'free',
+                'scheduled_at' => \Carbon\Carbon::parse($request->scheduled_at),
+                'location' => $request->location,
+                'duration' => $request->duration,
+                'details' => $request->details,
+                'time' => $request->time,
+                'cast_ids' => [], // No casts initially selected
+                'custom_duration_hours' => $request->custom_duration_hours,
+            ]);
+
+            // Get the guest
+            $guest = Guest::find($request->guest_id);
+            if (!$guest) {
+                DB::rollBack();
+                return response()->json(['message' => 'Guest not found'], 404);
+            }
+
+            // Create chat group for this reservation without any casts
+            $chatGroup = ChatGroup::create([
+                'reservation_id' => $reservation->id,
+                'cast_ids' => [], // No casts initially
+                'name' => "Free Call Reservation - {$guest->nickname}",
+                'created_at' => now(),
+            ]);
+
+
+            // No individual chats created initially since no casts are selected
+            $selectedCasts = [];
+
+            DB::commit();
+
+            // Broadcast reservation creation
+            event(new \App\Events\ReservationUpdated($reservation));
+            
+            return response()->json([
+                'reservation' => $reservation,
+                'chat_group' => $chatGroup,
+                'selected_casts' => $selectedCasts,
+                'cast_counts' => $request->cast_counts,
+                'points_deducted' => 0, // No points deducted for free call reservations
+                'remaining_points' => $guest->points
+            ], 201);
+
+        } catch (\Exception $e) {
+            DB::rollBack();
+            \Log::error('createFreeCallReservation error: ' . $e->getMessage() . "\n" . $e->getTraceAsString());
+            return response()->json([
+                'message' => 'Failed to create free call reservation',
                 'error' => $e->getMessage()
             ], 500);
         }

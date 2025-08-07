@@ -47,13 +47,14 @@ const GradeManagement: React.FC<PageProps> = ({ guests, gradeStats }) => {
     const [stats, setStats] = useState(gradeStats);
 
     const gradeColors = {
+        beginner: 'bg-amber-300',
         green: 'bg-green-500',
         orange: 'bg-orange-500',
         bronze: 'bg-amber-600',
-        silver: 'bg-gray-400',
-        gold: 'bg-yellow-500',
-        platinum: 'bg-purple-500',
-        centurion: 'bg-black',
+        silver: 'bg-gray-300',
+        gold: 'bg-yellow-300',
+        platinum: 'bg-gray-200',
+        centurion: 'bg-amber-500',
     };
 
     const gradeIcons = {

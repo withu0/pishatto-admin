@@ -123,10 +123,12 @@ class AdminController extends Controller
                 $reservation->update([
                     'active' => false,
                     'cast_ids' => array_merge($existingCastIds, [$application->cast_id]), // Store as array for consistency
+                    'cast_id' => $application->cast_id, // Store the selected cast ID in cast_id field
                 ]);
             } else {
                 $reservation->update([
                     'active' => false,
+                    'cast_id' => $application->cast_id, // Store the selected cast ID in cast_id field
                 ]);
             }
 
@@ -275,10 +277,11 @@ class AdminController extends Controller
         }
 
         \DB::transaction(function () use ($reservation, $validated) {
-            // Update reservation with multiple cast IDs
+            // Update reservation with multiple cast IDs and store the first selected cast in cast_id field
             $reservation->update([
                 'active' => false,
                 'cast_ids' => $validated['cast_ids'],
+                'cast_id' => $validated['cast_ids'][0], // Store the first selected cast ID in cast_id field
             ]);
 
             // Approve selected applications
@@ -309,6 +312,17 @@ class AdminController extends Controller
                 'name' => 'プレミアム予約 - ' . $reservation->location,
                 'created_at' => now(),
             ]);
+
+            // Create individual chats for each selected cast
+            foreach ($validated['cast_ids'] as $castId) {
+                \App\Models\Chat::create([
+                    'reservation_id' => $reservation->id,
+                    'guest_id' => $reservation->guest_id,
+                    'cast_id' => $castId,
+                    'group_id' => $chatGroup->id,
+                    'created_at' => now(),
+                ]);
+            }
 
             // Notify guest
             $guestNotification = \App\Models\Notification::create([
