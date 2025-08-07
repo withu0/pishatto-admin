@@ -326,27 +326,6 @@ class GuestAuthController extends Controller
             // Update guest grade_points and grade
             $this->gradeService->calculateAndUpdateGrade($guest);
 
-            // Create a pending point transaction record
-            $pendingTransaction = PointTransaction::create([
-                'guest_id' => $guest->id,
-                'cast_id' => null,
-                'type' => 'pending',
-                'amount' => $requiredPoints,
-                'reservation_id' => $reservation->id,
-                'description' => "Reservation created - {$reservation->duration} hours (pending)"
-            ]);
-
-            // Create a special "guest-only" chat for the group so it appears in the message screen
-            $guestChat = Chat::create([
-                'guest_id' => $guest->id,
-                'cast_id' => null, // No cast assigned yet
-                'reservation_id' => $reservation->id,
-                'created_at' => now(),
-            ]);
-
-            // No individual chats created initially since no casts are selected
-            $selectedCasts = [];
-
             DB::commit();
 
             // Real-time ranking update for guest
@@ -358,8 +337,6 @@ class GuestAuthController extends Controller
             
             return response()->json([
                 'reservation' => $reservation,
-                'guestChat' => $guestChat,
-                'selected_casts' => $selectedCasts,
                 'points_deducted' => $requiredPoints,
                 'remaining_points' => $guest->points
             ], 201);
@@ -1549,12 +1526,14 @@ class GuestAuthController extends Controller
 
             // Deduct points
             $guest->points -= $request->amount;
+            $guest->grade_points += $request->amount;
             $guest->save();
 
             return response()->json([
                 'message' => 'Points deducted successfully',
                 'guest_id' => $guest->id,
                 'amount_deducted' => $request->amount,
+                'grade_points' => $guest->grade_points,
                 'remaining_points' => $guest->points
             ]);
 

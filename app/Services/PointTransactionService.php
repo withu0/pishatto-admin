@@ -6,6 +6,7 @@ use App\Models\Guest;
 use App\Models\Cast;
 use App\Models\Reservation;
 use App\Models\PointTransaction;
+use App\Services\GradeService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Carbon\Carbon;
@@ -38,8 +39,9 @@ class PointTransactionService
                 return false;
             }
 
-            // Find the pending point transaction for this reservation
+            // Find the pending point transaction for this reservation and cast
             $pendingTransaction = PointTransaction::where('reservation_id', $reservation->id)
+                ->where('cast_id', $reservation->cast_id)
                 ->where('type', 'pending')
                 ->first();
 
@@ -72,7 +74,7 @@ class PointTransactionService
                 // Create refund transaction record
                 PointTransaction::create([
                     'guest_id' => $guest->id,
-                    'cast_id' => null,
+                    'cast_id' => $cast->id,
                     'type' => 'convert',
                     'amount' => $unusedPoints,
                     'reservation_id' => $reservation->id,
@@ -91,6 +93,11 @@ class PointTransactionService
             // Update reservation with points earned (including night time bonus and extension fee)
             $reservation->points_earned = $totalPointsForCast;
             $reservation->save();
+
+            // Recalculate guest grade points after applying transfer/refund
+            /** @var GradeService $gradeService */
+            $gradeService = app(GradeService::class);
+            $gradeService->calculateAndUpdateGrade($guest);
 
             DB::commit();
 
@@ -152,15 +159,33 @@ class PointTransactionService
             $guest->points -= $requiredPoints;
             $guest->save();
 
-            // Create pending transaction
-            PointTransaction::create([
-                'guest_id' => $guest->id,
-                'cast_id' => null,
-                'type' => 'pending',
-                'amount' => $requiredPoints,
-                'reservation_id' => $reservation->id,
-                'description' => "Free call - {$reservation->duration} hours (pending)"
-            ]);
+            // Create pending transaction(s)
+            $castIds = [];
+            if (is_array($reservation->cast_ids) && !empty($reservation->cast_ids)) {
+                $castIds = $reservation->cast_ids;
+            } elseif (!empty($reservation->cast_id)) {
+                $castIds = [$reservation->cast_id];
+            }
+
+            if (!empty($castIds)) {
+                $numCasts = count($castIds);
+                $baseShare = intdiv($requiredPoints, $numCasts);
+                $remainder = $requiredPoints % $numCasts;
+
+                foreach (array_values($castIds) as $index => $castId) {
+                    $amount = $baseShare + ($index < $remainder ? 1 : 0);
+                    PointTransaction::create([
+                        'guest_id' => $guest->id,
+                        'cast_id' => $castId,
+                        'type' => 'pending',
+                        'amount' => $amount,
+                        'reservation_id' => $reservation->id,
+                        'description' => "Free call - {$reservation->duration} hours (pending)"
+                    ]);
+                }
+            } else {
+                // If no cast(s) assigned yet, defer creating pending records until casts are selected
+            }
 
             DB::commit();
 
@@ -200,36 +225,42 @@ class PointTransactionService
                 return false;
             }
 
-            // Find the pending point transaction for this reservation
-            $pendingTransaction = PointTransaction::where('reservation_id', $reservation->id)
+            // Find all pending point transactions for this reservation (may be multiple casts)
+            $pendingTransactions = PointTransaction::where('reservation_id', $reservation->id)
                 ->where('type', 'pending')
-                ->first();
+                ->get();
 
-            if (!$pendingTransaction) {
+            if ($pendingTransactions->isEmpty()) {
                 Log::error('No pending point transaction found for refund', [
                     'reservation_id' => $reservation->id
                 ]);
                 return false;
             }
 
-            $reservedPoints = $pendingTransaction->amount;
+            $totalReserved = 0;
+            foreach ($pendingTransactions as $pending) {
+                $totalReserved += $pending->amount;
+                $pending->type = 'convert';
+                // keep original amount and cast_id per pending record
+                $pending->description = "Reservation cancelled - refunded all points ({$pending->amount} points)";
+                $pending->save();
+            }
 
-            // Refund all reserved points to guest
-            $guest->points += $reservedPoints;
+            // Refund all reserved points (sum) to guest
+            $guest->points += $totalReserved;
             $guest->save();
 
-            // Update the pending transaction
-            $pendingTransaction->type = 'convert';
-            $pendingTransaction->amount = $reservedPoints;
-            $pendingTransaction->description = "Reservation cancelled - refunded all points ({$reservedPoints} points)";
-            $pendingTransaction->save();
+            // Recalculate guest grade points after full refund
+            /** @var GradeService $gradeService */
+            $gradeService = app(GradeService::class);
+            $gradeService->calculateAndUpdateGrade($guest);
 
             DB::commit();
 
             Log::info('Points refunded successfully', [
                 'reservation_id' => $reservation->id,
                 'guest_id' => $guest->id,
-                'refunded_points' => $reservedPoints,
+                'refunded_points' => $totalReserved,
                 'new_guest_points' => $guest->points
             ]);
 

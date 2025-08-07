@@ -104,7 +104,7 @@ class PointWorkflowTest extends TestCase
         // Create pending transaction
         PointTransaction::create([
             'guest_id' => $guest->id,
-            'cast_id' => null,
+            'cast_id' => $cast->id,
             'type' => 'pending',
             'amount' => 10000,
             'reservation_id' => $reservation->id,
@@ -129,16 +129,18 @@ class PointWorkflowTest extends TestCase
     public function it_refunds_unused_points_correctly()
     {
         $guest = Guest::factory()->create(['points' => 5000]);
+        $cast = Cast::factory()->create();
         
         $reservation = Reservation::factory()->create([
             'guest_id' => $guest->id,
+            'cast_id' => $cast->id,
             'duration' => 1,
         ]);
 
         // Create pending transaction
         PointTransaction::create([
             'guest_id' => $guest->id,
-            'cast_id' => null,
+            'cast_id' => $cast->id,
             'type' => 'pending',
             'amount' => 10000,
             'reservation_id' => $reservation->id,

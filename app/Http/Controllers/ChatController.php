@@ -319,6 +319,38 @@ class ChatController extends Controller
                 'created_at' => now(),
             ]);
 
+            // If linked to a free-call reservation, create per-cast pending point transactions
+            if (!empty($validated['reservation_id'])) {
+                $reservation = \App\Models\Reservation::find($validated['reservation_id']);
+                if ($reservation && $reservation->type === 'free') {
+                    $hasPending = \App\Models\PointTransaction::where('reservation_id', $reservation->id)
+                        ->where('type', 'pending')
+                        ->exists();
+                    if (!$hasPending) {
+                        /** @var \App\Services\PointTransactionService $pointService */
+                        $pointService = app(\App\Services\PointTransactionService::class);
+                        $requiredPoints = $pointService->calculateReservationPointsLegacy($reservation);
+                        $castIds = $validated['cast_ids'] ?? [];
+                        $numCasts = count($castIds);
+                        if ($numCasts > 0 && $requiredPoints > 0) {
+                            $baseShare = intdiv($requiredPoints, $numCasts);
+                            $remainder = $requiredPoints % $numCasts;
+                            foreach (array_values($castIds) as $index => $castId) {
+                                $amount = $baseShare + ($index < $remainder ? 1 : 0);
+                                \App\Models\PointTransaction::create([
+                                    'guest_id' => $reservation->guest_id,
+                                    'cast_id' => $castId,
+                                    'type' => 'pending',
+                                    'amount' => $amount,
+                                    'reservation_id' => $reservation->id,
+                                    'description' => "Free call - {$reservation->duration} hours (pending)",
+                                ]);
+                            }
+                        }
+                    }
+                }
+            }
+
             // Create individual chats for each cast
             $chats = [];
             foreach ($validated['cast_ids'] as $castId) {

@@ -152,6 +152,44 @@ class ReservationApplicationController extends Controller
                 'group_id' => $chatGroup->id,
             ]);
 
+            // For pishatto or free reservations with multiple casts, create pending point
+            // transaction for this approved cast if not already created at multi-approve step
+            if (in_array($reservation->type, ['pishatto', 'free'])) {
+                $existingPending = \App\Models\PointTransaction::where('reservation_id', $reservation->id)
+                    ->where('cast_id', $application->cast_id)
+                    ->where('type', 'pending')
+                    ->exists();
+
+                if (!$existingPending) {
+                    /** @var \App\Services\PointTransactionService $pointService */
+                    $pointService = app(\App\Services\PointTransactionService::class);
+                    $requiredPoints = $pointService->calculateReservationPointsLegacy($reservation);
+
+                    // Determine total casts currently on reservation to split fairly
+                    $castIds = is_array($reservation->cast_ids) ? $reservation->cast_ids : [];
+                    if (!in_array($application->cast_id, $castIds)) {
+                        $castIds[] = $application->cast_id;
+                    }
+                    $numCasts = max(1, count($castIds));
+                    $baseShare = intdiv($requiredPoints, $numCasts);
+                    $remainder = $requiredPoints % $numCasts;
+
+                    // Find index for this cast to allocate remainder deterministically
+                    $indexed = array_values($castIds);
+                    $index = array_search($application->cast_id, $indexed, true);
+                    $amount = $baseShare + ($index !== false && $index < $remainder ? 1 : 0);
+
+                    \App\Models\PointTransaction::create([
+                        'guest_id' => $reservation->guest_id,
+                        'cast_id' => $application->cast_id,
+                        'type' => 'pending',
+                        'amount' => $amount,
+                        'reservation_id' => $reservation->id,
+                        'description' => ucfirst($reservation->type) . " reservation - {$reservation->duration} hours (pending)"
+                    ]);
+                }
+            }
+
             // Notify guest
             $guestNotification = Notification::create([
                 'user_id' => $reservation->guest_id,

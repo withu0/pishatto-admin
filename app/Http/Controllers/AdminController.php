@@ -313,6 +313,34 @@ class AdminController extends Controller
                 'created_at' => now(),
             ]);
 
+            // Create per-cast pending point transactions for this reservation if not already created
+            $hasPending = \App\Models\PointTransaction::where('reservation_id', $reservation->id)
+                ->where('type', 'pending')
+                ->exists();
+            if (!$hasPending) {
+                /** @var \App\Services\PointTransactionService $pointService */
+                $pointService = app(\App\Services\PointTransactionService::class);
+                $requiredPoints = $pointService->calculateReservationPointsLegacy($reservation);
+
+                $castIds = $validated['cast_ids'];
+                $numCasts = count($castIds);
+                if ($numCasts > 0 && $requiredPoints > 0) {
+                    $baseShare = intdiv($requiredPoints, $numCasts);
+                    $remainder = $requiredPoints % $numCasts;
+                    foreach (array_values($castIds) as $index => $castId) {
+                        $amount = $baseShare + ($index < $remainder ? 1 : 0);
+                        \App\Models\PointTransaction::create([
+                            'guest_id' => $reservation->guest_id,
+                            'cast_id' => $castId,
+                            'type' => 'pending',
+                            'amount' => $amount,
+                            'reservation_id' => $reservation->id,
+                            'description' => "Pishatto reservation - {$reservation->duration} hours (pending)"
+                        ]);
+                    }
+                }
+            }
+
             // Create individual chats for each selected cast
             foreach ($validated['cast_ids'] as $castId) {
                 \App\Models\Chat::create([
