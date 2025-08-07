@@ -27,9 +27,9 @@ return new class extends Migration
             $table->decimal('tax_rate', 5, 2)->default(10.00)->after('tax_amount');
             $table->decimal('total_amount', 10, 2)->after('tax_rate');
             $table->string('purpose')->after('total_amount');
-            $table->string('company_name')->default('株式会社キネカ')->after('purpose');
-            $table->text('company_address')->default('〒106-0032 東京都港区六本木4丁目8-7六本木三河台ビル')->after('company_name');
-            $table->string('company_phone')->default('TEL: 03-5860-6178')->after('company_address');
+            $table->string('company_name')->after('purpose');
+            $table->text('company_address')->after('company_name');
+            $table->string('company_phone')->after('company_address');
             $table->string('registration_number')->default('登録番号:T3010401129426')->after('company_phone');
             $table->enum('status', ['draft', 'issued', 'cancelled'])->default('issued')->after('registration_number');
             $table->string('pdf_url')->nullable()->after('status');
