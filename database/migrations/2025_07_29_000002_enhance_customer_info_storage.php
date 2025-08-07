@@ -3,6 +3,7 @@
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Facades\DB;
 
 return new class extends Migration
 {
@@ -45,17 +46,19 @@ return new class extends Migration
      */
     public function down(): void
     {
-        Schema::table('guests', function (Blueprint $table) {
-            $table->dropIndexIfExists('guests_payjp_customer_id_index');
-        });
-
-        Schema::table('casts', function (Blueprint $table) {
-            $table->dropIndexIfExists('casts_payjp_customer_id_index');
-        });
-
-        Schema::table('payments', function (Blueprint $table) {
-            $table->dropIndexIfExists('payments_user_lookup_index');
-            $table->dropIndexIfExists('payments_customer_lookup_index');
-        });
+        // Drop indexes safely using raw SQL to check existence
+        $indexesToDrop = [
+            ['guests', 'guests_payjp_customer_id_index'],
+            ['casts', 'casts_payjp_customer_id_index'],
+            ['payments', 'payments_user_lookup_index'],
+            ['payments', 'payments_customer_lookup_index']
+        ];
+        
+        foreach ($indexesToDrop as [$table, $indexName]) {
+            $indexExists = DB::select("SHOW INDEX FROM {$table} WHERE Key_name = ?", [$indexName]);
+            if (!empty($indexExists)) {
+                DB::statement("DROP INDEX `{$indexName}` ON `{$table}`");
+            }
+        }
     }
 }; 

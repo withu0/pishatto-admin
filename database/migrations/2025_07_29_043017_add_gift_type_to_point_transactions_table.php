@@ -12,7 +12,9 @@ return new class extends Migration
     public function up(): void
     {
         Schema::table('point_transactions', function (Blueprint $table) {
-            $table->enum('gift_type', ['sent', 'received'])->nullable()->after('description');
+            if (!Schema::hasColumn('point_transactions', 'gift_type')) {
+                $table->enum('gift_type', ['sent', 'received'])->nullable()->after('description');
+            }
         });
     }
 
@@ -22,7 +24,9 @@ return new class extends Migration
     public function down(): void
     {
         Schema::table('point_transactions', function (Blueprint $table) {
-            $table->dropColumn('gift_type');
+            if (Schema::hasColumn('point_transactions', 'gift_type')) {
+                $table->dropColumn('gift_type');
+            }
         });
     }
 };

@@ -67,10 +67,7 @@ return new class extends Migration
                 $table->longText('html_content')->nullable()->after('pdf_url');
             }
             
-            // Add indexes only if they don't exist
-            if (!Schema::hasIndex('receipts', 'receipts_user_type_user_id_index')) {
-                $table->index(['user_type', 'user_id']);
-            }
+            // Note: Index is already created in the original migration, so we don't need to add it here
         });
     }
 
@@ -80,8 +77,8 @@ return new class extends Migration
     public function down(): void
     {
         Schema::table('receipts', function (Blueprint $table) {
-            // Remove new columns
-            $table->dropColumn([
+            // Remove new columns safely
+            $columnsToDrop = [
                 'receipt_number',
                 'user_type',
                 'user_id',
@@ -98,15 +95,23 @@ return new class extends Migration
                 'status',
                 'pdf_url',
                 'html_content'
-            ]);
+            ];
             
-            // Drop indexes
-            $table->dropIndex(['user_type', 'user_id']);
+            foreach ($columnsToDrop as $column) {
+                if (Schema::hasColumn('receipts', $column)) {
+                    $table->dropColumn($column);
+                }
+            }
+            
+            // Note: We don't drop the index here since it was created in the original migration
+            // and will be handled when the original migration is rolled back
             
             // Restore original columns
-            $table->unsignedBigInteger('guest_id')->nullable();
-            $table->index('guest_id');
-            $table->foreign('guest_id')->references('id')->on('guests')->onDelete('cascade')->onUpdate('restrict');
+            if (!Schema::hasColumn('receipts', 'guest_id')) {
+                $table->unsignedBigInteger('guest_id')->nullable();
+                $table->index('guest_id');
+                $table->foreign('guest_id')->references('id')->on('guests')->onDelete('cascade')->onUpdate('restrict');
+            }
         });
     }
 };

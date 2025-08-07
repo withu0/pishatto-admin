@@ -24,11 +24,11 @@ return new class extends Migration
             $table->decimal('total_amount', 10, 2);
             $table->string('purpose');
             $table->timestamp('issued_at')->useCurrent();
-            $table->string('company_name')->default('株式会社キネカ');
-            $table->text('company_address')->default('〒106-0032 東京都港区六本木4丁目8-7六本木三河台ビル');
-            $table->string('company_phone')->default('TEL: 03-5860-6178');
-            $table->string('registration_number')->default('登録番号:T3010401129426');
-            $table->enum('status', ['draft', 'issued', 'cancelled'])->default('issued');
+            $table->string('company_name');
+            $table->text('company_address');
+            $table->string('company_phone');
+            $table->string('registration_number');
+            $table->enum('status', ['draft', 'issued', 'cancelled']);
             $table->string('pdf_url')->nullable();
             $table->longText('html_content')->nullable();
             $table->timestamps();
