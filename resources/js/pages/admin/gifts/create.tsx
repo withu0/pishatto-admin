@@ -31,7 +31,8 @@ export default function CreateGift({ categories }: Props) {
         name: '',
         category: '',
         points: '',
-        icon: ''
+        icon: '',
+        description: ''
     });
     const [errors, setErrors] = useState<Record<string, string>>({});
 
@@ -164,6 +165,21 @@ export default function CreateGift({ categories }: Props) {
                                         </button>
                                     ))}
                                 </div>
+                            </div>
+
+                            <div className="space-y-2">
+                                <Label htmlFor="description">説明</Label>
+                                <textarea
+                                    id="description"
+                                    value={formData.description}
+                                    onChange={e => handleInputChange('description', e.target.value)}
+                                    placeholder="ギフトの説明を入力してください"
+                                    className={`w-full border rounded p-2 ${errors.description ? 'border-red-500' : ''}`}
+                                    rows={3}
+                                />
+                                {errors.description && (
+                                    <p className="text-sm text-red-500">{errors.description}</p>
+                                )}
                             </div>
 
                             <div className="flex justify-end space-x-4">

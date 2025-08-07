@@ -506,12 +506,38 @@ class GuestAuthController extends Controller
                 'custom_duration_hours' => $request->custom_duration_hours,
             ]);
 
+            // Calculate required points for this reservation
+            $requiredPoints = $this->pointTransactionService->calculateReservationPointsLegacy($reservation);
+
             // Get the guest
             $guest = Guest::find($request->guest_id);
             if (!$guest) {
                 DB::rollBack();
                 return response()->json(['message' => 'Guest not found'], 404);
             }
+
+            if ($guest->points < $requiredPoints) {
+                DB::rollBack();
+                return response()->json([
+                    'message' => 'Insufficient points',
+                    'required_points' => $requiredPoints,
+                    'available_points' => $guest->points
+                ], 400);
+            }
+
+            // Deduct points and add to grade_points
+            $guest->points -= $requiredPoints;
+            $guest->grade_points += $requiredPoints;
+            $guest->save();
+
+            // Create pending transaction
+            PointTransaction::create([
+                'guest_id' => $guest->id,
+                'type' => 'pending',
+                'amount' => $requiredPoints,
+                'reservation_id' => $reservation->id,
+                'description' => "Free call reservation - {$reservation->duration} hours (pending)"
+            ]);
 
             // Create chat group for this reservation without any casts
             $chatGroup = ChatGroup::create([
@@ -535,7 +561,7 @@ class GuestAuthController extends Controller
                 'chat_group' => $chatGroup,
                 'selected_casts' => $selectedCasts,
                 'cast_counts' => $request->cast_counts,
-                'points_deducted' => 0, // No points deducted for free call reservations
+                'points_deducted' => $requiredPoints,
                 'remaining_points' => $guest->points
             ], 201);
 

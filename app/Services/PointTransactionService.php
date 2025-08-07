@@ -284,9 +284,9 @@ class PointTransactionService
         $duration = $reservation->duration ?? 1; // Default to 1 hour
         
         // Point rates per hour
-        $royalVipRate = 25000; // ロイヤルVIP
-        $vipRate = 14000;      // VIP
-        $premiumRate = 9000;   // プレミアム
+        $royalVipRate = 30000; // ロイヤルVIP
+        $vipRate = 24000;      // VIP
+        $premiumRate = 18000;   // プレミアム
         
         $basePoints = ($royalVipCount * $royalVipRate + $vipCount * $vipRate + $premiumCount * $premiumRate) * $duration;
         

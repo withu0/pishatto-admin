@@ -16,6 +16,7 @@ class Gift extends Model
         'category',
         'points',
         'icon',
+        'description',
         'created_at',
     ];
 } 

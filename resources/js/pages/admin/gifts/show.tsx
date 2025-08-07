@@ -11,6 +11,7 @@ interface Gift {
     points: number;
     icon: string | null;
     created_at: string;
+    description?: string;
 }
 
 interface Props {
@@ -144,6 +145,17 @@ export default function ShowGift({ gift, categories }: Props) {
                             </div>
                         </CardContent>
                     </Card>
+
+                    {gift.description && (
+                        <Card>
+                            <CardHeader>
+                                <CardTitle>説明</CardTitle>
+                            </CardHeader>
+                            <CardContent>
+                                <div className="text-gray-700 whitespace-pre-line">{gift.description}</div>
+                            </CardContent>
+                        </Card>
+                    )}
                 </div>
             </div>
         </AppLayout>
