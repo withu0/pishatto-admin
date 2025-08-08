@@ -15,6 +15,92 @@ use Carbon\Carbon;
 
 class RankingController extends Controller
 {
+    /**
+     * New: Get monthly earned ranking based on point_transactions (gift + transfer) for casts
+     * Query params:
+     * - limit (optional): number of top users to return
+     * - castId (optional): include current cast rank summary
+     * - month (optional): 'current' | 'last' (default: current)
+     */
+    public function getMonthlyEarnedRanking(Request $request)
+    {
+        $limit = (int) $request->query('limit', 10);
+        $castId = $request->query('castId');
+        $month = $request->query('month', 'current');
+
+        $now = Carbon::now();
+        if ($month === 'last') {
+            $start = $now->copy()->subMonth()->startOfMonth();
+            $end = $now->copy()->subMonth()->endOfMonth();
+        } else {
+            $start = $now->copy()->startOfMonth();
+            $end = $now->copy()->endOfMonth();
+        }
+
+        // Sum earned points for casts from point_transactions
+        $baseQuery = DB::table('point_transactions as pt')
+            ->select('pt.cast_id', DB::raw('COALESCE(SUM(pt.amount), 0) as points'))
+            ->whereNotNull('pt.cast_id')
+            ->whereIn('pt.type', ['gift', 'transfer'])
+            ->whereBetween('pt.created_at', [$start, $end])
+            ->groupBy('pt.cast_id');
+
+        $ranked = DB::table(DB::raw("({$baseQuery->toSql()}) as totals"))
+            ->mergeBindings($baseQuery)
+            ->join('casts as c', 'c.id', '=', 'totals.cast_id')
+            ->select(
+                'c.id',
+                DB::raw('c.nickname as name'),
+                'c.avatar',
+                'totals.points'
+            )
+            ->orderByDesc('totals.points')
+            ->orderBy('c.id')
+            ->limit($limit)
+            ->get();
+
+        // Compute rank for requested cast if provided
+        $myRank = null;
+        $myPoints = null;
+        if ($castId) {
+            $myTotal = (clone $baseQuery)
+                ->where('pt.cast_id', $castId)
+                ->first();
+            $myPoints = $myTotal ? (int) $myTotal->points : 0;
+
+            if ($myPoints > 0) {
+                // Count how many have strictly greater points to derive rank
+                $aheadCount = DB::table(DB::raw("({$baseQuery->toSql()}) as totals"))
+                    ->mergeBindings($baseQuery)
+                    ->where('totals.points', '>', $myPoints)
+                    ->count();
+                $myRank = $aheadCount + 1;
+            } else {
+                $myRank = null; // Not ranked if zero
+            }
+        }
+
+        return response()->json([
+            'data' => $ranked->map(function ($row, $idx) {
+                return [
+                    'user_id' => $row->id,
+                    'name' => $row->name,
+                    'avatar' => $row->avatar,
+                    'points' => (int) $row->points,
+                    'rank' => $idx + 1,
+                ];
+            }),
+            'summary' => [
+                'month' => $month,
+                'period_start' => $start->toDateString(),
+                'period_end' => $end->toDateString(),
+                'cast_id' => $castId ? (int) $castId : null,
+                'my_points' => $myPoints,
+                'my_rank' => $myRank,
+            ],
+        ]);
+    }
+
     public function getRanking(Request $request)
     {
         try {
@@ -31,7 +117,7 @@ class RankingController extends Controller
             if (!in_array($category, ['gift', 'reservation'])) {
                 return response()->json(['error' => 'Invalid category'], 400);
             }
-
+            
             // Create cache key for this specific ranking
             $cacheKey = "ranking_{$userType}_{$timePeriod}_{$category}_{$area}";
             
@@ -57,7 +143,7 @@ class RankingController extends Controller
     private function calculateRanking($userType, $timePeriod, $category, $area)
     {
         $dateRange = $this->getDateRange($timePeriod);
-        
+
         if ($category === 'gift') {
             return $this->getGiftRanking($userType, $dateRange, $area);
         } else {
@@ -75,6 +161,7 @@ class RankingController extends Controller
                     'start' => $now->startOfMonth(),
                     'end' => $now->endOfMonth()
                 ];
+                
             case 'yesterday':
                 return [
                     'start' => $now->copy()->subDay()->startOfDay(),

@@ -212,6 +212,8 @@ Route::get('/chats/group/{groupId}/messages', [ChatController::class, 'getGroupM
 Route::get('/chats/group/{groupId}/participants', [ChatController::class, 'getGroupParticipants']);
 Route::get('/guests/like-status/{cast_id}/{guest_id}', [GuestAuthController::class, 'likeStatus']);
 Route::get('/ranking', [RankingController::class, 'getRanking']);
+// New monthly earned ranking (point_transactions-based)
+Route::get('/ranking/monthly-earned', [RankingController::class, 'getMonthlyEarnedRanking']);
 Route::post('/ranking/clear-cache', [RankingController::class, 'clearRankingCache']);
 Route::post('/ranking/recalculate', [RankingController::class, 'recalculateRankings']);
 Route::post('/ranking/recalculate-all', [RankingController::class, 'recalculateAllRankings']);
