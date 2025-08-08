@@ -23,8 +23,8 @@ return new class extends Migration
     public function down(): void
     {
         Schema::table('casts', function (Blueprint $table) {
-            // Revert the name column to be NOT NULL
-            $table->text('name')->nullable(false)->change();
+            // Keep column nullable to avoid constraint issues on existing data
+            $table->text('name')->nullable()->change();
         });
     }
 };

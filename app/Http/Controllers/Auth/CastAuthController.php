@@ -33,6 +33,25 @@ class CastAuthController extends Controller
         ]);
     }
 
+    /**
+     * Check if cast is authenticated
+     */
+    public function checkAuth(Request $request)
+    {
+        if (Auth::guard('cast')->check()) {
+            $cast = Auth::guard('cast')->user();
+            return response()->json([
+                'authenticated' => true,
+                'cast' => $cast,
+            ]);
+        }
+
+        return response()->json([
+            'authenticated' => false,
+            'cast' => null,
+        ]);
+    }
+
     public function updateProfile(Request $request)
     {
         $data = $request->only([
@@ -164,25 +183,34 @@ class CastAuthController extends Controller
         $currentMonth = now()->startOfMonth();
         $nextMonth = now()->addMonth()->startOfMonth();
 
-        // Calculate gift points from guest gifts (this is the main source of points for casts)
-        $giftPoints = \App\Models\GuestGift::where('receiver_cast_id', $id)
-            ->whereBetween('guest_gifts.created_at', [$currentMonth, $nextMonth])
-            ->join('gifts', 'guest_gifts.gift_id', '=', 'gifts.id')
-            ->sum('gifts.points');
+        // Calculate total points earned from point_transactions (gift + transfer)
+        $monthlyTotalPoints = \App\Models\PointTransaction::where('cast_id', $id)
+            ->whereIn('type', ['gift', 'transfer'])
+            ->whereBetween('created_at', [$currentMonth, $nextMonth])
+            ->sum('amount');
 
-        // For now, we'll use gift points as the main source since reservations don't have cast_id
-        // In a real implementation, you might have a separate cast_earnings table
-        $monthlyTotalPoints = $giftPoints;
+        // Calculate gift points specifically
+        $giftPoints = \App\Models\PointTransaction::where('cast_id', $id)
+            ->where('type', 'gift')
+            ->whereBetween('created_at', [$currentMonth, $nextMonth])
+            ->sum('amount');
+
+        // Calculate transfer points (from completed reservations)
+        $transferPoints = \App\Models\PointTransaction::where('cast_id', $id)
+            ->where('type', 'transfer')
+            ->whereBetween('created_at', [$currentMonth, $nextMonth])
+            ->sum('amount');
 
         // Calculate copat-back rate based on gift transactions
-        $totalGiftTransactions = \App\Models\GuestGift::where('receiver_cast_id', $id)
-            ->whereBetween('guest_gifts.created_at', [$currentMonth, $nextMonth])
+        $totalGiftTransactions = \App\Models\PointTransaction::where('cast_id', $id)
+            ->where('type', 'gift')
+            ->whereBetween('created_at', [$currentMonth, $nextMonth])
             ->count();
         
-        $successfulGiftTransactions = \App\Models\GuestGift::where('receiver_cast_id', $id)
-            ->whereBetween('guest_gifts.created_at', [$currentMonth, $nextMonth])
-            ->join('gifts', 'guest_gifts.gift_id', '=', 'gifts.id')
-            ->where('gifts.points', '>', 0)
+        $successfulGiftTransactions = \App\Models\PointTransaction::where('cast_id', $id)
+            ->where('type', 'gift')
+            ->where('amount', '>', 0)
+            ->whereBetween('created_at', [$currentMonth, $nextMonth])
             ->count();
 
         $copatBackRate = $totalGiftTransactions > 0 ? round(($successfulGiftTransactions / $totalGiftTransactions) * 100) : 0;
@@ -190,6 +218,7 @@ class CastAuthController extends Controller
         return response()->json([
             'monthly_total_points' => $monthlyTotalPoints,
             'gift_points' => $giftPoints,
+            'transfer_points' => $transferPoints,
             'copat_back_rate' => $copatBackRate,
             'total_reservations' => $totalGiftTransactions,
             'completed_reservations' => $successfulGiftTransactions

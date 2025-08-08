@@ -147,6 +147,25 @@ class GuestAuthController extends Controller
         ]);
     }
 
+    /**
+     * Check if guest is authenticated
+     */
+    public function checkAuth(Request $request)
+    {
+        if (Auth::guard('guest')->check()) {
+            $guest = Auth::guard('guest')->user();
+            return response()->json([
+                'authenticated' => true,
+                'guest' => $guest,
+            ]);
+        }
+
+        return response()->json([
+            'authenticated' => false,
+            'guest' => null,
+        ]);
+    }
+
     public function likeStatus($cast_id, $guest_id)
     {
                     $like = Like::where('cast_id', $cast_id)->where('guest_id', $guest_id)->first();

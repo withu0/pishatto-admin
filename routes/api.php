@@ -41,9 +41,11 @@ Route::get('/sms/test-formatting', [SmsVerificationController::class, 'testPhone
 
 Route::post('/guest/register', [GuestAuthController::class, 'register']);
 Route::post('/guest/login', [GuestAuthController::class, 'login']);
+Route::get('/guest/check-auth', [GuestAuthController::class, 'checkAuth']);
 Route::get('/guest/profile/{phone}', [GuestAuthController::class, 'getProfile']);
 Route::post('/guest/profile', [GuestAuthController::class, 'updateProfile']);
 Route::post('/cast/login', [CastAuthController::class, 'login']);
+Route::get('/cast/check-auth', [CastAuthController::class, 'checkAuth']);
 Route::post('/cast/profile', [CastAuthController::class, 'updateProfile']);
 Route::post('/cast/register', [CastAuthController::class, 'register']);
 Route::post('/guest/reservation', [GuestAuthController::class, 'createReservation']);

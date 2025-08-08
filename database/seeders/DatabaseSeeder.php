@@ -18,150 +18,18 @@ class DatabaseSeeder extends Seeder
      */
     public function run(): void
     {
-        // Call badge seeder
-        $this->call(BadgeSeeder::class);
-        
-        // Create sample gifts
-        $gifts = [
-            ['name' => 'Rose', 'category' => 'standard', 'points' => 100, 'icon' => 'rose.png'],
-            ['name' => 'Chocolate', 'category' => 'standard', 'points' => 50, 'icon' => 'chocolate.png'],
-            ['name' => 'Diamond', 'category' => 'grade', 'points' => 500, 'icon' => 'diamond.png'],
-            ['name' => 'Gold Coin', 'category' => 'grade', 'points' => 200, 'icon' => 'gold_coin.png'],
-        ];
-
-        foreach ($gifts as $giftData) {
-            Gift::updateOrCreate(
-                ['name' => $giftData['name']],
-                $giftData
-            );
-        }
-
-        // Create sample casts if they don't exist
-        $casts = [
-            [
-                'phone' => '09012345678',
-                'nickname' => 'まこちゃん',
-                'avatar' => 'avatar-1.png',
-                'residence' => '東京都',
-                'location' => '東京都',
-                'birth_year' => 1995,
-                'height' => 160,
-                'grade' => 'A',
-                'grade_points' => 1000,
-                'status' => 'active',
-            ],
-            [
-                'phone' => '09012345679',
-                'nickname' => 'あいちゃん',
-                'avatar' => 'avatar-2.png',
-                'residence' => '大阪府',
-                'location' => '大阪府',
-                'birth_year' => 1993,
-                'height' => 165,
-                'grade' => 'B',
-                'grade_points' => 800,
-                'status' => 'active',
-            ],
-            [
-                'phone' => '09012345680',
-                'nickname' => 'ゆきちゃん',
-                'avatar' => 'avatar-3.png',
-                'residence' => '愛知県',
-                'location' => '愛知県',
-                'birth_year' => 1997,
-                'height' => 158,
-                'grade' => 'A',
-                'grade_points' => 1200,
-                'status' => 'active',
-            ],
-            [
-                'phone' => '09012345681',
-                'nickname' => 'さくらちゃん',
-                'avatar' => 'avatar-4.png',
-                'residence' => '東京都',
-                'location' => '東京都',
-                'birth_year' => 1994,
-                'height' => 162,
-                'grade' => 'A',
-                'grade_points' => 1100,
-                'status' => 'active',
-            ],
-            [
-                'phone' => '09012345682',
-                'nickname' => 'はなちゃん',
-                'avatar' => 'avatar-5.png',
-                'residence' => '東京都',
-                'location' => '東京都',
-                'birth_year' => 1996,
-                'height' => 159,
-                'grade' => 'B',
-                'grade_points' => 900,
-                'status' => 'active',
-            ],
-            [
-                'phone' => '09012345683',
-                'nickname' => 'みゆちゃん',
-                'avatar' => 'avatar-6.png',
-                'residence' => '大阪府',
-                'location' => '大阪府',
-                'birth_year' => 1992,
-                'height' => 163,
-                'grade' => 'A',
-                'grade_points' => 1300,
-                'status' => 'active',
-            ],
-        ];
-
-        foreach ($casts as $castData) {
-            Cast::updateOrCreate(
-                ['phone' => $castData['phone']],
-                $castData
-            );
-        }
-
-        // Create sample guests if they don't exist
-        $guests = [
-            [
-                'phone' => '08012345678',
-                'nickname' => '田中太郎',
-                'avatar' => 'avatar-4.png',
-                'residence' => '東京都',
-                'birth_year' => 1990,
-                'height' => 175,
-                'age' => '30代',
-                'shiatsu' => '普通',
-                'location' => '東京都',
-            ],
-            [
-                'phone' => '08012345679',
-                'nickname' => '佐藤次郎',
-                'avatar' => 'avatar-5.png',
-                'residence' => '大阪府',
-                'birth_year' => 1988,
-                'height' => 170,
-                'age' => '30代',
-                'shiatsu' => '強め',
-                'location' => '大阪府',
-            ],
-            [
-                'phone' => '08012345680',
-                'nickname' => '鈴木三郎',
-                'avatar' => 'avatar-6.png',
-                'residence' => '愛知県',
-                'birth_year' => 1992,
-                'height' => 180,
-                'age' => '20代',
-                'shiatsu' => '弱め',
-                'location' => '愛知県',
-            ],
-        ];
-
-        foreach ($guests as $guestData) {
-            Guest::updateOrCreate(
-                ['phone' => $guestData['phone']],
-                $guestData
-            );
-        }
+        // Foundational seeders
+        $this->call([
+            BadgeSeeder::class,
+            GiftSeeder::class,
+            LocationSeeder::class,
+            CastSeeder::class,
+            GuestSeeder::class,
+            UserSeeder::class,
+            AdminNewsSeeder::class,
+            NotificationSeeder::class,
+            ConciergeMessageSeeder::class,
+        ]);
 
         // Create sample guest gifts
         $castIds = Cast::pluck('id')->toArray();
