@@ -26,31 +26,170 @@ class PointTransactionService
         try {
             DB::beginTransaction();
 
-            // Get the guest and cast
+            // Get the guest
             $guest = $reservation->guest;
-            $cast = $reservation->cast;
-
-            if (!$guest || !$cast) {
-                Log::error('Guest or Cast not found for reservation', [
+            if (!$guest) {
+                Log::error('Guest not found for reservation', [
                     'reservation_id' => $reservation->id,
                     'guest_id' => $reservation->guest_id,
-                    'cast_id' => $reservation->cast_id
                 ]);
                 return false;
             }
 
-            // Find the pending point transaction for this reservation and cast
-            $pendingTransaction = PointTransaction::where('reservation_id', $reservation->id)
-                ->where('cast_id', $reservation->cast_id)
+            // Find all pending point transactions for this reservation
+            $pendingTransactions = PointTransaction::where('reservation_id', $reservation->id)
                 ->where('type', 'pending')
-                ->first();
+                ->get();
 
-            if (!$pendingTransaction) {
+            if ($pendingTransactions->isEmpty()) {
                 Log::error('No pending point transaction found for reservation', [
                     'reservation_id' => $reservation->id
                 ]);
                 return false;
             }
+
+            // If multiple pending transactions exist, treat as multi-cast reservation
+            if ($pendingTransactions->count() > 1) {
+                // Calculate totals based on reserved amounts and time-based extras
+                $reservedPointsTotal = (int) $pendingTransactions->sum('amount');
+
+                $nightTimeBonus = $this->calculateNightTimeBonus($reservation->started_at);
+
+                // Calculate extension fee for multi-cast by deriving base per-minute from reserved total
+                $extensionFee = 0;
+                if ($reservation->started_at && $reservation->ended_at && $reservation->duration) {
+                    $startedAt = Carbon::parse($reservation->started_at);
+                    $endedAt = Carbon::parse($reservation->ended_at);
+                    $scheduledDuration = (int) ($reservation->duration * 60);
+                    $actualDuration = $endedAt->diffInMinutes($startedAt);
+                    if ($scheduledDuration > 0 && $actualDuration > $scheduledDuration) {
+                        $exceededMinutes = $actualDuration - $scheduledDuration;
+                        $basePointsPerMinute = $reservedPointsTotal / $scheduledDuration;
+                        $extensionFee = (int) round($basePointsPerMinute * $exceededMinutes * self::EXTENSION_MULTIPLIER);
+                    }
+                }
+
+                $extrasTotal = $nightTimeBonus + $extensionFee;
+
+                // Compute per-cast allocations for extras proportionally by their reserved amount
+                $perCastExtras = [];
+                $allocatedExtras = 0;
+                $pendingArray = $pendingTransactions->values();
+                $numPending = $pendingArray->count();
+                foreach ($pendingArray as $index => $pending) {
+                    if ($extrasTotal > 0 && $reservedPointsTotal > 0) {
+                        $share = ($pending->amount / $reservedPointsTotal) * $extrasTotal;
+                        $extra = (int) floor($share);
+                        // Assign remainder to last to ensure sums match
+                        if ($index === $numPending - 1) {
+                            $extra = $extrasTotal - $allocatedExtras;
+                        }
+                        $perCastExtras[$pending->id] = $extra;
+                        $allocatedExtras += $extra;
+                    } else {
+                        $perCastExtras[$pending->id] = 0;
+                    }
+                }
+
+                // Calculate total shortfall to deduct from guest
+                $totalShortfall = array_sum($perCastExtras);
+                if ($totalShortfall > 0) {
+                    if ($guest->points < $totalShortfall) {
+                        Log::error('Insufficient guest points to cover multi-cast shortfall', [
+                            'reservation_id' => $reservation->id,
+                            'guest_id' => $guest->id,
+                            'required_shortfall' => $totalShortfall,
+                            'available_points' => $guest->points,
+                        ]);
+                        DB::rollBack();
+                        return false;
+                    }
+
+                    // Deduct once; we will still record per-cast transfer entries
+                    $guest->points -= $totalShortfall;
+                    $guest->save();
+                }
+
+                $pointsEarnedTotal = 0;
+
+                // Convert each pending and credit each cast
+                foreach ($pendingArray as $pending) {
+                    $castId = $pending->cast_id;
+                    $cast = Cast::find($castId);
+                    if (!$cast) {
+                        Log::warning('Cast not found during multi-cast completion, skipping one entry', [
+                            'reservation_id' => $reservation->id,
+                            'cast_id' => $castId,
+                        ]);
+                        continue;
+                    }
+
+                    $extra = $perCastExtras[$pending->id] ?? 0;
+                    $perCastTotal = (int) $pending->amount + (int) $extra;
+
+                    // Credit cast
+                    $cast->points += $perCastTotal;
+                    $cast->save();
+
+                    // Convert pending to transfer for the reserved portion
+                    $pending->type = 'transfer';
+                    $pending->amount = (int) $pending->amount; // keep original reserved amount
+                    $pending->description = "Reservation completion (multi-cast) - converted reserved points (Duration: " . ($reservation->duration * 60) . " minutes)" .
+                        ($nightTimeBonus > 0 ? " (Night time bonus allocated)" : "") .
+                        ($extensionFee > 0 ? " (Extension fee allocated)" : "");
+                    $pending->save();
+
+                    // Record extra (shortfall) as separate transfer if any
+                    if ($extra > 0) {
+                        PointTransaction::create([
+                            'guest_id' => $guest->id,
+                            'cast_id' => $cast->id,
+                            'type' => 'transfer',
+                            'amount' => $extra,
+                            'reservation_id' => $reservation->id,
+                            'description' => "Reservation completion (multi-cast) - extension/night bonus shortfall covered by guest (+{$extra} points)",
+                        ]);
+                    }
+
+                    $pointsEarnedTotal += $perCastTotal;
+                }
+
+                // Update reservation with total points earned across all casts
+                $reservation->points_earned = $pointsEarnedTotal;
+                $reservation->save();
+
+                // Recalculate guest grade points after applying transfers
+                /** @var GradeService $gradeService */
+                $gradeService = app(GradeService::class);
+                $gradeService->calculateAndUpdateGrade($guest);
+
+                DB::commit();
+
+                Log::info('Multi-cast reservation completion processed successfully', [
+                    'reservation_id' => $reservation->id,
+                    'guest_id' => $guest->id,
+                    'points_reserved_total' => $reservedPointsTotal,
+                    'night_time_bonus' => $nightTimeBonus,
+                    'extension_fee' => $extensionFee,
+                    'total_shortfall' => $totalShortfall,
+                    'points_earned_total' => $pointsEarnedTotal,
+                ]);
+
+                return true;
+            }
+
+            // Single-cast path continues below
+            $cast = $reservation->cast;
+            if (!$cast) {
+                Log::error('Cast not found for reservation', [
+                    'reservation_id' => $reservation->id,
+                    'cast_id' => $reservation->cast_id,
+                ]);
+                return false;
+            }
+
+            // Find the pending point transaction for this reservation and cast
+            $pendingTransaction = $pendingTransactions->first();
 
             // Calculate points based on cast's grade_points and reservation duration
             $calculatedPoints = $this->calculateReservationPoints($reservation);
@@ -58,9 +197,38 @@ class PointTransactionService
             $extensionFee = $this->calculateExtensionFee($reservation);
             $totalPointsForCast = $calculatedPoints + $nightTimeBonus + $extensionFee;
 
-            // Calculate unused points to refund
+            // Calculate unused points (refund) or shortfall (extra deduction)
             $reservedPoints = $pendingTransaction->amount;
             $unusedPoints = $reservedPoints - $totalPointsForCast;
+            $shortfallPoints = $totalPointsForCast - $reservedPoints;
+
+            // If there is a shortfall (e.g., due to extension), deduct from guest now
+            if ($shortfallPoints > 0) {
+                if ($guest->points < $shortfallPoints) {
+                    Log::error('Insufficient guest points to cover extension shortfall', [
+                        'reservation_id' => $reservation->id,
+                        'guest_id' => $guest->id,
+                        'required_shortfall' => $shortfallPoints,
+                        'available_points' => $guest->points,
+                    ]);
+                    DB::rollBack();
+                    return false;
+                }
+
+                // Deduct shortfall from guest's owned points
+                $guest->points -= $shortfallPoints;
+                $guest->save();
+
+                // Record the extra deduction as a separate transfer entry for auditability
+                PointTransaction::create([
+                    'guest_id' => $guest->id,
+                    'cast_id' => $cast->id,
+                    'type' => 'transfer',
+                    'amount' => $shortfallPoints,
+                    'reservation_id' => $reservation->id,
+                    'description' => "Reservation completion - extension shortfall covered by guest (+{$shortfallPoints} points)",
+                ]);
+            }
 
             // Add points to cast (including night time bonus and extension fee)
             $cast->points += $totalPointsForCast;
@@ -84,10 +252,20 @@ class PointTransactionService
 
             // Update the pending transaction to completed
             $pendingTransaction->type = 'transfer';
-            $pendingTransaction->amount = $totalPointsForCast;
-            $pendingTransaction->description = "Reservation completion - {$reservation->duration} hours (Grade points: {$cast->grade_points}, Duration: " . ($reservation->duration * 60) . " minutes)" . 
-                ($nightTimeBonus > 0 ? " (Night time bonus: +{$nightTimeBonus})" : "") .
-                ($extensionFee > 0 ? " (Extension fee: +{$extensionFee})" : "");
+            if ($shortfallPoints > 0) {
+                // Keep the original reserved amount on the converted record; shortfall recorded separately
+                $pendingTransaction->amount = $reservedPoints;
+                $pendingTransaction->description = "Reservation completion - converted reserved points (Grade points: {$cast->grade_points}, Duration: " . ($reservation->duration * 60) . " minutes)" .
+                    ($nightTimeBonus > 0 ? " (Night time bonus: +{$nightTimeBonus})" : "") .
+                    ($extensionFee > 0 ? " (Extension fee: +{$extensionFee})" : "") .
+                    " (Additional shortfall: +{$shortfallPoints})";
+            } else {
+                // No shortfall; transfer equals total
+                $pendingTransaction->amount = $totalPointsForCast;
+                $pendingTransaction->description = "Reservation completion - {$reservation->duration} hours (Grade points: {$cast->grade_points}, Duration: " . ($reservation->duration * 60) . " minutes)" . 
+                    ($nightTimeBonus > 0 ? " (Night time bonus: +{$nightTimeBonus})" : "") .
+                    ($extensionFee > 0 ? " (Extension fee: +{$extensionFee})" : "");
+            }
             $pendingTransaction->save();
 
             // Update reservation with points earned (including night time bonus and extension fee)
@@ -111,7 +289,8 @@ class PointTransactionService
                 'night_time_bonus' => $nightTimeBonus,
                 'extension_fee' => $extensionFee,
                 'total_points' => $totalPointsForCast,
-                'unused_points' => $unusedPoints
+                'unused_points' => $unusedPoints,
+                'shortfall_points' => $shortfallPoints > 0 ? $shortfallPoints : 0,
             ]);
 
             return true;
