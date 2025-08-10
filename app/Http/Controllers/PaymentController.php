@@ -1010,6 +1010,7 @@ class PaymentController extends Controller
             'type' => 'required|in:buy,transfer,convert,gift,pending',
             'reservation_id' => 'nullable|integer|exists:reservations,id',
             'description' => 'nullable|string|max:255',
+            'gift_type' => 'nullable|string',
         ]);
 
         if ($validator->fails()) {
@@ -1020,12 +1021,13 @@ class PaymentController extends Controller
         }
 
         try {
-            // Create point transaction directly
+            // Prepare transaction data
             $transactionData = [
                 'amount' => $request->amount,
                 'type' => $request->type,
                 'reservation_id' => $request->reservation_id,
                 'description' => $request->description,
+                'gift_type' => $request->gift_type,
             ];
 
             // Set the appropriate user ID field based on user type
@@ -1037,7 +1039,9 @@ class PaymentController extends Controller
                 $transactionData['guest_id'] = null;
             }
 
-            $transaction = PointTransaction::create($transactionData);
+            // Use the PointTransactionService to create the transaction
+            $pointService = app(PointTransactionService::class);
+            $transaction = $pointService->createTransaction($transactionData);
             
             return response()->json([
                 'success' => true,

@@ -22,7 +22,7 @@ return new class extends Migration
     public function down(): void
     {
         Schema::table('point_transactions', function (Blueprint $table) {
-            $table->unsignedBigInteger('amount')->change();
+            $table->bigInteger('amount')->change();
         });
     }
 };

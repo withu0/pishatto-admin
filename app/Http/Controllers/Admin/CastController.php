@@ -61,6 +61,7 @@ class CastController extends Controller
             'nickname' => 'nullable|string|max:50',
             'avatar' => 'nullable|string|max:1000', // Increased for multiple paths
             'status' => 'nullable|string|in:active,inactive,suspended',
+            'category' => 'nullable|in:プレミアム,VIP,ロイヤルVIP',
             'birth_year' => 'required|integer|min:1900|max:' . (date('Y') - 18),
             'height' => 'nullable|integer|min:100|max:250',
             'grade' => 'nullable|string|max:50',
@@ -125,6 +126,7 @@ class CastController extends Controller
             'nickname' => 'nullable|string|max:50',
             'avatar' => 'nullable|string|max:1000', // Increased for multiple paths
             'status' => 'nullable|string|in:active,inactive,suspended',
+            'category' => 'nullable|in:プレミアム,VIP,ロイヤルVIP',
             'birth_year' => 'nullable|integer|min:1900|max:' . (date('Y') - 18),
             'height' => 'nullable|integer|min:100|max:250',
             'grade' => 'nullable|string|max:50',

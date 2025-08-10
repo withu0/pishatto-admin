@@ -331,4 +331,19 @@ class ReservationApplicationController extends Controller
             'applications' => $applications
         ]);
     }
+
+    /**
+     * Get all applications for a specific cast (including approved and rejected)
+     */
+    public function getAllCastApplications($castId)
+    {
+        $applications = ReservationApplication::with(['reservation'])
+            ->where('cast_id', $castId)
+            ->orderBy('applied_at', 'desc')
+            ->get();
+
+        return response()->json([
+            'applications' => $applications
+        ]);
+    }
 }

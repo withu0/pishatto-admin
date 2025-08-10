@@ -17,6 +17,7 @@ interface Cast {
     avatar?: string;
     avatar_urls?: string[];
     status?: string;
+    category?: string;
     birth_year?: number;
     height?: number;
     grade?: string;
@@ -47,6 +48,7 @@ export default function CastEdit({ cast }: Props) {
         nickname: cast.nickname || '',
         avatar: cast.avatar || '',
         status: cast.status || 'active',
+        category: cast.category || 'プレミアム',
         birth_year: cast.birth_year?.toString() || '',
         height: cast.height?.toString() || '',
         grade: cast.grade || '',
@@ -376,6 +378,23 @@ export default function CastEdit({ cast }: Props) {
                                                 </Select>
                                                 {errors.status && (
                                                     <p className="text-sm text-red-500">{errors.status}</p>
+                                                )}
+                                            </div>
+
+                                            <div className="space-y-2">
+                                                <Label htmlFor="category">カテゴリ</Label>
+                                                <Select value={data.category} onValueChange={(value) => setData('category', value)}>
+                                                    <SelectTrigger>
+                                                        <SelectValue placeholder="カテゴリを選択" />
+                                                    </SelectTrigger>
+                                                    <SelectContent>
+                                                        <SelectItem value="プレミアム">プレミアム</SelectItem>
+                                                        <SelectItem value="VIP">VIP</SelectItem>
+                                                        <SelectItem value="ロイヤルVIP">ロイヤルVIP</SelectItem>
+                                                    </SelectContent>
+                                                </Select>
+                                                {errors.category && (
+                                                    <p className="text-sm text-red-500">{errors.category}</p>
                                                 )}
                                             </div>
                                         </div>

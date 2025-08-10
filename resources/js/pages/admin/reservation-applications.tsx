@@ -243,6 +243,25 @@ export default function AdminReservationApplications({ applications: initialAppl
         return selectedCasts.some(app => app.id === application.id);
     };
 
+    // Get all applications for the same reservation
+    const getReservationApplications = (reservationId: number) => {
+        return applications.filter(app => app.reservation.id === reservationId);
+    };
+
+    // Get pending applications count for a reservation
+    const getPendingApplicationsCount = (reservationId: number) => {
+        return applications.filter(app => 
+            app.reservation.id === reservationId && app.status === 'pending'
+        ).length;
+    };
+
+    // Get approved applications count for a reservation
+    const getApprovedApplicationsCount = (reservationId: number) => {
+        return applications.filter(app => 
+            app.reservation.id === reservationId && app.status === 'approved'
+        ).length;
+    };
+
     // Update applications when props change
     useEffect(() => {
         setApplications(initialApplications);
@@ -663,7 +682,9 @@ export default function AdminReservationApplications({ applications: initialAppl
                                     <Calendar className="w-5 h-5 text-green-600 mr-2" />
                                     <h3 className="text-lg font-semibold text-green-900">予約詳細</h3>
                                 </div>
-                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                                
+                                {/* Basic Reservation Info */}
+                                {/* <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
                                     <div className="flex items-center">
                                         <Clock className="w-4 h-4 text-green-600 mr-2" />
                                         <div>
@@ -694,7 +715,65 @@ export default function AdminReservationApplications({ applications: initialAppl
                                             </div>
                                         </div>
                                     )}
+                                </div> */}
+
+                                {/* Additional Reservation Info */}
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <div className="bg-green-200 rounded-lg p-3">
+                                        <p className="text-xs text-green-600 mb-1">予約ID</p>
+                                        <p className="text-green-900 font-semibold">#{selectedApplication.reservation.id}</p>
+                                    </div>
+                                    <div className="bg-green-200 rounded-lg p-3">
+                                        <p className="text-xs text-green-600 mb-1">予約タイプ</p>
+                                        <p className="text-green-900 font-semibold">
+                                            {selectedApplication.reservation.type === 'pishatto' ? 'プレミアム' : 
+                                             selectedApplication.reservation.type === 'normal' ? '通常' : 
+                                             selectedApplication.reservation.type}
+                                        </p>
+                                    </div>
+                                    {selectedApplication.reservation.duration && (
+                                        <div className="bg-green-200 rounded-lg p-3">
+                                            <p className="text-xs text-green-600 mb-1">予約時間</p>
+                                            <p className="text-green-900 font-semibold">{selectedApplication.reservation.duration}時間</p>
+                                        </div>
+                                    )}
+                                    <div className="bg-green-200 rounded-lg p-3">
+                                        <p className="text-xs text-green-600 mb-1">予約場所</p>
+                                        <p className="text-green-900 font-semibold">{selectedApplication.reservation.location || '未設定'}</p>
+                                    </div>
                                 </div>
+
+                                {/* Application Statistics */}
+                                <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-4">
+                                    <div className="bg-blue-200 rounded-lg p-3">
+                                        <p className="text-xs text-blue-600 mb-1">総応募数</p>
+                                        <p className="text-blue-900 font-semibold text-lg">
+                                            {getReservationApplications(selectedApplication.reservation.id).length}件
+                                        </p>
+                                    </div>
+                                    <div className="bg-yellow-200 rounded-lg p-3">
+                                        <p className="text-xs text-yellow-600 mb-1">保留中</p>
+                                        <p className="text-yellow-900 font-semibold text-lg">
+                                            {getPendingApplicationsCount(selectedApplication.reservation.id)}件
+                                        </p>
+                                    </div>
+                                    <div className="bg-green-200 rounded-lg p-3">
+                                        <p className="text-xs text-green-600 mb-1">承認済</p>
+                                        <p className="text-green-900 font-semibold text-lg">
+                                            {getApprovedApplicationsCount(selectedApplication.reservation.id)}件
+                                        </p>
+                                    </div>
+                                </div>
+
+                                {/* Reservation Details Text */}
+                                {selectedApplication.reservation.details && (
+                                    <div className="mt-4 bg-green-200 rounded-lg p-4">
+                                        <p className="text-xs text-green-600 mb-2">予約詳細情報</p>
+                                        <p className="text-green-900 whitespace-pre-wrap text-sm leading-relaxed">
+                                            {selectedApplication.reservation.details}
+                                        </p>
+                                    </div>
+                                )}
                             </div>
 
                             {/* Application Details */}
@@ -730,13 +809,7 @@ export default function AdminReservationApplications({ applications: initialAppl
                                 </div>
                             </div>
 
-                            {/* Reservation Details */}
-                            {selectedApplication.reservation.details && (
-                                <div className="mt-6 bg-gradient-to-br from-orange-50 to-orange-100 rounded-xl p-6 border border-orange-200">
-                                    <h3 className="text-lg font-semibold text-orange-900 mb-4">予約詳細情報</h3>
-                                    <p className="text-orange-800 whitespace-pre-wrap">{selectedApplication.reservation.details}</p>
-                                </div>
-                            )}
+
                         </div>
 
                         {/* Footer */}

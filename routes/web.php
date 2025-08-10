@@ -67,6 +67,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::post('admin/messages/{id}', [MessagesController::class, 'update'])->name('admin.messages.update.post');
     Route::delete('admin/messages/{id}', [MessagesController::class, 'destroy'])->name('admin.messages.destroy');
     Route::get('admin/ranking', fn() => Inertia::render('admin/ranking'))->name('admin.ranking');
+    Route::get('admin/ranking/data', [App\Http\Controllers\Admin\RankingController::class, 'index'])->name('admin.ranking.data');
     Route::resource('admin/tweets', App\Http\Controllers\Admin\TweetsController::class, ['as' => 'admin']);
     Route::get('admin/sales', [App\Http\Controllers\Admin\SalesController::class, 'index'])->name('admin.sales');
     Route::post('admin/sales', [App\Http\Controllers\Admin\SalesController::class, 'store'])->name('admin.sales.store');

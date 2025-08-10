@@ -68,15 +68,31 @@ class RankingController extends Controller
                 ->first();
             $myPoints = $myTotal ? (int) $myTotal->points : 0;
 
+            // Count how many have strictly greater points to derive base rank
+            $aheadCount = DB::table(DB::raw("({$baseQuery->toSql()}) as totals"))
+                ->mergeBindings($baseQuery)
+                ->where('totals.points', '>', $myPoints)
+                ->count();
+
             if ($myPoints > 0) {
-                // Count how many have strictly greater points to derive rank
-                $aheadCount = DB::table(DB::raw("({$baseQuery->toSql()}) as totals"))
-                    ->mergeBindings($baseQuery)
-                    ->where('totals.points', '>', $myPoints)
-                    ->count();
                 $myRank = $aheadCount + 1;
             } else {
-                $myRank = null; // Not ranked if zero
+                // For zero points, determine deterministic order among zero-point casts by name
+                $zeroList = DB::table('casts as c')
+                    ->leftJoin(DB::raw("({$baseQuery->toSql()}) as totals"), 'totals.cast_id', '=', 'c.id')
+                    ->mergeBindings($baseQuery)
+                    ->select('c.id', DB::raw('c.nickname as name'))
+                    ->whereRaw('COALESCE(totals.points, 0) = 0')
+                    ->orderBy('name')
+                    ->get();
+
+                $positionInZero = $zeroList->search(function ($row) use ($castId) {
+                    return (int) $row->id === (int) $castId;
+                });
+                if ($positionInZero === false) {
+                    $positionInZero = 0; // Fallback to first if not found for any reason
+                }
+                $myRank = $aheadCount + ((int) $positionInZero) + 1;
             }
         }
 

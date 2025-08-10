@@ -280,7 +280,7 @@ class ChatController extends Controller
         }
         
         // Check if chat already exists for this cast and guest
-        $chat = \App\Models\Chat::where('cast_id', $castId)->where('guest_id', $guestId)->first();
+        $chat = \App\Models\Chat::where('cast_id', $castId)->where('guest_id', $guestId)->where('reservation_id', $reservationId)->first();
         if ($chat) {
             // Update reservation_id if provided and not already set
             if ($reservationId && !$chat->reservation_id) {
@@ -477,6 +477,14 @@ class ChatController extends Controller
 
             $message = \App\Models\Message::create($validated);
             $message->load(['guest', 'cast']);
+
+            // Log the message being sent
+            \Log::info('GroupMessageSent: Broadcasting message', [
+                'message_id' => $message->id,
+                'group_id' => $validated['group_id'],
+                'channel' => 'group.' . $validated['group_id'],
+                'message_data' => $message->toArray()
+            ]);
 
             // Broadcast to all participants in the group
             event(new \App\Events\GroupMessageSent($message, $validated['group_id']));

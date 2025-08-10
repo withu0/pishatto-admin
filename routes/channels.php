@@ -30,22 +30,49 @@ Broadcast::channel('chat.{chatId}', function ($user, $chatId) {
 });
 
 Broadcast::channel('group.{groupId}', function ($user, $groupId) {
+    // Log the authorization attempt
+    \Log::info('Group channel authorization attempt', [
+        'group_id' => $groupId,
+        'user_type' => get_class($user),
+        'user_id' => $user->id ?? 'unknown',
+        'user_data' => $user->toArray() ?? 'no data'
+    ]);
+    
     // Check if user is part of this group
     $group = \App\Models\ChatGroup::find($groupId);
-    if (!$group) return false;
+    if (!$group) {
+        \Log::warning('Group channel authorization: Group not found', ['group_id' => $groupId]);
+        return false;
+    }
 
     // Check if user is the guest or one of the casts in this group
     $chats = \App\Models\Chat::where('group_id', $groupId)->get();
     
     foreach ($chats as $chat) {
         if ($user instanceof \App\Models\Guest && $chat->guest_id === $user->id) {
+            \Log::info('Group channel authorization: Guest authorized', [
+                'group_id' => $groupId,
+                'guest_id' => $user->id,
+                'chat_id' => $chat->id
+            ]);
             return true;
         }
         if ($user instanceof \App\Models\Cast && $chat->cast_id === $user->id) {
+            \Log::info('Group channel authorization: Cast authorized', [
+                'group_id' => $groupId,
+                'cast_id' => $user->id,
+                'chat_id' => $chat->id
+            ]);
             return true;
         }
     }
     
+    \Log::warning('Group channel authorization: User not found in group', [
+        'group_id' => $groupId,
+        'user_type' => get_class($user),
+        'user_id' => $user->id ?? 'unknown',
+        'chats_in_group' => $chats->pluck('id')->toArray()
+    ]);
     return false;
 });
 

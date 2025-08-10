@@ -62,6 +62,7 @@ Route::post('/reservation-applications/{applicationId}/reject', [ReservationAppl
 Route::get('/reservation-applications/pending', [ReservationApplicationController::class, 'getPendingApplications']);
 Route::get('/reservation-applications/reservation/{reservationId}', [ReservationApplicationController::class, 'getReservationApplications']);
 Route::get('/reservation-applications/cast/{castId}', [ReservationApplicationController::class, 'getCastApplications']);
+Route::get('/reservation-applications/cast/{castId}/all', [ReservationApplicationController::class, 'getAllCastApplications']);
 Route::get('/chats/{chatId}/messages', [ChatController::class, 'messages']);
 Route::post('/chats/{chatId}/mark-read', [ChatController::class, 'markChatRead']);
 Route::get('/chats/{userType}/{userId}', [GuestAuthController::class, 'getUserChats']);

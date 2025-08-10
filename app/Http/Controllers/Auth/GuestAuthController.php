@@ -319,8 +319,8 @@ class GuestAuthController extends Controller
             
             $reservation = Reservation::create($data);
 
-            // Calculate required points for this reservation (including night time bonus)
-            $requiredPoints = $this->pointTransactionService->calculateReservationPointsLegacy($reservation);
+            // Get pre-calculated points from frontend
+            $requiredPoints = $request->points ?? 0;
 
             // Get the guest and check if they have enough points
             $guest = Guest::find($request->guest_id);
@@ -329,18 +329,25 @@ class GuestAuthController extends Controller
                 return response()->json(['message' => 'Guest not found'], 404);
             }
 
-            if ($guest->points < $requiredPoints) {
-                DB::rollBack();
-                return response()->json([
-                    'message' => 'Insufficient points',
-                    'required_points' => $requiredPoints,
-                    'available_points' => $guest->points
-                ], 400);
-            }
+            // if ($guest->points < $requiredPoints) {
+            //     DB::rollBack();
+            //     return response()->json([
+            //         'message' => 'Insufficient points',
+            //         'required_points' => $requiredPoints,
+            //         'available_points' => $guest->points
+            //     ], 400);
+            // }
 
             // Deduct points from guest and mark as pending
-            $guest->points -= $requiredPoints;
-            $guest->save();
+            // $guest->points -= $requiredPoints;
+            // $guest->grade_points += $requiredPoints;
+            // $guest->save();
+            $this->pointTransactionService->createPendingTransaction([
+                'guest_id' => $guest->id,
+                'reservation_id' => $reservation->id,
+                'amount' => $requiredPoints,
+                'description' => "Pishatto reservation - {$reservation->id}",
+            ]);
 
             // Update guest grade_points and grade
             $this->gradeService->calculateAndUpdateGrade($guest);
@@ -349,7 +356,7 @@ class GuestAuthController extends Controller
 
             // Real-time ranking update for guest
             $rankingService = app(\App\Services\RankingService::class);
-            $rankingService->updateRealTimeRankings($reservation->location ?? '全国');
+        $rankingService->updateRealTimeRankings($reservation->location ?? '全国');
             
             // Broadcast reservation creation
             event(new \App\Events\ReservationUpdated($reservation));
@@ -384,6 +391,7 @@ class GuestAuthController extends Controller
             'cast_counts.royal_vip' => 'required|integer|min:0',
             'cast_counts.vip' => 'required|integer|min:0',
             'cast_counts.premium' => 'required|integer|min:0',
+            'required_points' => 'required|integer|min:1', // Pre-calculated points from frontend
         ]);
 
         if ($validator->fails()) {
@@ -409,8 +417,8 @@ class GuestAuthController extends Controller
                 'custom_duration_hours' => $request->custom_duration_hours,
             ]);
 
-            // Calculate required points for this reservation
-            $requiredPoints = $this->pointTransactionService->calculateReservationPointsLegacy($reservation);
+            // Get pre-calculated points from frontend
+            $requiredPoints = $request->required_points;
 
             // Get the guest
             $guest = Guest::find($request->guest_id);
@@ -500,12 +508,13 @@ class GuestAuthController extends Controller
 
         try {
             DB::beginTransaction();
-
+            error_log('scheduled_at: ' . $request->scheduled_at);
             // Create the reservation with type 'free'
             $reservation = Reservation::create([
                 'guest_id' => $request->guest_id,
                 'type' => 'free',
-                'scheduled_at' => \Carbon\Carbon::parse($request->scheduled_at),
+                // 'scheduled_at' => \Carbon\Carbon::parse($request->scheduled_at),
+                'scheduled_at' => $request->scheduled_at,
                 'location' => $request->location,
                 'duration' => $request->duration,
                 'details' => $request->details,
@@ -514,8 +523,8 @@ class GuestAuthController extends Controller
                 'custom_duration_hours' => $request->custom_duration_hours,
             ]);
 
-            // Calculate required points for this reservation
-            $requiredPoints = $this->pointTransactionService->calculateReservationPointsLegacy($reservation);
+            // Get pre-calculated points from frontend
+            $requiredPoints = $request->total_cost ?? 0;
 
             // Get the guest
             $guest = Guest::find($request->guest_id);
@@ -540,7 +549,7 @@ class GuestAuthController extends Controller
             $chatGroup = ChatGroup::create([
                 'reservation_id' => $reservation->id,
                 'cast_ids' => [], // No casts initially
-                'name' => "Free Call Reservation - {$guest->nickname}",
+                'name' => "フリーコール予約  - {$guest->nickname}",
                 'created_at' => now(),
             ]);
 
@@ -652,6 +661,7 @@ class GuestAuthController extends Controller
     public function listReservations($guest_id)
     {
         $reservations = Reservation::where('guest_id', $guest_id)->orderBy('scheduled_at', 'desc')->get();
+        error_log('reservations: ' . json_encode($reservations));
         return response()->json(['reservations' => $reservations]);
     }
 
@@ -1532,7 +1542,13 @@ class GuestAuthController extends Controller
         }
 
         try {
-            $guest = Guest::findOrFail($request->guest_id);
+            DB::beginTransaction();
+
+            // Use lockForUpdate to prevent race conditions
+            $guest = Guest::lockForUpdate()->findOrFail($request->guest_id);
+
+            // Log before transaction
+            error_log('=== DEDUCT POINTS DEBUG START ===');
             
             // Check if guest has enough points
             if ($guest->points < $request->amount) {
@@ -1543,10 +1559,13 @@ class GuestAuthController extends Controller
                 ], 400);
             }
 
-            // Deduct points
+            // Deduct points;
             $guest->points -= $request->amount;
             $guest->grade_points += $request->amount;
             $guest->save();
+            
+            error_log("Points deducted successfully". json_encode($guest));
+            DB::commit();
 
             return response()->json([
                 'message' => 'Points deducted successfully',
@@ -1563,6 +1582,8 @@ class GuestAuthController extends Controller
             ], 500);
         }
     }
+
+
 
     /**
      * Format phone number for Twilio
