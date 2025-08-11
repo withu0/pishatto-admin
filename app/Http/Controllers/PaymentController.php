@@ -281,7 +281,7 @@ class PaymentController extends Controller
             $pointTransactionData = [
                 'type' => 'buy',
                 'amount' => $request->amount,
-                'description' => "Point purchase - {$request->amount} points",
+                'description' => "ポイント購入 - {$request->amount} points",
             ];
 
             // Set the appropriate user ID based on user type

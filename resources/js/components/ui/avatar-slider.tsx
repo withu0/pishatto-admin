@@ -139,7 +139,7 @@ export function AvatarSlider({
                         className="absolute left-2 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity bg-background/80 backdrop-blur-sm"
                         onClick={goToPrevious}
                     >
-                        <ChevronLeft className="w-4 h-4" />
+                        <ChevronLeft className="w-4 h-4 hover:text-secondary cursor-pointer" />
                     </Button>
                     <Button
                         variant="outline"

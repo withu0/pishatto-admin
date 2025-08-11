@@ -174,8 +174,8 @@ class RankingController extends Controller
         switch ($timePeriod) {
             case 'current':
                 return [
-                    'start' => $now->startOfMonth(),
-                    'end' => $now->endOfMonth()
+                    'start' => $now->copy()->startOfMonth(),
+                    'end' => $now->copy()->endOfMonth()
                 ];
                 
             case 'yesterday':
@@ -200,8 +200,8 @@ class RankingController extends Controller
                 ];
             default:
                 return [
-                    'start' => $now->startOfMonth(),
-                    'end' => $now->endOfMonth()
+                    'start' => $now->copy()->startOfMonth(),
+                    'end' => $now->copy()->endOfMonth()
                 ];
         }
     }
@@ -218,24 +218,25 @@ class RankingController extends Controller
     private function getGiftRanking($userType, $dateRange, $area)
     {
         if ($userType === 'cast') {
-            // Rank casts by total gift points received
-            return DB::table('casts as c')
+            // Rank casts by total gift points from point_transactions (type = 'gift')
+            return DB::table('point_transactions as pt')
+                ->join('casts as c', 'c.id', '=', 'pt.cast_id')
                 ->select([
                     'c.id',
-                    'c.nickname as name',
+                    DB::raw('c.nickname as name'),
                     'c.avatar',
-                    DB::raw('COALESCE(SUM(g.points + CASE WHEN HOUR(gg.created_at) >= 0 AND HOUR(gg.created_at) < 6 THEN 4000 ELSE 0 END), 0) as total_points'),
-                    DB::raw('COUNT(gg.id) as gift_count')
+                    DB::raw('COALESCE(SUM(pt.amount), 0) as total_points'),
+                    DB::raw('COUNT(pt.id) as gift_count'),
                 ])
-                ->leftJoin('guest_gifts as gg', 'c.id', '=', 'gg.receiver_cast_id')
-                ->leftJoin('gifts as g', 'gg.gift_id', '=', 'g.id')
-                ->whereBetween('gg.created_at', [$dateRange['start'], $dateRange['end']])
+                ->where('pt.type', 'gift')
+                ->whereNotNull('pt.cast_id')
+                ->whereBetween('pt.created_at', [$dateRange['start'], $dateRange['end']])
                 ->when($area !== '全国', function ($query) use ($area) {
                     return $query->where('c.residence', 'LIKE', "%{$area}%");
                 })
                 ->groupBy('c.id', 'c.nickname', 'c.avatar')
-                ->having('total_points', '>', 0) // Only show casts who received gifts with points
-                ->orderBy('total_points', 'desc')
+                ->having('total_points', '>', 0)
+                ->orderByDesc('total_points')
                 ->orderBy('gift_count', 'desc')
                 ->limit(50)
                 ->get()
@@ -244,29 +245,36 @@ class RankingController extends Controller
                         'id' => $item->id,
                         'name' => $item->name,
                         'avatar' => $item->avatar,
-                        'points' => (int)$item->total_points,
-                        'gift_count' => (int)$item->gift_count
+                        'points' => (int) $item->total_points,
+                        'gift_count' => (int) $item->gift_count,
                     ];
                 });
         } else {
-            // Rank guests by total gift points sent
-            return DB::table('guests as g')
+            // Rank guests by total gift points from point_transactions (type = 'gift')
+            // Prefer reservation guest when available, otherwise fallback to pt.guest_id
+            return DB::table('point_transactions as pt')
+                ->leftJoin('reservations as r', 'r.id', '=', 'pt.reservation_id')
+                ->leftJoin('guests as gr', 'gr.id', '=', 'r.guest_id')
+                ->leftJoin('guests as gp', 'gp.id', '=', 'pt.guest_id')
+                ->where('pt.type', 'gift')
+                ->whereBetween('pt.created_at', [$dateRange['start'], $dateRange['end']])
                 ->select([
-                    'g.id',
-                    'g.nickname as name',
-                    'g.avatar',
-                    DB::raw('COALESCE(SUM(gi.points + CASE WHEN HOUR(gg.created_at) >= 0 AND HOUR(gg.created_at) < 6 THEN 4000 ELSE 0 END), 0) as total_points'),
-                    DB::raw('COUNT(gg.id) as gift_count')
+                    DB::raw('COALESCE(gr.id, gp.id) as id'),
+                    DB::raw('COALESCE(gr.nickname, gp.nickname) as name'),
+                    DB::raw('COALESCE(gr.avatar, gp.avatar) as avatar'),
+                    DB::raw('COALESCE(SUM(pt.amount), 0) as total_points'),
+                    DB::raw('COUNT(pt.id) as gift_count'),
                 ])
-                ->leftJoin('guest_gifts as gg', 'g.id', '=', 'gg.sender_guest_id')
-                ->leftJoin('gifts as gi', 'gg.gift_id', '=', 'gi.id')
-                ->whereBetween('gg.created_at', [$dateRange['start'], $dateRange['end']])
                 ->when($area !== '全国', function ($query) use ($area) {
-                    return $query->where('g.residence', 'LIKE', "%{$area}%");
+                    return $query->whereRaw('COALESCE(gr.residence, gp.residence) LIKE ?', ['%' . $area . '%']);
                 })
-                ->groupBy('g.id', 'g.nickname', 'g.avatar')
-                ->having('total_points', '>', 0) // Only show guests who sent gifts with points
-                ->orderBy('total_points', 'desc')
+                ->groupBy(
+                    DB::raw('COALESCE(gr.id, gp.id)'),
+                    DB::raw('COALESCE(gr.nickname, gp.nickname)'),
+                    DB::raw('COALESCE(gr.avatar, gp.avatar)')
+                )
+                ->having('total_points', '>', 0)
+                ->orderByDesc('total_points')
                 ->orderBy('gift_count', 'desc')
                 ->limit(50)
                 ->get()
@@ -275,8 +283,8 @@ class RankingController extends Controller
                         'id' => $item->id,
                         'name' => $item->name,
                         'avatar' => $item->avatar,
-                        'points' => (int)$item->total_points,
-                        'gift_count' => (int)$item->gift_count
+                        'points' => (int) $item->total_points,
+                        'gift_count' => (int) $item->gift_count,
                     ];
                 });
         }
@@ -285,25 +293,25 @@ class RankingController extends Controller
     private function getReservationRanking($userType, $dateRange, $area)
     {
         if ($userType === 'cast') {
-            // Rank casts by total points earned from completed reservations
-            return DB::table('casts as c')
+            // Rank casts by total transfer points from point_transactions (type = 'transfer')
+            return DB::table('point_transactions as pt')
+                ->join('casts as c', 'c.id', '=', 'pt.cast_id')
                 ->select([
                     'c.id',
-                    'c.nickname as name',
+                    DB::raw('c.nickname as name'),
                     'c.avatar',
-                    DB::raw('COALESCE(SUM(r.points_earned + CASE WHEN HOUR(r.created_at) >= 0 AND HOUR(r.created_at) < 6 THEN 4000 ELSE 0 END), 0) as total_points'),
-                    DB::raw('COUNT(r.id) as reservation_count')
+                    DB::raw('COALESCE(SUM(pt.amount), 0) as total_points'),
+                    DB::raw('COUNT(pt.id) as reservation_count'),
                 ])
-                ->leftJoin('chats as ch', 'c.id', '=', 'ch.cast_id')
-                ->leftJoin('reservations as r', 'ch.reservation_id', '=', 'r.id')
-                ->where('r.active', false) // Completed reservations
-                ->whereBetween('r.created_at', [$dateRange['start'], $dateRange['end']])
+                ->where('pt.type', 'transfer')
+                ->whereNotNull('pt.cast_id')
+                ->whereBetween('pt.created_at', [$dateRange['start'], $dateRange['end']])
                 ->when($area !== '全国', function ($query) use ($area) {
                     return $query->where('c.residence', 'LIKE', "%{$area}%");
                 })
                 ->groupBy('c.id', 'c.nickname', 'c.avatar')
-                ->having('total_points', '>', 0) // Only show casts with points earned
-                ->orderBy('total_points', 'desc')
+                ->having('total_points', '>', 0)
+                ->orderByDesc('total_points')
                 ->orderBy('reservation_count', 'desc')
                 ->limit(50)
                 ->get()
@@ -312,28 +320,36 @@ class RankingController extends Controller
                         'id' => $item->id,
                         'name' => $item->name,
                         'avatar' => $item->avatar,
-                        'points' => (int)$item->total_points,
-                        'reservation_count' => (int)$item->reservation_count
+                        'points' => (int) $item->total_points,
+                        'reservation_count' => (int) $item->reservation_count,
                     ];
                 });
         } else {
-            // Rank guests by total points spent on reservations
-            return DB::table('guests as g')
+            // Rank guests by total transfer points from point_transactions (type = 'transfer')
+            // Prefer reservation guest when available, otherwise fallback to pt.guest_id
+            return DB::table('point_transactions as pt')
+                ->leftJoin('reservations as r', 'r.id', '=', 'pt.reservation_id')
+                ->leftJoin('guests as gr', 'gr.id', '=', 'r.guest_id')
+                ->leftJoin('guests as gp', 'gp.id', '=', 'pt.guest_id')
+                ->where('pt.type', 'transfer')
+                ->whereBetween('pt.created_at', [$dateRange['start'], $dateRange['end']])
                 ->select([
-                    'g.id',
-                    'g.nickname as name',
-                    'g.avatar',
-                    DB::raw('COALESCE(SUM(r.points_earned + CASE WHEN HOUR(r.created_at) >= 0 AND HOUR(r.created_at) < 6 THEN 4000 ELSE 0 END), 0) as total_points'),
-                    DB::raw('COUNT(r.id) as reservation_count')
+                    DB::raw('COALESCE(gr.id, gp.id) as id'),
+                    DB::raw('COALESCE(gr.nickname, gp.nickname) as name'),
+                    DB::raw('COALESCE(gr.avatar, gp.avatar) as avatar'),
+                    DB::raw('COALESCE(SUM(pt.amount), 0) as total_points'),
+                    DB::raw('COUNT(pt.id) as reservation_count'),
                 ])
-                ->leftJoin('reservations as r', 'g.id', '=', 'r.guest_id')
-                ->whereBetween('r.created_at', [$dateRange['start'], $dateRange['end']])
                 ->when($area !== '全国', function ($query) use ($area) {
-                    return $query->where('g.residence', 'LIKE', "%{$area}%");
+                    return $query->whereRaw('COALESCE(gr.residence, gp.residence) LIKE ?', ['%' . $area . '%']);
                 })
-                ->groupBy('g.id', 'g.nickname', 'g.avatar')
-                ->having('total_points', '>', 0) // Only show guests with points spent
-                ->orderBy('total_points', 'desc')
+                ->groupBy(
+                    DB::raw('COALESCE(gr.id, gp.id)'),
+                    DB::raw('COALESCE(gr.nickname, gp.nickname)'),
+                    DB::raw('COALESCE(gr.avatar, gp.avatar)')
+                )
+                ->having('total_points', '>', 0)
+                ->orderByDesc('total_points')
                 ->orderBy('reservation_count', 'desc')
                 ->limit(50)
                 ->get()
@@ -342,8 +358,8 @@ class RankingController extends Controller
                         'id' => $item->id,
                         'name' => $item->name,
                         'avatar' => $item->avatar,
-                        'points' => (int)$item->total_points,
-                        'reservation_count' => (int)$item->reservation_count
+                        'points' => (int) $item->total_points,
+                        'reservation_count' => (int) $item->reservation_count,
                     ];
                 });
         }

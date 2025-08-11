@@ -346,7 +346,7 @@ class GuestAuthController extends Controller
                 'guest_id' => $guest->id,
                 'reservation_id' => $reservation->id,
                 'amount' => $requiredPoints,
-                'description' => "Pishatto reservation - {$reservation->id}",
+                'description' => "ピシャット予約 - {$reservation->id}",
             ]);
 
             // Update guest grade_points and grade

@@ -23,6 +23,34 @@ class GradeService
         'centurion' => 30000000, // 30,000,000P
     ];
 
+    /**
+     * Normalize guest grade to valid keys
+     */
+    private function normalizeGuestGrade(string $grade): string
+    {
+        $legacyMap = [
+            'blue' => 'green',
+        ];
+
+        $normalized = $legacyMap[$grade] ?? $grade;
+
+        return array_key_exists($normalized, self::GRADE_NAMES) ? $normalized : 'green';
+    }
+
+    /**
+     * Normalize cast grade to valid keys
+     */
+    private function normalizeCastGrade(string $grade): string
+    {
+        $legacyMap = [
+            'blue' => 'green',
+        ];
+
+        $normalized = $legacyMap[$grade] ?? $grade;
+
+        return array_key_exists($normalized, self::CAST_GRADE_NAMES) ? $normalized : 'beginner';
+    }
+
     // Grade display names in Japanese
     const GRADE_NAMES = [
         'green' => 'グリーン',
@@ -264,7 +292,7 @@ class GradeService
      */
     public function getGradeInfo(Guest $guest): array
     {
-        $grade = $guest->grade ?? 'green';
+        $grade = $this->normalizeGuestGrade($guest->grade ?? 'green');
         $gradePoints = $guest->grade_points ?? 0;
         
         // Calculate next grade threshold
@@ -305,6 +333,7 @@ class GradeService
      */
     public function getGradeBenefits(string $grade): array
     {
+        $grade = $this->normalizeGuestGrade($grade);
         return self::GRADE_BENEFITS[$grade] ?? [];
     }
 
@@ -504,7 +533,7 @@ class GradeService
      */
     public function getCastGradeInfo(Cast $cast): array
     {
-        $grade = $cast->grade ?? 'beginner';
+        $grade = $this->normalizeCastGrade($cast->grade ?? 'beginner');
         $gradePoints = $cast->grade_points ?? 0;
         
         // Calculate next grade threshold

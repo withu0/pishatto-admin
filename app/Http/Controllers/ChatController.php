@@ -112,7 +112,7 @@ class ChatController extends Controller
                                     'type' => 'gift',
                                     'amount' => $gift->points,
                                     'reservation_id' => $chat->reservation_id,
-                                    'description' => "Gift sent: {$gift->name}",
+                                    'description' => "贈り物が送られました: {$gift->name}",
                                     'gift_type' => 'sent'
                                 ]);
                             } catch (\Exception $e) {
@@ -133,7 +133,7 @@ class ChatController extends Controller
                                         'type' => 'gift',
                                         'amount' => $gift->points,
                                         'reservation_id' => $chat->reservation_id,
-                                        'description' => "Gift sent: {$gift->name}",
+                                        'description' => "贈り物が送られました: {$gift->name}",
                                         'gift_type' => 'sent',
                                         'created_at' => now(),
                                         'updated_at' => now()
@@ -453,18 +453,23 @@ class ChatController extends Controller
             'gift_id' => 'nullable|exists:gifts,id',
             'sender_guest_id' => 'nullable|exists:guests,id',
             'sender_cast_id' => 'nullable|exists:casts,id',
+            'receiver_cast_id' => 'nullable|exists:casts,id',
         ]);
 
         try {
             DB::beginTransaction();
 
-            // Get the first chat in the group to use as the message chat_id
-            $firstChat = \App\Models\Chat::where('group_id', $validated['group_id'])->first();
-            if (!$firstChat) {
+            // Determine target chat within the group
+            $query = \App\Models\Chat::where('group_id', $validated['group_id']);
+            if (!empty($validated['receiver_cast_id'])) {
+                $query->where('cast_id', $validated['receiver_cast_id']);
+            }
+            $targetChat = $query->first();
+            if (!$targetChat) {
                 return response()->json(['message' => 'No chat found for this group'], 404);
             }
 
-            $validated['chat_id'] = $firstChat->id;
+            $validated['chat_id'] = $targetChat->id;
             $validated['created_at'] = now();
 
             // Handle image upload
@@ -491,7 +496,7 @@ class ChatController extends Controller
 
             // Handle gift logic if present
             if ($request->input('gift_id')) {
-                $chat = $message->chat;
+                $chat = $message->chat; // belongs to the target chat (cast in this group)
                 if ($chat && $message->sender_guest_id && $chat->cast_id) {
                     $gift = \App\Models\Gift::find($request->input('gift_id'));
                     
@@ -500,21 +505,37 @@ class ChatController extends Controller
                         $cast = \App\Models\Cast::find($chat->cast_id);
                         
                         if ($guest && $cast && $guest->points >= $gift->points) {
+                            // Deduct and credit points
                             $guest->points -= $gift->points;
                             $guest->save();
                             
                             $cast->points += $gift->points;
                             $cast->save();
                             
+                            // Record point transaction
                             \App\Models\PointTransaction::create([
                                 'guest_id' => $guest->id,
                                 'cast_id' => $cast->id,
                                 'type' => 'gift',
                                 'amount' => $gift->points,
                                 'reservation_id' => $chat->reservation_id,
-                                'description' => "Gift sent: {$gift->name}",
+                                'description' => "贈り物が送られました: {$gift->name}",
                                 'gift_type' => 'sent'
                             ]);
+
+                            // Store to guest_gifts table as well
+                            \App\Models\GuestGift::create([
+                                'sender_guest_id' => $message->sender_guest_id,
+                                'receiver_cast_id' => $chat->cast_id,
+                                'gift_id' => $request->input('gift_id'),
+                                'message' => $request->input('message'),
+                                'created_at' => now(),
+                            ]);
+
+                            // Update real-time rankings
+                            $rankingService = app(\App\Services\RankingService::class);
+                            $region = $chat && $chat->cast && $chat->cast->residence ? $chat->cast->residence : '全国';
+                            $rankingService->updateRealTimeRankings($region);
                         }
                     }
                 }

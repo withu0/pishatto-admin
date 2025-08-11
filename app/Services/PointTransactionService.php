@@ -335,7 +335,7 @@ class PointTransactionService
                     'cast_id' => $cast->id,
                     'reservation_id' => $reservation->id,
                     'amount' => $transferFromPending,
-                    'description' => "Transfer from pending for reservation - {$reservation->id}",
+                    'description' => "予約待ちから予約へ移行 - {$reservation->id}",
                 ]);
             }
 
@@ -365,7 +365,7 @@ class PointTransactionService
                         'guest_id' => $guest->id,
                         'reservation_id' => $reservation->id,
                         'amount' => $refund,
-                        'description' => "refunded unused points for reservation - {$reservation->id}",
+                        'description' => "予約で未使用のポイントを返金しました - {$reservation->id}",
                     ]);
 
                     // Reduce grade_points by refunded amount

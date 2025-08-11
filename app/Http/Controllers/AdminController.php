@@ -335,7 +335,7 @@ class AdminController extends Controller
                             'type' => 'pending',
                             'amount' => $amount,
                             'reservation_id' => $reservation->id,
-                            'description' => "Pishatto reservation - {$reservation->duration} hours (pending)"
+                            'description' => "ピシャット予約 - {$reservation->duration} hours (pending)"
                         ]);
                     }
                 }
