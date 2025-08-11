@@ -443,7 +443,7 @@ class GuestAuthController extends Controller
             $chatGroup = ChatGroup::create([
                 'reservation_id' => $reservation->id,
                 'cast_ids' => [], // No casts initially
-                'name' => "Free Call - {$guest->nickname}",
+                'name' => "フリーコール - {$guest->nickname}",
                 'created_at' => now(),
             ]);
 
@@ -1055,10 +1055,6 @@ class GuestAuthController extends Controller
                 ], 400);
             }
 
-            // Mark reservation as completed
-            $reservation->ended_at = now();
-            $reservation->save();
-
             // Get the cast
             $cast = $reservation->cast;
             if (!$cast) {
@@ -1097,7 +1093,7 @@ class GuestAuthController extends Controller
             $reservedAmount = $pendingTransaction ? $pendingTransaction->amount : 0;
 
             // Calculate night time bonus and extension fee for detailed response
-            $nightTimeBonus = $this->pointTransactionService->calculateNightTimeBonus($reservation->started_at);
+            $nightTimeBonus = $this->pointTransactionService->calculateNightTimeBonus($reservation->started_at, $reservation->ended_at);
             $extensionFee = $this->pointTransactionService->calculateExtensionFee($reservation);
             $basePoints = $this->pointTransactionService->calculateReservationPoints($reservation);
 

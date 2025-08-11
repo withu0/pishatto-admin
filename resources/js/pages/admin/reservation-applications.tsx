@@ -66,6 +66,7 @@ interface Props {
 }
 
 export default function AdminReservationApplications({ applications: initialApplications }: Props) {
+    const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
     const [search, setSearch] = useState('');
     const [applications, setApplications] = useState<ReservationApplication[]>(initialApplications);
     const [selectedApplication, setSelectedApplication] = useState<ReservationApplication | null>(null);
@@ -113,13 +114,16 @@ export default function AdminReservationApplications({ applications: initialAppl
         try {
             const response = await fetch(`/admin/reservation-applications/${applicationId}/approve`, {
                 method: 'POST',
+                credentials: 'same-origin',
                 headers: {
                     'Content-Type': 'application/json',
-                    'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '',
+                    'Accept': 'application/json',
+                    'X-Requested-With': 'XMLHttpRequest',
+                    'X-CSRF-TOKEN': csrfToken,
                 },
                 body: JSON.stringify({
-                    admin_id: 1, 
-                    cast_id:selectedApplication?.cast.id
+                    admin_id: 1,
+                    cast_id: selectedApplication?.cast.id,
                 }),
             });
 
@@ -142,13 +146,16 @@ export default function AdminReservationApplications({ applications: initialAppl
         try {
             const response = await fetch(`/admin/reservation-applications/${selectedApplication.id}/reject`, {
                 method: 'POST',
+                credentials: 'same-origin',
                 headers: {
                     'Content-Type': 'application/json',
-                    'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '',
+                    'Accept': 'application/json',
+                    'X-Requested-With': 'XMLHttpRequest',
+                    'X-CSRF-TOKEN': csrfToken,
                 },
                 body: JSON.stringify({
                     admin_id: 1, // TODO: Get from auth context
-                    rejection_reason: rejectionReason
+                    rejection_reason: rejectionReason,
                 }),
             });
             
@@ -194,9 +201,12 @@ export default function AdminReservationApplications({ applications: initialAppl
         try {
             const response = await fetch(`/admin/reservation-applications/multi-approve`, {
                 method: 'POST',
+                credentials: 'same-origin',
                 headers: {
                     'Content-Type': 'application/json',
-                    'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '',
+                    'Accept': 'application/json',
+                    'X-Requested-With': 'XMLHttpRequest',
+                    'X-CSRF-TOKEN': csrfToken,
                 },
                 body: JSON.stringify({
                     admin_id: 1, // TODO: Get actual admin ID

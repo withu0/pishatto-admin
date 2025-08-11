@@ -215,13 +215,14 @@ class PointTransactionService
     }
 
     /**
-     * Calculate base points earned for a reservation based on cast grade points and duration
-     * Base per-minute points = cast.grade_points / 30
-     * Total base points = per-minute × actual duration in minutes
+     * Calculate base points earned for a reservation based on reservation type and scheduled duration
+     * Free call: category_points per 30 min
+     * Pishatto: cast.grade_points per 30 min
+     * Base uses SCHEDULED duration (hours), not actual.
      */
     public function calculateReservationPoints(Reservation $reservation): int
     {
-        if (!$reservation->cast_id || !$reservation->started_at || !$reservation->ended_at) {
+        if (!$reservation->cast_id || !$reservation->duration) {
             return 0;
         }
 
@@ -230,27 +231,17 @@ class PointTransactionService
             return 0;
         }
 
-        $perMinute = (int) floor(($cast->grade_points ?? 0) / 30);
-
-        $startedAt = \Carbon\Carbon::parse($reservation->started_at);
-        $endedAt = \Carbon\Carbon::parse($reservation->ended_at);
-        $actualMinutes = max(0, $endedAt->diffInMinutes($startedAt));
-
-        return (int) ($perMinute * $actualMinutes);
-    }
-
-    /**
-     * Night time bonus: 4000 points if started between 00:00 and 05:59 inclusive
-     */
-    public function calculateNightTimeBonus($startedAt): int
-    {
-        if (empty($startedAt)) {
-            return 0;
+        if ($reservation->type === 'free') {
+            $perMinute = (int) floor(($cast->category_points ?? 0) / 30);
+        } else { // pishatto or default
+            $perMinute = (int) floor(($cast->grade_points ?? 0) / 30);
         }
-        $start = $startedAt instanceof \Carbon\Carbon ? $startedAt : \Carbon\Carbon::parse($startedAt);
-        $hour = (int) $start->format('G'); // 0..23 without leading zeros
-        return ($hour >= 0 && $hour < 6) ? 4000 : 0;
+
+        $scheduledMinutes = (int) ($reservation->duration * 60);
+        return (int) ($perMinute * $scheduledMinutes);
     }
+
+
 
     /**
      * Extension fee for minutes beyond scheduled duration
@@ -267,7 +258,12 @@ class PointTransactionService
             return 0;
         }
 
-        $perMinute = (int) floor(($cast->grade_points ?? 0) / 30);
+        // Per-minute base depends on reservation type
+        if ($reservation->type === 'free') {
+            $perMinute = (int) floor(($cast->category_points ?? 0) / 30);
+        } else {
+            $perMinute = (int) floor(($cast->grade_points ?? 0) / 30);
+        }
 
         $startedAt = \Carbon\Carbon::parse($reservation->started_at);
         $endedAt = \Carbon\Carbon::parse($reservation->ended_at);
@@ -283,10 +279,50 @@ class PointTransactionService
     }
 
     /**
+     * Night time bonus: 4000 points per hour overlapped between 00:00 and 05:59 inclusive
+     * Calculates overlap based on start and end time
+     */
+    public function calculateNightTimeBonus($startedAt, $endedAt = null): int
+    {
+        if (empty($startedAt)) {
+            return 0;
+        }
+
+        $start = $startedAt instanceof \Carbon\Carbon ? $startedAt->copy() : \Carbon\Carbon::parse($startedAt);
+        $end = $endedAt ? ($endedAt instanceof \Carbon\Carbon ? $endedAt->copy() : \Carbon\Carbon::parse($endedAt)) : now();
+
+        if ($end->lessThanOrEqualTo($start)) {
+            return 0;
+        }
+
+        $nightMinutes = 0;
+        $cursor = $start->copy()->startOfDay();
+        $endDay = $end->copy()->startOfDay();
+
+        while ($cursor->lessThanOrEqualTo($endDay)) {
+            $nightStart = $cursor->copy(); // 00:00
+            $nightEnd = $cursor->copy()->addHours(6); // 06:00
+
+            // Overlap of [start,end] with [nightStart, nightEnd]
+            $overlapStart = $start->greaterThan($nightStart) ? $start : $nightStart;
+            $overlapEnd = $end->lessThan($nightEnd) ? $end : $nightEnd;
+
+            if ($overlapEnd->greaterThan($overlapStart)) {
+                $nightMinutes += $overlapEnd->diffInMinutes($overlapStart);
+            }
+
+            $cursor->addDay();
+        }
+
+        $nightHours = (int) floor($nightMinutes / 60);
+        return $nightHours * 4000;
+    }
+
+    /**
      * Process reservation completion:
      * - Compute points (base + night bonus + extension)
      * - Transfer points to cast from pending; refund unused to guest
-     * - If pending is insufficient, use guest.grade_points for shortfall
+     * - If pending is insufficient, deduct shortfall from guest.points and ADD the same to guest.grade_points
      */
     public function processReservationCompletion(Reservation $reservation): bool
     {
@@ -295,27 +331,57 @@ class PointTransactionService
 
             $reservation->refresh();
 
-            if (!$reservation->cast_id) {
-                DB::rollBack();
-                return false;
-            }
-
             // Ensure ended_at exists; caller should set it before invoking
             if (!$reservation->ended_at) {
                 $reservation->ended_at = now();
             }
 
+            $guest = Guest::find($reservation->guest_id);
+            if (!$guest) {
+                DB::rollBack();
+                return false;
+            }
+
+            // For reservations without cast_id (e.g., free calls with no accepted casts),
+            // we can still process refunds but not transfers
+            if (!$reservation->cast_id) {
+                // Just refund all pending points since no cast to transfer to
+                $reservedPoints = (int) PointTransaction::where('reservation_id', $reservation->id)
+                    ->where('type', 'pending')
+                    ->sum('amount');
+
+                if ($reservedPoints > 0) {
+                    $this->createRefundTransaction([
+                        'guest_id' => $guest->id,
+                        'reservation_id' => $reservation->id,
+                        'amount' => $reservedPoints,
+                        'description' => "Free call completed without cast - refunding all points - {$reservation->id}",
+                    ]);
+
+                    // Reduce grade_points by refunded amount
+                    $guest->grade_points = max(0, (int) $guest->grade_points - $reservedPoints);
+                    $guest->save();
+
+                    /** @var GradeService $gradeService */
+                    $gradeService = app(GradeService::class);
+                    $gradeService->calculateAndUpdateGrade($guest);
+                }
+
+                DB::commit();
+                return true;
+            }
+
+            // For reservations with cast_id, calculate and transfer points
             $basePoints = $this->calculateReservationPoints($reservation);
-            $nightBonus = $this->calculateNightTimeBonus($reservation->started_at);
+            $nightBonus = $this->calculateNightTimeBonus($reservation->started_at, $reservation->ended_at);
             $extensionFee = $this->calculateExtensionFee($reservation);
             $totalPoints = (int) ($basePoints + $nightBonus + $extensionFee);
 
             $reservation->points_earned = $totalPoints;
             $reservation->save();
 
-            $guest = Guest::find($reservation->guest_id);
             $cast = Cast::find($reservation->cast_id);
-            if (!$guest || !$cast) {
+            if (!$cast) {
                 DB::rollBack();
                 return false;
             }
@@ -325,7 +391,7 @@ class PointTransactionService
                 ->where('type', 'pending')
                 ->sum('amount');
 
-            // Decide how much to transfer from pending vs grade points
+            // Decide how much to transfer from pending vs shortfall from guest points
             $transferFromPending = min($reservedPoints, $totalPoints);
             $transferFromGrade = max(0, $totalPoints - $transferFromPending);
 
@@ -340,16 +406,24 @@ class PointTransactionService
             }
 
             if ($transferFromGrade > 0) {
+                // Ensure guest has enough points to cover shortfall
+                if ($guest->points < $transferFromGrade) {
+                    DB::rollBack();
+                    return false;
+                }
+
+                // Create transfer for the shortfall amount as well
                 $this->createTransferTransaction([
                     'guest_id' => $guest->id,
                     'cast_id' => $cast->id,
                     'reservation_id' => $reservation->id,
                     'amount' => $transferFromGrade,
-                    'description' => "Shortfall covered from grade points for reservation - {$reservation->id}",
+                    'description' => "Shortfall covered from guest points for reservation - {$reservation->id}",
                 ]);
 
-                // Deduct shortfall from grade_points
-                $guest->grade_points = max(0, (int) $guest->grade_points - $transferFromGrade);
+                // Deduct from guest points and add to guest grade_points
+                $guest->points = max(0, (int) $guest->points - $transferFromGrade);
+                $guest->grade_points = (int) $guest->grade_points + $transferFromGrade;
                 $guest->save();
 
                 /** @var GradeService $gradeService */

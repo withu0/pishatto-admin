@@ -420,6 +420,15 @@ class PaymentController extends Controller
                 'total_amount' => $totalAmount,
                 'purpose' => $request->purpose,
                 'issued_at' => now(),
+                // Required company fields (NOT NULL in schema)
+                'company_name' => '株式会社キネカ',
+                'company_address' => '〒106-0032 東京都港区六本木4丁目8-7六本木三河台ビル',
+                'company_phone' => 'TEL: 03-5860-6178',
+                'registration_number' => '登録番号:T3010401129426',
+                // Default status
+                'status' => 'issued',
+                // Optional PDF URL (kept null unless generated elsewhere)
+                'pdf_url' => null,
                 'html_content' => $this->generateReceiptHtml($receiptNumber, $request->recipient_name, $request->amount, $taxAmount, $totalAmount, $request->purpose),
             ]);
 
