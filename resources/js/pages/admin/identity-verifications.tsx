@@ -398,11 +398,11 @@ export default function AdminIdentityVerifications({ verifications, filters }: P
                             <div className="flex flex-col h-full">
                                 {/* Image Display Section */}
                                 <div className="flex-1 min-h-0 p-6">
-                                    <div className="relative w-96 h-48 bg-gray-50 rounded-lg border-2 border-dashed border-gray-200 overflow-hidden">
+                                    <div className="relative w-full max-w-4xl mx-auto bg-gray-50 rounded-lg border-2 border-dashed border-gray-200 overflow-hidden">
                                         <img
                                             src={selectedVerification.identity_verification_url}
                                             alt="身分証明書"
-                                            className="w-full h-48 object-cover"
+                                            className="w-full h-auto max-h-[70vh] object-contain"
                                             onError={(e) => {
                                                 console.error('Image failed to load:', selectedVerification.identity_verification_url);
                                                 e.currentTarget.style.display = 'none';
@@ -410,7 +410,7 @@ export default function AdminIdentityVerifications({ verifications, filters }: P
                                             }}
                                         />
                                         <div className="hidden absolute inset-0 flex items-center justify-center bg-white">
-                                            <div className="text-center p-8">
+                                            <div className="text-center p-8 max-w-md mx-auto">
                                                 <div className="text-gray-400 mb-4">
                                                     <svg className="mx-auto h-16 w-16" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 002 2z" />

@@ -42,9 +42,11 @@ class ConciergeController extends Controller
             });
         }
 
+        $effectiveUserType = 'guest';
         if ($request->filled('user_type')) {
-            $query->where('user_type', $request->user_type);
+            $effectiveUserType = $request->user_type;
         }
+        $query->where('user_type', $effectiveUserType);
 
         $messages = $query->paginate(20);
 
@@ -56,10 +58,20 @@ class ConciergeController extends Controller
             'resolved' => ConciergeMessage::byStatus('resolved')->count(),
         ];
 
+        // Counts of new (pending) messages by user type for tab badges
+        $newCounts = [
+            'guest' => ConciergeMessage::where('user_type', 'guest')->where('is_concierge', false)->where('status', 'pending')->count(),
+            'cast' => ConciergeMessage::where('user_type', 'cast')->where('is_concierge', false)->where('status', 'pending')->count(),
+        ];
+
         return Inertia::render('admin/concierge/index', [
             'messages' => $messages,
             'stats' => $stats,
-            'filters' => $request->only(['status', 'message_type', 'category', 'search', 'user_type']),
+            'newCounts' => $newCounts,
+            'filters' => array_merge(
+                $request->only(['status', 'message_type', 'category', 'search']),
+                ['user_type' => $effectiveUserType]
+            ),
             'flash' => [
                 'success' => session('success'),
                 'error' => session('error'),

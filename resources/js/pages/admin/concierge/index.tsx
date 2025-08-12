@@ -59,18 +59,35 @@ interface Props {
     };
     stats: Stats;
     filters: Filters;
+    newCounts: { guest: number; cast: number };
     flash?: {
         success?: string;
         error?: string;
     };
 }
 
-export default function AdminConciergeIndex({ messages, stats, filters, flash }: Props) {
+export default function AdminConciergeIndex({ messages, stats, filters, newCounts, flash }: Props) {
     const [search, setSearch] = useState(filters.search || '');
     const [statusFilter, setStatusFilter] = useState(filters.status || 'all');
     const [typeFilter, setTypeFilter] = useState(filters.message_type || 'all');
     const [categoryFilter, setCategoryFilter] = useState(filters.category || 'all');
     const [userTypeFilter, setUserTypeFilter] = useState(filters.user_type || 'all');
+    const [activeTab, setActiveTab] = useState<'guest' | 'cast'>(filters.user_type === 'cast' ? 'cast' : 'guest');
+    const [showGuestDot, setShowGuestDot] = useState((newCounts?.guest || 0) > 0);
+    const [showCastDot, setShowCastDot] = useState((newCounts?.cast || 0) > 0);
+    const STORAGE_KEY = 'concierge:lastSeenCounts';
+    const [lastSeenCounts, setLastSeenCounts] = useState<{ guest: number; cast: number }>(() => {
+        try {
+            const saved = typeof window !== 'undefined' ? localStorage.getItem(STORAGE_KEY) : null;
+            if (saved) {
+                const parsed = JSON.parse(saved);
+                if (typeof parsed?.guest === 'number' && typeof parsed?.cast === 'number') {
+                    return parsed;
+                }
+            }
+        } catch {}
+        return { guest: 0, cast: 0 };
+    });
     const [selectedMessage, setSelectedMessage] = useState<ConciergeMessage | null>(null);
     const [showViewDialog, setShowViewDialog] = useState(false);
     const [showCreateDialog, setShowCreateDialog] = useState(false);
@@ -93,6 +110,32 @@ export default function AdminConciergeIndex({ messages, stats, filters, flash }:
             toast.error(flash.error);
         }
     }, [flash]);
+
+    // Persist last seen counts when they change
+    useEffect(() => {
+        try {
+            if (typeof window !== 'undefined') {
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(lastSeenCounts));
+            }
+        } catch {}
+    }, [lastSeenCounts]);
+
+    // Derive dot visibility from current counts vs last seen counts
+    useEffect(() => {
+        const guestCount = newCounts?.guest || 0;
+        const castCount = newCounts?.cast || 0;
+        const guestHasUnseen = guestCount > lastSeenCounts.guest;
+        const castHasUnseen = castCount > lastSeenCounts.cast;
+        setShowGuestDot(guestHasUnseen);
+        setShowCastDot(castHasUnseen);
+        try {
+            if (typeof window !== 'undefined') {
+                const hasUnseen = guestHasUnseen || castHasUnseen;
+                localStorage.setItem('concierge:hasUnseen', hasUnseen ? '1' : '0');
+                window.dispatchEvent(new CustomEvent('concierge:hasUnseenChanged', { detail: hasUnseen }));
+            }
+        } catch {}
+    }, [newCounts, lastSeenCounts]);
 
     const messageTypes = [
         { value: 'inquiry', label: 'お問い合わせ' },
@@ -122,7 +165,7 @@ export default function AdminConciergeIndex({ messages, stats, filters, flash }:
     ];
 
     const applyFilters = () => {
-        const filters: any = { search };
+        const filters: any = { search, user_type: activeTab };
         
         if (statusFilter && statusFilter !== 'all') {
             filters.status = statusFilter;
@@ -133,11 +176,8 @@ export default function AdminConciergeIndex({ messages, stats, filters, flash }:
         if (categoryFilter && categoryFilter !== 'all') {
             filters.category = categoryFilter;
         }
-        if (userTypeFilter && userTypeFilter !== 'all') {
-            filters.user_type = userTypeFilter;
-        }
-        
-        router.get('/admin/concierge', filters);
+        // user_type is enforced by tab
+        router.get('/admin/concierge', filters, { preserveState: true, preserveScroll: true, replace: true });
     };
 
     const clearFilters = () => {
@@ -145,8 +185,8 @@ export default function AdminConciergeIndex({ messages, stats, filters, flash }:
         setStatusFilter('all');
         setTypeFilter('all');
         setCategoryFilter('all');
-        setUserTypeFilter('all');
-        router.get('/admin/concierge');
+        setUserTypeFilter(activeTab);
+        router.get('/admin/concierge', { user_type: activeTab }, { preserveState: true, preserveScroll: true, replace: true });
     };
 
     const handleViewMessage = (message: ConciergeMessage) => {
@@ -226,10 +266,72 @@ export default function AdminConciergeIndex({ messages, stats, filters, flash }:
             <div className="p-6">
                 <div className="flex justify-between items-center mb-6">
                     <h1 className="text-2xl font-bold">コンシェルジュ管理</h1>
-                    <Button onClick={handleCreateMessage} className="flex items-center gap-2">
+                    {/* <Button onClick={handleCreateMessage} className="flex items-center gap-2">
                         <Plus className="h-4 w-4" />
                         新規作成
-                    </Button>
+                    </Button> */}
+                </div>
+
+                {/* Tabs: Guest / Cast */}
+                <div className="mb-4">
+                    <div className="inline-flex rounded-md border p-1 bg-white">
+                        <button
+                            type="button"
+                            className={`relative px-4 py-2 rounded-sm text-sm font-medium ${activeTab === 'guest' ? 'bg-gray-900 text-white' : 'text-gray-700 hover:bg-gray-100'}`}
+                            onClick={() => {
+                                setActiveTab('guest');
+                                setUserTypeFilter('guest');
+                                if (showGuestDot) {
+                                    setLastSeenCounts((prev) => ({ ...prev, guest: newCounts?.guest || 0 }));
+                                    setShowGuestDot(false);
+                                }
+                                router.get(
+                                    '/admin/concierge',
+                                    {
+                                        user_type: 'guest',
+                                        search,
+                                        status: statusFilter !== 'all' ? statusFilter : undefined,
+                                        message_type: typeFilter !== 'all' ? typeFilter : undefined,
+                                        category: categoryFilter !== 'all' ? categoryFilter : undefined,
+                                    },
+                                    { preserveState: true, preserveScroll: true, replace: true }
+                                );
+                            }}
+                        >
+                            ゲスト
+                            {showGuestDot && (
+                                <span className="absolute -top-1 -right-1 inline-flex h-2 w-2 rounded-full bg-red-500" />
+                            )}
+                        </button>
+                        <button
+                            type="button"
+                            className={`relative px-4 py-2 rounded-sm text-sm font-medium ${activeTab === 'cast' ? 'bg-gray-900 text-white' : 'text-gray-700 hover:bg-gray-100'}`}
+                            onClick={() => {
+                                setActiveTab('cast');
+                                setUserTypeFilter('cast');
+                                if (showCastDot) {
+                                    setLastSeenCounts((prev) => ({ ...prev, cast: newCounts?.cast || 0 }));
+                                    setShowCastDot(false);
+                                }
+                                router.get(
+                                    '/admin/concierge',
+                                    {
+                                        user_type: 'cast',
+                                        search,
+                                        status: statusFilter !== 'all' ? statusFilter : undefined,
+                                        message_type: typeFilter !== 'all' ? typeFilter : undefined,
+                                        category: categoryFilter !== 'all' ? categoryFilter : undefined,
+                                    },
+                                    { preserveState: true, preserveScroll: true, replace: true }
+                                );
+                            }}
+                        >
+                            キャスト
+                            {showCastDot && (
+                                <span className="absolute -top-1 -right-1 inline-flex h-2 w-2 rounded-full bg-red-500" />
+                            )}
+                        </button>
+                    </div>
                 </div>
 
                 {/* Statistics Cards */}
@@ -288,8 +390,8 @@ export default function AdminConciergeIndex({ messages, stats, filters, flash }:
                             フィルター
                         </CardTitle>
                     </CardHeader>
-                    <CardContent>
-                        <div className="grid grid-cols-1 md:grid-cols-6 gap-4">
+            <CardContent>
+                <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
                             <div>
                                 <Input
                                     placeholder="検索..."
@@ -337,19 +439,7 @@ export default function AdminConciergeIndex({ messages, stats, filters, flash }:
                                     ))}
                                 </SelectContent>
                             </Select>
-                            <Select value={userTypeFilter} onValueChange={setUserTypeFilter}>
-                                <SelectTrigger>
-                                    <SelectValue placeholder="ユーザータイプ" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    <SelectItem value="all">すべて</SelectItem>
-                                    {userTypes.map((type) => (
-                                        <SelectItem key={type.value} value={type.value}>
-                                            {type.label}
-                                        </SelectItem>
-                                    ))}
-                                </SelectContent>
-                            </Select>
+                    {/* User type is controlled by the tabs above */}
                             <div className="flex gap-2">
                                 <Button onClick={applyFilters} className="flex-1">
                                     適用
@@ -456,7 +546,20 @@ export default function AdminConciergeIndex({ messages, stats, filters, flash }:
                                             key={page}
                                             variant={page === messages.current_page ? "default" : "outline"}
                                             size="sm"
-                                            onClick={() => router.get('/admin/concierge', { page, ...filters })}
+                                            onClick={() =>
+                                                router.get(
+                                                    '/admin/concierge',
+                                                    {
+                                                        page,
+                                                        user_type: activeTab,
+                                                        search,
+                                                        status: statusFilter !== 'all' ? statusFilter : undefined,
+                                                        message_type: typeFilter !== 'all' ? typeFilter : undefined,
+                                                        category: categoryFilter !== 'all' ? categoryFilter : undefined,
+                                                    },
+                                                    { preserveState: true, preserveScroll: true, replace: true }
+                                                )
+                                            }
                                         >
                                             {page}
                                         </Button>
