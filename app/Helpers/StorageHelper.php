@@ -11,6 +11,7 @@ class StorageHelper
      */
     public static function publicUrl($path)
     {   
+        //public URL
         return Storage::disk('public')->url($path);
     }
     
