@@ -31,6 +31,12 @@ return [
         'region' => env('AWS_DEFAULT_REGION', 'us-east-1'),
     ],
 
+    'line' => [
+        'client_id' => env('LINE_CHANNEL_ID'),
+        'client_secret' => env('LINE_CHANNEL_SECRET'),
+        'redirect' => env('LINE_REDIRECT_URI'),
+    ],
+
     'payjp' => [
         'public_key' => env('PAYJP_PUBLIC_KEY'),
         'secret_key' => env('PAYJP_SECRET_KEY'),

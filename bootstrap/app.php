@@ -26,6 +26,7 @@ return Application::configure(basePath: dirname(__DIR__))
         // Exclude upload route from CSRF protection
         $middleware->validateCsrfTokens(except: [
             'admin/casts/upload-avatar',
+            'line/*', // Exclude Line authentication routes from CSRF protection
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions) {

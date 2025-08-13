@@ -11,9 +11,9 @@ class StorageHelper
      */
     public static function publicUrl($path)
     {
-        if (config('app.env') === 'local') {
-            return 'http://localhost:8000/storage/' . $path;
-        }
+        // if (config('app.env') === 'local') {
+        //     return 'http://localhost:8000/storage/' . $path;
+        // }
         
         return Storage::disk('public')->url($path);
     }

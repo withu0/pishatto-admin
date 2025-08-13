@@ -101,6 +101,12 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::get('admin/grades/{grade}/guests', [GradeController::class, 'getGuestsByGrade'])->name('admin.grades.guests');
 });
 
+// Line Authentication routes (moved from API routes for session support)
+Route::get('/api/line/redirect', [App\Http\Controllers\Auth\LineAuthController::class, 'redirectToLine'])->name('line.redirect');
+Route::get('/api/line/callback', [App\Http\Controllers\Auth\LineAuthController::class, 'handleLineCallback'])->name('line.callback');
+Route::post('/api/line/register', [App\Http\Controllers\Auth\LineAuthController::class, 'registerWithLine'])->name('line.register');
+Route::post('/api/line/link-account', [App\Http\Controllers\Auth\LineAuthController::class, 'linkAccount'])->name('line.link-account');
+
 
 require __DIR__.'/settings.php';
 require __DIR__.'/auth.php';

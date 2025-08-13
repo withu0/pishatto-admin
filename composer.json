@@ -14,8 +14,10 @@
         "laravel/framework": "^12.0",
         "laravel/reverb": "^1.5",
         "laravel/sanctum": "^4.2",
+        "laravel/socialite": "^5.23",
         "laravel/tinker": "^2.10.1",
         "payjp/payjp-php": "^1.8",
+        "socialiteproviders/line": "^4.1",
         "tightenco/ziggy": "^2.4",
         "twilio/sdk": "^8.7"
     },

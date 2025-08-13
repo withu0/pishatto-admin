@@ -258,3 +258,5 @@ Route::post('/grades/cast/update', [GradeController::class, 'updateCastGrade']);
 Route::get('/grades/info', [GradeController::class, 'getAllGradesInfo']);
 Route::get('/grades/{grade}/benefits', [GradeController::class, 'getGradeBenefits']);
 Route::post('/grades/update-all', [GradeController::class, 'updateAllGrades']);
+
+// Line Authentication routes moved to web.php for session support

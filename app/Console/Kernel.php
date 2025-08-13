@@ -14,6 +14,8 @@ class Kernel extends ConsoleKernel
     {
         // Calculate and store monthly earned rankings on the 15th of every month at 03:00
         $schedule->command('rankings:monthly-earned')->monthlyOn(15, '03:00');
+        // Auto-exit over budget reservations every minute
+        $schedule->command('reservations:auto-exit')->everyMinute();
     }
 
     /**

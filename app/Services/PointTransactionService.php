@@ -319,6 +319,51 @@ class PointTransactionService
     }
 
     /**
+     * Calculate the accrued cost so far for an in-progress reservation.
+     * Uses per-minute base rate for elapsed minutes up to scheduled duration,
+     * applies extension multiplier beyond scheduled minutes, and includes
+     * night-time bonus based on overlap between started_at and now.
+     */
+    public function calculateAccruedCostSoFar(Reservation $reservation, ?\Carbon\Carbon $now = null): int
+    {
+        if (!$reservation->cast_id || !$reservation->started_at || !$reservation->duration) {
+            return 0;
+        }
+
+        $cast = Cast::find($reservation->cast_id);
+        if (!$cast) {
+            return 0;
+        }
+
+        $now = $now ?: now();
+        $startedAt = $reservation->started_at instanceof \Carbon\Carbon
+            ? $reservation->started_at
+            : \Carbon\Carbon::parse($reservation->started_at);
+
+        if ($now->lessThanOrEqualTo($startedAt)) {
+            return 0;
+        }
+
+        // Per-minute base depends on reservation type
+        if ($reservation->type === 'free') {
+            $perMinute = (int) floor(($cast->category_points ?? 0) / 30);
+        } else {
+            $perMinute = (int) floor(($cast->grade_points ?? 0) / 30);
+        }
+
+        $elapsedMinutes = (int) $now->diffInMinutes($startedAt);
+        $scheduledMinutes = (int) ($reservation->duration * 60);
+
+        $baseForElapsed = (int) ($perMinute * min($elapsedMinutes, $scheduledMinutes));
+        $extensionMinutes = max(0, $elapsedMinutes - $scheduledMinutes);
+        $extensionFeeSoFar = (int) floor($perMinute * $extensionMinutes * self::EXTENSION_MULTIPLIER);
+
+        $nightBonusSoFar = $this->calculateNightTimeBonus($startedAt, $now);
+
+        return (int) ($baseForElapsed + $extensionFeeSoFar + $nightBonusSoFar);
+    }
+
+    /**
      * Process reservation completion:
      * - Compute points (base + night bonus + extension)
      * - Transfer points to cast from pending; refund unused to guest
