@@ -11,7 +11,9 @@ class LineProvider extends AbstractProvider
     /**
      * The Line OAuth base URL.
      */
-    protected $baseUrl = 'https://access.line.me';
+    // Base URL used by AbstractProvider for token calls if it falls back to baseUrl
+    // Set to api.line.me to guarantee the token host is correct even if parent logic is used
+    protected $baseUrl = 'https://api.line.me';
 
     /**
      * The Line OAuth API version.
@@ -33,7 +35,9 @@ class LineProvider extends AbstractProvider
      */
     protected function getAuthUrl($state)
     {
-        return $this->buildAuthUrlFromBase($this->baseUrl . '/oauth2/' . $this->version . '/authorize', $state);
+        // Authorize must hit access.line.me
+        $authBase = 'https://access.line.me';
+        return $this->buildAuthUrlFromBase($authBase . '/oauth2/' . $this->version . '/authorize', $state);
     }
 
     /**
@@ -41,7 +45,8 @@ class LineProvider extends AbstractProvider
      */
     protected function getTokenUrl()
     {
-        return $this->baseUrl . '/oauth2/' . $this->version . '/token';
+        // Explicit token endpoint on api.line.me
+        return 'https://api.line.me' . '/oauth2/' . $this->version . '/token';
     }
 
     /**
@@ -77,8 +82,13 @@ class LineProvider extends AbstractProvider
      */
     protected function getTokenFields($code)
     {
-        return array_merge(parent::getTokenFields($code), [
+        // LINE requires client_id and client_secret in POST body for token
+        return [
             'grant_type' => 'authorization_code',
-        ]);
+            'code' => $code,
+            'redirect_uri' => $this->redirectUrl,
+            'client_id' => $this->clientId,
+            'client_secret' => $this->clientSecret,
+        ];
     }
 }

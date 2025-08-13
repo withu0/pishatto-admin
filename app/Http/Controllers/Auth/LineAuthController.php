@@ -14,6 +14,19 @@ use Illuminate\Support\Str;
 class LineAuthController extends Controller
 {
     /**
+     * Get normalized frontend base URL.
+     * Ensures scheme is present to avoid relative redirects like "/host:port/...".
+     */
+    private function getFrontendUrl(): string
+    {
+        $frontendUrl = env('FRONTEND_URL', 'http://localhost:5173');
+        if (!preg_match('#^https?://#i', $frontendUrl)) {
+            $frontendUrl = 'http://' . ltrim($frontendUrl, '/');
+        }
+        return rtrim($frontendUrl, '/');
+    }
+
+    /**
      * Redirect to Line OAuth
      */
     public function redirectToLine(Request $request)
@@ -25,7 +38,7 @@ class LineAuthController extends Controller
         
         // Redirect the user to LINE's authorization page.
         // Do not pass the callback URL here; Socialite reads it from config('services.line.redirect').
-        return Socialite::driver('line')->redirect();
+        return Socialite::driver('line-custom')->redirect();
     }
 
     /**
@@ -34,7 +47,7 @@ class LineAuthController extends Controller
     public function handleLineCallback(Request $request)
     {
         try {
-            $lineUser = Socialite::driver('line')->user();
+            $lineUser = Socialite::driver('line-custom')->user();
             $userType = session('line_user_type', 'guest');
             
             // Extract Line user information
@@ -42,7 +55,10 @@ class LineAuthController extends Controller
             $lineEmail = $lineUser->getEmail();
             $lineName = $lineUser->getName();
             $lineAvatar = $lineUser->getAvatar();
-            
+            error_log($lineId);
+            error_log($lineEmail);
+            error_log($lineName);
+            error_log($lineAvatar);
             // Check if user exists by line_id
             $guest = Guest::where('line_id', $lineId)->first();
             $cast = Cast::where('line_id', $lineId)->first();
@@ -50,10 +66,16 @@ class LineAuthController extends Controller
             if ($guest) {
                 // Guest exists, log them in (guest guard)
                 Auth::guard('guest')->login($guest);
-                
+
                 // Clear the stored user_type
                 session()->forget('line_user_type');
-                
+
+                // If this is a browser navigation (from LINE), redirect to the frontend dashboard
+                $frontendUrl = $this->getFrontendUrl();
+                if (!($request->expectsJson() || $request->wantsJson())) {
+                    return redirect()->away($frontendUrl . '/dashboard');
+                }
+
                 return response()->json([
                     'success' => true,
                     'user_type' => 'guest',
@@ -63,10 +85,16 @@ class LineAuthController extends Controller
             } elseif ($cast) {
                 // Cast exists, log them in
                 Auth::guard('cast')->login($cast);
-                
+
                 // Clear the stored user_type
                 session()->forget('line_user_type');
-                
+
+                // If this is a browser navigation (from LINE), redirect to the frontend cast dashboard
+                $frontendUrl = $this->getFrontendUrl();
+                if (!($request->expectsJson() || $request->wantsJson())) {
+                    return redirect()->away($frontendUrl . '/cast/dashboard');
+                }
+
                 return response()->json([
                     'success' => true,
                     'user_type' => 'cast',
@@ -86,6 +114,19 @@ class LineAuthController extends Controller
 
                     // Clear the stored user_type
                     session()->forget('line_user_type');
+
+                    // If this is a browser navigation (from LINE), redirect to the frontend register flow
+                    $frontendUrl = $this->getFrontendUrl();
+                    if (!($request->expectsJson() || $request->wantsJson())) {
+                        $query = http_build_query([
+                            'line_id' => $lineId,
+                            'line_email' => $lineEmail,
+                            'line_name' => $lineName,
+                            'line_avatar' => $lineAvatar,
+                            'user_type' => 'guest',
+                        ]);
+                        return redirect()->away($frontendUrl . '/line-register?' . $query);
+                    }
 
                     return response()->json([
                         'success' => true,

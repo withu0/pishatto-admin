@@ -21,7 +21,8 @@ class LineServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
-        Socialite::extend('line', function ($app) {
+        // Register a custom LINE driver to guarantee we use our provider implementation
+        Socialite::extend('line-custom', function ($app) {
             $config = $app['config']['services.line'];
             
             return new LineProvider(
