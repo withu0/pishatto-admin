@@ -23,7 +23,9 @@ class LineAuthController extends Controller
         // Store user_type in session for later use
         session(['line_user_type' => $userType]);
         
-        return Socialite::driver('line')->redirect(config('services.line.redirect'));
+        // Redirect the user to LINE's authorization page.
+        // Do not pass the callback URL here; Socialite reads it from config('services.line.redirect').
+        return Socialite::driver('line')->redirect();
     }
 
     /**
