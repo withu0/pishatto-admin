@@ -85,6 +85,18 @@ class CastSeeder extends Seeder
                 'status' => 'active',
                 'profile_text' => 'みゆです！💫 経験豊富で、お客様のことを第一に考えたサービスを心がけています ✨ 関西の明るさと、女性らしい優しさを兼ね備えています 🎭 趣味は旅行とグルメ巡りで、全国各地の素敵な場所やお店の情報もお持ちです 🗺️ 一緒に楽しい時間をお過ごししましょう！ 🌟',
             ],
+            [
+                'line_id' => 'U2c631603ae11e074d8d954a85e773b03',
+                'nickname' => 'TARO',
+                'residence' => '東京都',
+                'location' => '東京都',
+                'birth_year' => 1995,
+                'height' => 160,
+                'grade' => 'green',
+                'grade_points' => 1000,
+                'status' => 'active',
+                'profile_text' => 'こんにちは！まこです ✨ 明るくて元気な性格で、お客様との素敵な時間をお過ごしできるように頑張ります 💕 お話し好きなので、どんなことでも気軽にお聞かせくださいね 🎵 一緒に楽しい時間を作りましょう！ 🌸',
+            ],
         ];
 
         foreach ($casts as $castData) {
