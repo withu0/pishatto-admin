@@ -232,6 +232,86 @@ class LineAuthController extends Controller
     }
 
     /**
+     * Check Line authentication status for guest only
+     */
+    public function checkLineAuthGuest(Request $request)
+    {
+        $lineId = session('line_user_id');
+        if (!$lineId) {
+            return response()->json([
+                'success' => false,
+                'authenticated' => false,
+                'message' => 'No Line authentication found'
+            ]);
+        }
+
+        $guest = Guest::where('line_id', $lineId)->first();
+        if ($guest) {
+            if (!Auth::guard('guest')->check()) {
+                Auth::guard('guest')->login($guest);
+            }
+            return response()->json([
+                'success' => true,
+                'authenticated' => true,
+                'user_type' => 'guest',
+                'user' => $guest,
+                'line_data' => [
+                    'line_id' => $lineId,
+                    'line_email' => session('line_user_email'),
+                    'line_name' => session('line_user_name'),
+                    'line_avatar' => session('line_user_avatar')
+                ]
+            ]);
+        }
+
+        return response()->json([
+            'success' => false,
+            'authenticated' => false,
+            'message' => 'Guest not found for this LINE ID'
+        ]);
+    }
+
+    /**
+     * Check Line authentication status for cast only
+     */
+    public function checkLineAuthCast(Request $request)
+    {
+        $lineId = session('line_user_id');
+        if (!$lineId) {
+            return response()->json([
+                'success' => false,
+                'authenticated' => false,
+                'message' => 'No Line authentication found'
+            ]);
+        }
+
+        $cast = Cast::where('line_id', $lineId)->first();
+        if ($cast) {
+            if (!Auth::guard('cast')->check()) {
+                Auth::guard('cast')->login($cast);
+            }
+            return response()->json([
+                'success' => true,
+                'authenticated' => true,
+                'user_type' => 'cast',
+                'user' => $cast,
+                'line_data' => [
+                    'line_id' => $lineId,
+                    'line_email' => session('line_user_email'),
+                    'line_name' => session('line_user_name'),
+                    'line_avatar' => session('line_user_avatar')
+                ]
+            ]);
+        }
+
+        return response()->json([
+            'success' => false,
+            'authenticated' => false,
+            'message' => 'Cast not found for this LINE ID'
+        ]);
+    }
+
+    /**
      * Logout from Line authentication
      */
     public function logout(Request $request)
