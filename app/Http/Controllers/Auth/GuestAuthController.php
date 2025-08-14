@@ -976,7 +976,9 @@ class GuestAuthController extends Controller
     // Add this method to fetch all guest phone numbers
     public function allPhones()
     {
-        $phones = Guest::pluck('phone');
+        $phones = Guest::pluck('phone')->map(function ($p) {
+            return $p ?? '';
+        });
         return response()->json(['phones' => $phones]);
     }
 

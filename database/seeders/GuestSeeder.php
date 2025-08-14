@@ -4,6 +4,7 @@ namespace Database\Seeders;
 
 use Illuminate\Database\Seeder;
 use App\Models\Guest;
+use Illuminate\Support\Facades\Schema;
 
 class GuestSeeder extends Seeder
 {
