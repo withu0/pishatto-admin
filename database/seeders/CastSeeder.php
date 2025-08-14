@@ -100,10 +100,16 @@ class CastSeeder extends Seeder
         ];
 
         foreach ($casts as $castData) {
-            Cast::updateOrCreate(
-                ['phone' => $castData['phone']],
-                $castData
-            );
+            // Determine the unique identifier - use phone if available, otherwise use line_id
+            $uniqueKey = isset($castData['phone']) ? 'phone' : 'line_id';
+            $uniqueValue = $castData[$uniqueKey] ?? null;
+            
+            if ($uniqueValue) {
+                Cast::updateOrCreate(
+                    [$uniqueKey => $uniqueValue],
+                    $castData
+                );
+            }
         }
     }
 }
