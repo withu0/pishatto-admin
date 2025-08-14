@@ -68,93 +68,93 @@ class LineAuthController extends Controller
             // Check if user exists by line_id
             $guest = Guest::where('line_id', $lineId)->first();
             $cast = Cast::where('line_id', $lineId)->first();
-            
-            if ($guest) {
-                // Guest exists, log them in (guest guard)
-                Auth::guard('guest')->login($guest);
 
-                // If this is a browser navigation (from LINE), redirect to the frontend dashboard
-                $frontendUrl = $this->getFrontendUrl();
-                if (!($request->expectsJson() || $request->wantsJson())) {
-                    return redirect()->away($frontendUrl . '/dashboard');
-                }
+            // Prefer user type based on the session intent
+            if ($userType === 'cast') {
+                if ($cast) {
+                    // Cast exists, log them in
+                    Auth::guard('cast')->login($cast);
 
-                return response()->json([
-                    'success' => true,
-                    'user_type' => 'guest',
-                    'user' => $guest,
-                    'line_data' => [
-                        'line_id' => $lineId,
-                        'line_email' => $lineEmail,
-                        'line_name' => $lineName,
-                        'line_avatar' => $lineAvatar
-                    ],
-                    'message' => 'Guest logged in successfully'
-                ]);
-            } elseif ($cast) {
-                // Cast exists, log them in
-                Auth::guard('cast')->login($cast);
-
-                // If this is a browser navigation (from LINE), redirect to the frontend cast dashboard
-                $frontendUrl = $this->getFrontendUrl();
-                if (!($request->expectsJson() || $request->wantsJson())) {
-                    return redirect()->away($frontendUrl . '/cast/dashboard');
-                }
-
-                return response()->json([
-                    'success' => true,
-                    'user_type' => 'cast',
-                    'user' => $cast,
-                    'line_data' => [
-                        'line_id' => $lineId,
-                        'line_email' => $lineEmail,
-                        'line_name' => $lineName,
-                        'line_avatar' => $lineAvatar
-                    ],
-                    'message' => 'Cast logged in successfully'
-                ]);
-            } else {
-                // No existing user linked to this LINE account
-                if ($userType === 'guest') {
-                    // Store LINE ID to database for a new guest and proceed to registration steps
-                    $placeholderGuest = Guest::create([
-                        'line_id' => $lineId,
-                        'nickname' => $lineName ?: 'Guest',
-                        'avatar' => $lineAvatar,
-                        'status' => 'active'
-                    ]);
-
-                    // If this is a browser navigation (from LINE), redirect to the frontend register flow
                     $frontendUrl = $this->getFrontendUrl();
                     if (!($request->expectsJson() || $request->wantsJson())) {
-                        $query = http_build_query([
-                            'line_id' => $lineId,
-                            'line_email' => $lineEmail,
-                            'line_name' => $lineName,
-                            'line_avatar' => $lineAvatar,
-                            'user_type' => 'guest',
-                        ]);
-                        return redirect()->away($frontendUrl . '/line-register?' . $query);
+                        return redirect()->away($frontendUrl . '/cast/dashboard');
                     }
 
                     return response()->json([
                         'success' => true,
-                        'user_type' => 'new',
+                        'user_type' => 'cast',
+                        'user' => $cast,
                         'line_data' => [
                             'line_id' => $lineId,
                             'line_email' => $lineEmail,
                             'line_name' => $lineName,
                             'line_avatar' => $lineAvatar
                         ],
-                        'message' => 'New guest created with LINE. Continue registration.'
+                        'message' => 'Cast logged in successfully'
                     ]);
-                } else {
-                    // Cast via LINE: only login is allowed, do not create new
-                    return response()->json([
-                        'success' => false,
-                        'message' => 'Cast account not found for this LINE ID. Please log in using phone.'
-                    ], 404);
                 }
+
+                // Cast not found for this LINE ID
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Cast account not found for this LINE ID. Please log in using phone.'
+                ], 404);
+
+            } else { // guest intent
+                if ($guest) {
+                    // Guest exists, log them in
+                    Auth::guard('guest')->login($guest);
+
+                    $frontendUrl = $this->getFrontendUrl();
+                    if (!($request->expectsJson() || $request->wantsJson())) {
+                        return redirect()->away($frontendUrl . '/dashboard');
+                    }
+
+                    return response()->json([
+                        'success' => true,
+                        'user_type' => 'guest',
+                        'user' => $guest,
+                        'line_data' => [
+                            'line_id' => $lineId,
+                            'line_email' => $lineEmail,
+                            'line_name' => $lineName,
+                            'line_avatar' => $lineAvatar
+                        ],
+                        'message' => 'Guest logged in successfully'
+                    ]);
+                }
+
+                // No existing guest linked to this LINE account, create placeholder and proceed to registration
+                $placeholderGuest = Guest::create([
+                    'line_id' => $lineId,
+                    'nickname' => $lineName ?: 'Guest',
+                    'avatar' => $lineAvatar,
+                    'status' => 'active'
+                ]);
+
+                $frontendUrl = $this->getFrontendUrl();
+                if (!($request->expectsJson() || $request->wantsJson())) {
+                    $query = http_build_query([
+                        'line_id' => $lineId,
+                        'line_email' => $lineEmail,
+                        'line_name' => $lineName,
+                        'line_avatar' => $lineAvatar,
+                        'user_type' => 'guest',
+                    ]);
+                    return redirect()->away($frontendUrl . '/line-register?' . $query);
+                }
+
+                return response()->json([
+                    'success' => true,
+                    'user_type' => 'new',
+                    'line_data' => [
+                        'line_id' => $lineId,
+                        'line_email' => $lineEmail,
+                        'line_name' => $lineName,
+                        'line_avatar' => $lineAvatar
+                    ],
+                    'message' => 'New guest created with LINE. Continue registration.'
+                ]);
             }
             
         } catch (\Exception $e) {
@@ -237,11 +237,20 @@ class LineAuthController extends Controller
     public function checkLineAuthGuest(Request $request)
     {
         $lineId = session('line_user_id');
+        $userType = session('line_user_type');
         if (!$lineId) {
             return response()->json([
                 'success' => false,
                 'authenticated' => false,
                 'message' => 'No Line authentication found'
+            ]);
+        }
+
+        if ($userType !== 'guest') {
+            return response()->json([
+                'success' => false,
+                'authenticated' => false,
+                'message' => 'Line session is not for guest'
             ]);
         }
 
@@ -277,11 +286,20 @@ class LineAuthController extends Controller
     public function checkLineAuthCast(Request $request)
     {
         $lineId = session('line_user_id');
+        $userType = session('line_user_type');
         if (!$lineId) {
             return response()->json([
                 'success' => false,
                 'authenticated' => false,
                 'message' => 'No Line authentication found'
+            ]);
+        }
+
+        if ($userType !== 'cast') {
+            return response()->json([
+                'success' => false,
+                'authenticated' => false,
+                'message' => 'Line session is not for cast'
             ]);
         }
 
