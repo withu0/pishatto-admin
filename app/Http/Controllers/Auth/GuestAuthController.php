@@ -114,24 +114,34 @@ class GuestAuthController extends Controller
 
     public function login(Request $request)
     {
-        $validator = Validator::make($request->all(), [
-            'phone' => 'required|string',
-            'verification_code' => 'required|string|size:6',
-        ]);
+		$validator = Validator::make($request->all(), [
+			'phone' => 'required|string',
+			// Accept code if provided, but do not require it because phone may already be verified
+			'verification_code' => 'nullable|string|size:6',
+		]);
         
         if ($validator->fails()) {
             return response()->json(['message' => 'Invalid credentials'], 422);
         }
 
-        // Verify SMS code
-        $phoneNumber = $request->phone;
-        $phoneNumber = $this->formatPhoneNumberForTwilio($phoneNumber);
-        
-        $verificationResult = $this->twilioService->verifyCode($phoneNumber, $request->verification_code);
-        
-        if (!$verificationResult['success']) {
-            return response()->json(['message' => $verificationResult['message']], 422);
-        }
+		// Verify via cached verified state first. If not verified yet, attempt direct code verification when provided.
+		$phoneNumber = $request->phone;
+		$phoneNumber = $this->formatPhoneNumberForTwilio($phoneNumber);
+		
+		$isVerified = $this->twilioService->isPhoneVerified($phoneNumber);
+		$errorMessage = 'Phone number not verified. Please verify your number again.';
+		
+		if (!$isVerified && $request->filled('verification_code')) {
+			$verificationResult = $this->twilioService->verifyCode($phoneNumber, $request->verification_code);
+			$isVerified = $verificationResult['success'];
+			if (!$isVerified) {
+				$errorMessage = $verificationResult['message'] ?? $errorMessage;
+			}
+		}
+		
+		if (!$isVerified) {
+			return response()->json(['message' => $errorMessage], 422);
+		}
 
         $guest = Guest::where('phone', $request->phone)->first();
         if (!$guest) {
