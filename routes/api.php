@@ -177,6 +177,7 @@ Route::post('/admin/payment-details', [App\Http\Controllers\Admin\PaymentDetailC
 Route::put('/admin/payment-details/{paymentDetailId}', [App\Http\Controllers\Admin\PaymentDetailController::class, 'updatePaymentDetail']);
 
 // Receipt routes
+Route::get('/receipts/by-number/{receiptNumber}', [PaymentController::class, 'getReceiptByNumber']);
 Route::get('/receipts/{userType}/{userId}', [PaymentController::class, 'receipts']);
 Route::post('/receipts', [PaymentController::class, 'createReceipt']);
 Route::get('/receipts/{receiptId}', [PaymentController::class, 'getReceipt']);
@@ -249,6 +250,7 @@ Route::get('/admin-news/{userType}', [GuestAuthController::class, 'getAdminNews'
 
 // Public API routes for locations
 Route::get('/locations/active', [LocationController::class, 'getActiveLocations']);
+Route::get('/locations/prefectures', [LocationController::class, 'getPrefecturesByLocation']);
 
 // Grade API routes
 Route::get('/grades/guest/{guest_id}', [GradeController::class, 'getGuestGrade']);

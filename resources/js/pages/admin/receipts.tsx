@@ -230,7 +230,7 @@ export default function AdminReceipts({ receipts: initialReceipts }: { receipts:
                                         <th className="px-3 py-2 text-left font-semibold">宛名</th>
                                         <th className="px-3 py-2 text-left font-semibold">ユーザー</th>
                                         <th className="px-3 py-2 text-left font-semibold">金額</th>
-                                        <th className="px-3 py-2 text-left font-semibold">目的</th>
+                                        <th className="px-3 py-2 text-left font-semibold">但し書き</th>
                                         <th className="px-3 py-2 text-left font-semibold">ステータス</th>
                                         <th className="px-3 py-2 text-left font-semibold">発行日</th>
                                         <th className="px-3 py-2 text-left font-semibold">操作</th>
@@ -298,41 +298,87 @@ export default function AdminReceipts({ receipts: initialReceipts }: { receipts:
 
             {/* View Modal */}
             <Dialog open={isViewModalOpen} onOpenChange={setIsViewModalOpen}>
-                <DialogContent className="max-w-2xl">
+            <DialogContent className="max-h-[90vh] overflow-y-auto" style={{ width: '1100px', maxWidth: '95vw' }}>
                     <DialogHeader>
-                        <DialogTitle>領収書詳細</DialogTitle>
+                        <DialogTitle>領収書プレビュー</DialogTitle>
                     </DialogHeader>
                     {selectedReceipt && (
-                        <div className="space-y-4">
-                            <div className="grid grid-cols-2 gap-4">
-                                <div>
-                                    <Label>領収書番号</Label>
-                                    <p className="text-sm text-muted-foreground">{selectedReceipt.receipt_number}</p>
-                                </div>
-                                <div>
-                                    <Label>ステータス</Label>
-                                    <div className="mt-1">{getStatusBadge(selectedReceipt.status)}</div>
-                                </div>
-                                <div>
-                                    <Label>宛名</Label>
-                                    <p className="text-sm text-muted-foreground">{selectedReceipt.recipient_name}</p>
-                                </div>
-                                <div>
-                                    <Label>ユーザー</Label>
-                                    <p className="text-sm text-muted-foreground">{selectedReceipt.user_name}</p>
-                                </div>
-                                <div>
-                                    <Label>金額</Label>
-                                    <p className="text-sm text-muted-foreground">{selectedReceipt.total_amount.toLocaleString()}円</p>
-                                </div>
-                                <div>
-                                    <Label>発行日</Label>
-                                    <p className="text-sm text-muted-foreground">{selectedReceipt.issued_at}</p>
+                        <div className="bg-white border-2 border-gray-300 rounded-lg p-8 shadow-lg w-[1050px] max-w-full mx-auto">
+                            {/* Receipt Header */}
+                            <div className="text-center mb-6">
+                                <h1 className="text-2xl font-bold text-gray-800 mb-4">領収書</h1>
+                                <div className="text-right text-sm text-gray-600">
+                                    <div>No. {selectedReceipt.receipt_number}</div>
+                                    <div>{selectedReceipt.issued_at}</div>
                                 </div>
                             </div>
-                            <div>
-                                <Label>目的</Label>
-                                <p className="text-sm text-muted-foreground">{selectedReceipt.purpose}</p>
+
+                            {/* Recipient */}
+                            <div className="mb-6">
+                                <div className="text-lg text-gray-800 mb-2">{selectedReceipt.recipient_name} 様</div>
+                                <div className="border-b border-gray-300 h-8"></div>
+                            </div>
+
+                            {/* Total Amount */}
+                            <div className="text-center mb-6">
+                                <div className="border-2 border-gray-800 p-4 mx-8">
+                                    <div className="text-3xl font-bold text-gray-800">
+                                        ¥{selectedReceipt.total_amount.toLocaleString()}
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Purpose */}
+                            <div className="text-center mb-6">
+                                <div className="text-sm text-gray-700">
+                                    但し {selectedReceipt.purpose} として
+                                </div>
+                            </div>
+
+                            {/* Confirmation */}
+                            <div className="text-center mb-8">
+                                <div className="text-sm text-gray-700">
+                                    上記正に、領収致しました。
+                                </div>
+                            </div>
+
+                            {/* Breakdown and Company Info - Horizontal Layout */}
+                            <div className="flex justify-between items-end">
+                                {/* Left Section - Breakdown */}
+                                <div className="space-y-3">
+                                    <div className="border border-dashed border-gray-400 p-3 text-center">
+                                        <div className="text-sm text-gray-600">電子領収書につき印紙不要</div>
+                                    </div>
+                                    <div className="text-sm text-gray-700">
+                                        <div className="font-bold mb-2">内訳</div>
+                                        <div>税抜き金額 ¥{selectedReceipt.amount.toLocaleString()}</div>
+                                        <div>消費税額 ¥{((selectedReceipt.total_amount - selectedReceipt.amount) || 0).toLocaleString()}</div>
+                                        <div>消費税率 {selectedReceipt.total_amount > selectedReceipt.amount ? '10' : '0'}%</div>
+                                    </div>
+                                </div>
+
+                                {/* Right Section - Company Info */}
+                                <div className="text-right space-y-2">
+                                    <div className="text-sm text-gray-700">
+                                        <div className="font-bold">株式会社Pishatto</div>
+                                        <div>〒106-0032</div>
+                                        <div>東京都港区六本木4丁目8-7</div>
+                                        <div>六本木三河台ビル</div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Additional Admin Info */}
+                            <div className="mt-6 pt-4 border-t border-gray-200">
+                                <div className="grid grid-cols-2 gap-4 text-sm text-gray-600">
+                                    <div>
+                                        <span className="font-semibold">発行者:</span> {selectedReceipt.user_name}
+                                        <span className="ml-2">({selectedReceipt.user_type === 'guest' ? 'ゲスト' : 'キャスト'})</span>
+                                    </div>
+                                    <div>
+                                        <span className="font-semibold">ステータス:</span> {getStatusBadge(selectedReceipt.status)}
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     )}
@@ -390,7 +436,7 @@ export default function AdminReceipts({ receipts: initialReceipts }: { receipts:
                             />
                         </div>
                         <div>
-                            <Label htmlFor="purpose">目的</Label>
+                            <Label htmlFor="purpose">但し書き</Label>
                             <Textarea
                                 id="purpose"
                                 value={formData.purpose}
@@ -434,7 +480,7 @@ export default function AdminReceipts({ receipts: initialReceipts }: { receipts:
                             />
                         </div>
                         <div>
-                            <Label htmlFor="edit_purpose">目的</Label>
+                            <Label htmlFor="edit_purpose">但し書き</Label>
                             <Textarea
                                 id="edit_purpose"
                                 value={formData.purpose}

@@ -37,7 +37,7 @@ class LocationController extends Controller
     public function store(Request $request)
     {
         $validated = $request->validate([
-            'name' => 'required|string|max:100|unique:locations',
+            'name' => 'required|string|max:100',
             'prefecture' => 'required|string|max:50',
             'is_active' => 'boolean',
             'sort_order' => 'integer|min:0'
@@ -77,7 +77,7 @@ class LocationController extends Controller
     public function update(Request $request, Location $location)
     {
         $validated = $request->validate([
-            'name' => 'required|string|max:100|unique:locations,name,' . $location->id,
+            'name' => 'required|string|max:100',
             'prefecture' => 'required|string|max:50',
             'is_active' => 'boolean',
             'sort_order' => 'integer|min:0'
@@ -117,5 +117,28 @@ class LocationController extends Controller
             ->pluck('name');
 
         return response()->json($locations);
+    }
+
+    /**
+     * Get prefectures grouped by location for API
+     */
+    public function getPrefecturesByLocation()
+    {
+        $locations = Location::where('is_active', true)
+            ->orderBy('sort_order')
+            ->orderBy('name')
+            ->get(['name', 'prefecture']);
+
+        $grouped = [];
+        foreach ($locations as $location) {
+            if (!isset($grouped[$location->name])) {
+                $grouped[$location->name] = [];
+            }
+            if ($location->prefecture && !in_array($location->prefecture, $grouped[$location->name])) {
+                $grouped[$location->name][] = $location->prefecture;
+            }
+        }
+
+        return response()->json($grouped);
     }
 } 

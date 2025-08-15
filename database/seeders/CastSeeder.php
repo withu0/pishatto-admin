@@ -76,7 +76,7 @@ class CastSeeder extends Seeder
             [
                 'phone' => '09012345683',
                 'nickname' => 'みゆちゃん',
-                'residence' => '大阪府',
+                'residence' => '大阪府/心斎橋',
                 'location' => '大阪府',
                 'birth_year' => 1992,
                 'height' => 163,
@@ -88,7 +88,7 @@ class CastSeeder extends Seeder
             [
                 'line_id' => 'U2c631603ae11e074d8d954a85e773b03',
                 'nickname' => 'TARO',
-                'residence' => '東京都',
+                'residence' => '東京都/西麻布',
                 'location' => '東京都',
                 'birth_year' => 1995,
                 'height' => 160,

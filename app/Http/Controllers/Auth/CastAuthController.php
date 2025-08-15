@@ -330,7 +330,21 @@ class CastAuthController extends Controller
         
         // Apply area filter if provided
         if ($request->has('area') && $request->area) {
-            $query->where('residence', $request->area);
+            $area = $request->area;
+            $query->where(function($q) use ($area) {
+                $q->where('residence', $area)
+                  ->orWhere('residence', 'LIKE', $area . '/%')
+                  ->orWhereRaw("SUBSTRING_INDEX(residence, '/', 1) = ?", [$area]);
+            });
+        }
+        
+        // Apply prefecture filter if provided
+        if ($request->has('prefecture') && $request->prefecture) {
+            $prefecture = $request->prefecture;
+            $query->where(function($q) use ($prefecture) {
+                $q->where('residence', $prefecture)
+                  ->orWhere('residence', 'LIKE', '%/' . $prefecture . '%');
+            });
         }
         
         // Apply search filter if provided
@@ -366,22 +380,43 @@ class CastAuthController extends Controller
         return response()->json(['casts' => $casts]);
     }
 
+    // public function getCastCountsByLocation()
+    // {
+    //     try {
+    //         $counts = Cast::select('residence', \DB::raw('count(*) as count'))
+    //             ->whereNotNull('residence')
+    //             ->where('residence', '!=', '')
+    //             ->groupBy('residence')
+    //             ->pluck('count', 'residence')
+    //             ->toArray();
+            
+    //         return response()->json($counts);
+    //     } catch (\Exception $e) {
+    //         \Log::error('Error in getCastCountsByLocation: ' . $e->getMessage());
+    //         return response()->json([], 500);
+    //     }
+    // }
     public function getCastCountsByLocation()
     {
         try {
-            $counts = Cast::select('residence', \DB::raw('count(*) as count'))
+            $counts = Cast::select(
+                    // Extract everything before first slash, or full residence if no slash.
+                    \DB::raw("SUBSTRING_INDEX(residence, '/', 1) as residence_group"),
+                    \DB::raw('count(*) as count')
+                )
                 ->whereNotNull('residence')
                 ->where('residence', '!=', '')
-                ->groupBy('residence')
-                ->pluck('count', 'residence')
+                ->groupBy('residence_group')
+                ->pluck('count', 'residence_group')
                 ->toArray();
-            
+
             return response()->json($counts);
         } catch (\Exception $e) {
             \Log::error('Error in getCastCountsByLocation: ' . $e->getMessage());
             return response()->json([], 500);
         }
     }
+
 
     // Like or unlike a cast
     public function like(Request $request)

@@ -252,7 +252,7 @@ export default function CastCreate() {
                                             id="residence"
                                             value={data.residence}
                                             onChange={e => setData('residence', e.target.value)}
-                                            placeholder="東京都渋谷区"
+                                            placeholder="東京都/渋谷区"
                                         />
                                         {errors.residence && (
                                             <p className="text-sm text-red-500">{errors.residence}</p>

@@ -7,7 +7,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { ArrowLeft, Download, ZoomIn } from 'lucide-react';
+import { ArrowLeft, Download, ZoomIn, Upload, Trash2 } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { toast } from 'sonner';
 
@@ -98,6 +98,10 @@ export default function GuestEdit({ guest }: Props) {
         }).join(', ');
     });
     const [isSubmitting, setIsSubmitting] = useState(false);
+    const [currentAvatar, setCurrentAvatar] = useState<string>(guest.avatar || '');
+    const [selectedAvatarFile, setSelectedAvatarFile] = useState<File | null>(null);
+    const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
+    const [isDeletingAvatar, setIsDeletingAvatar] = useState(false);
 
     // Ensure form data is synchronized with guest data
     useEffect(() => {
@@ -197,6 +201,77 @@ export default function GuestEdit({ guest }: Props) {
         setSelectedImageUrl(null);
     };
 
+    const handleAvatarFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        if (e.target.files && e.target.files[0]) {
+            setSelectedAvatarFile(e.target.files[0]);
+        }
+    };
+
+    const uploadAvatar = async () => {
+        if (!selectedAvatarFile) {
+            toast.error('画像ファイルを選択してください');
+            return;
+        }
+        if (!formData.phone) {
+            toast.error('電話番号が必要です');
+            return;
+        }
+        setIsUploadingAvatar(true);
+        try {
+            const form = new FormData();
+            form.append('avatar', selectedAvatarFile);
+            form.append('phone', formData.phone);
+
+            const res = await fetch('/api/users/avatar', {
+                method: 'POST',
+                body: form
+            });
+
+            if (!res.ok) {
+                const err = await res.json().catch(() => ({}));
+                throw new Error(err.message || 'アップロードに失敗しました');
+            }
+            const data = await res.json();
+            setCurrentAvatar(data.avatar || '');
+            setSelectedAvatarFile(null);
+            toast.success('アバターを更新しました');
+        } catch (error: any) {
+            toast.error(error.message || 'アバターのアップロードに失敗しました');
+        } finally {
+            setIsUploadingAvatar(false);
+        }
+    };
+
+    const deleteAvatar = async () => {
+        if (!formData.phone) {
+            toast.error('電話番号が必要です');
+            return;
+        }
+        if (!currentAvatar) {
+            toast.error('削除するアバターがありません');
+            return;
+        }
+        setIsDeletingAvatar(true);
+        try {
+            const res = await fetch('/api/users/avatar', {
+                method: 'DELETE',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ phone: formData.phone })
+            });
+            if (!res.ok) {
+                const err = await res.json().catch(() => ({}));
+                throw new Error(err.message || '削除に失敗しました');
+            }
+            setCurrentAvatar('');
+            setSelectedAvatarFile(null);
+            toast.success('アバターを削除しました');
+        } catch (error: any) {
+            toast.error(error.message || 'アバターの削除に失敗しました');
+        } finally {
+            setIsDeletingAvatar(false);
+        }
+    };
+
     return (
         <AppLayout breadcrumbs={[
                 { title: 'ゲスト一覧', href: '/admin/guests' },
@@ -254,6 +329,63 @@ export default function GuestEdit({ guest }: Props) {
                                             placeholder="ニックネーム"
                                             disabled={isSubmitting}
                                         />
+                                    </div>
+
+                                    <div className="space-y-2">
+                                        <Label>アバター</Label>
+                                        <div className="flex items-start gap-4">
+                                            <div className="w-24 h-24 rounded-full overflow-hidden border bg-muted flex items-center justify-center">
+                                                {selectedAvatarFile ? (
+                                                    <img
+                                                        src={URL.createObjectURL(selectedAvatarFile)}
+                                                        alt="avatar preview"
+                                                        className="w-full h-full object-cover"
+                                                    />
+                                                ) : currentAvatar ? (
+                                                    <img
+                                                        src={`/storage/${currentAvatar}`}
+                                                        alt="avatar"
+                                                        className="w-full h-full object-cover"
+                                                        onError={(e) => {
+                                                            (e.currentTarget as HTMLImageElement).style.display = 'none';
+                                                        }}
+                                                    />
+                                                ) : (
+                                                    <span className="text-xs text-muted-foreground">No Image</span>
+                                                )}
+                                            </div>
+                                            <div className="flex-1 space-y-2">
+                                                <Input
+                                                    id="avatar"
+                                                    type="file"
+                                                    accept="image/*"
+                                                    onChange={handleAvatarFileChange}
+                                                    disabled={isSubmitting || isUploadingAvatar}
+                                                />
+                                                <div className="flex gap-2">
+                                                    <Button
+                                                        type="button"
+                                                        onClick={uploadAvatar}
+                                                        disabled={!selectedAvatarFile || isUploadingAvatar || !formData.phone}
+                                                    >
+                                                        <Upload className="w-4 h-4 mr-2" />
+                                                        {isUploadingAvatar ? 'アップロード中...' : 'アップロード'}
+                                                    </Button>
+                                                    <Button
+                                                        type="button"
+                                                        variant="outline"
+                                                        onClick={deleteAvatar}
+                                                        disabled={!currentAvatar || isDeletingAvatar}
+                                                    >
+                                                        <Trash2 className="w-4 h-4 mr-2" />
+                                                        {isDeletingAvatar ? '削除中...' : '削除'}
+                                                    </Button>
+                                                </div>
+                                                {!formData.phone && (
+                                                    <p className="text-xs text-red-500">電話番号を先に入力してください</p>
+                                                )}
+                                            </div>
+                                        </div>
                                     </div>
 
                                     <div className="space-y-2">

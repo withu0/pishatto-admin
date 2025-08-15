@@ -40,12 +40,6 @@ const categories = [
     { value: 'gift', label: 'ギフト' },
 ];
 
-const userTypes = [
-    { value: 'all', label: '全て' },
-    { value: 'guest', label: 'ゲスト' },
-    { value: 'cast', label: 'キャスト' },
-];
-
 const regions = [
     { value: '全国', label: '全国' },
     { value: '東京都', label: '東京都' },
@@ -58,8 +52,9 @@ const regions = [
 function AdminRankingContent() {
     const [rankings, setRankings] = useState<RankingData[]>([]);
     const [loading, setLoading] = useState(true);
+    const [activeTab, setActiveTab] = useState<'ゲスト' | 'キャスト'>('ゲスト');
     const [filters, setFilters] = useState<Filters>({
-        userType: 'all',
+        userType: 'guest',
         period: 'allTime',
         category: 'reservation',
         region: '全国',
@@ -69,7 +64,10 @@ function AdminRankingContent() {
     const fetchRankings = useCallback(async () => {
         setLoading(true);
         try {
-            const params = new URLSearchParams(filters as any);
+            const params = new URLSearchParams({
+                ...filters,
+                userType: activeTab === 'ゲスト' ? 'guest' : 'cast'
+            } as any);
             const response = await fetch(`/admin/ranking/data?${params.toString()}`, {
                 headers: {
                     'Accept': 'application/json',
@@ -90,11 +88,19 @@ function AdminRankingContent() {
         } finally {
             setLoading(false);
         }
-    }, [filters]);
+    }, [filters, activeTab]);
 
     useEffect(() => {
         fetchRankings();
     }, [fetchRankings]);
+
+    const handleTabChange = useCallback((tab: 'ゲスト' | 'キャスト') => {
+        setActiveTab(tab);
+        setFilters(prev => ({
+            ...prev,
+            userType: tab === 'ゲスト' ? 'guest' : 'cast'
+        }));
+    }, []);
 
     const handleFilterChange = useCallback((key: keyof Filters, value: string) => {
         setFilters(prev => ({
@@ -117,9 +123,30 @@ function AdminRankingContent() {
     return (
         <div className="p-6">
             <h1 className="text-2xl font-bold mb-4">ランキング管理</h1>
+            
+            {/* Tabs: Guest / Cast */}
+            <div className="mb-6">
+                <div className="inline-flex rounded-md border p-1 bg-white">
+                    <button
+                        type="button"
+                        className={`relative px-4 py-2 rounded-sm text-sm font-medium ${activeTab === 'ゲスト' ? 'bg-gray-900 text-white' : 'text-gray-700 hover:bg-gray-100'}`}
+                        onClick={() => handleTabChange('ゲスト')}
+                    >
+                        ゲスト
+                    </button>
+                    <button
+                        type="button"
+                        className={`relative px-4 py-2 rounded-sm text-sm font-medium ${activeTab === 'キャスト' ? 'bg-gray-900 text-white' : 'text-gray-700 hover:bg-gray-100'}`}
+                        onClick={() => handleTabChange('キャスト')}
+                    >
+                        キャスト
+                    </button>
+                </div>
+            </div>
+
             <Card>
                 <CardHeader className="flex flex-row items-center justify-between gap-4 pb-2">
-                    <CardTitle>ランキング一覧</CardTitle>
+                    <CardTitle>{activeTab === 'ゲスト' ? 'ゲスト' : 'キャスト'}ランキング一覧</CardTitle>
                     <Button size="sm" className="gap-1" onClick={fetchRankings} disabled={loading}>
                         <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
                         更新
@@ -127,22 +154,7 @@ function AdminRankingContent() {
                 </CardHeader>
                 <CardContent>
                     {/* Filters */}
-                    <div className="mb-6 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
-                        <div>
-                            <label className="block text-sm font-medium mb-1">種別</label>
-                            <Select value={filters.userType} onValueChange={(value) => handleFilterChange('userType', value)}>
-                                <SelectTrigger>
-                                    <SelectValue />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    {userTypes.map((type) => (
-                                        <SelectItem key={type.value} value={type.value}>
-                                            {type.label}
-                                        </SelectItem>
-                                    ))}
-                                </SelectContent>
-                            </Select>
-                        </div>
+                    <div className="mb-6 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                         <div>
                             <label className="block text-sm font-medium mb-1">期間</label>
                             <Select value={filters.period} onValueChange={(value) => handleFilterChange('period', value)}>
@@ -207,7 +219,6 @@ function AdminRankingContent() {
                             <thead>
                                 <tr className="bg-muted">
                                     <th className="px-3 py-2 text-left font-semibold">#</th>
-                                    <th className="px-3 py-2 text-left font-semibold">種別</th>
                                     <th className="px-3 py-2 text-left font-semibold">名前</th>
                                     <th className="px-3 py-2 text-left font-semibold">順位</th>
                                     <th className="px-3 py-2 text-left font-semibold">ポイント</th>
@@ -221,13 +232,13 @@ function AdminRankingContent() {
                             <tbody>
                                 {loading ? (
                                     <tr key="loading">
-                                        <td colSpan={8} className="text-center py-6 text-muted-foreground">
+                                        <td colSpan={7} className="text-center py-6 text-muted-foreground">
                                             データを読み込み中...
                                         </td>
                                     </tr>
                                 ) : filteredRankings.length === 0 ? (
                                     <tr key="no-data">
-                                        <td colSpan={8} className="text-center py-6 text-muted-foreground">
+                                        <td colSpan={7} className="text-center py-6 text-muted-foreground">
                                             該当するデータがありません
                                         </td>
                                     </tr>
@@ -235,7 +246,6 @@ function AdminRankingContent() {
                                     filteredRankings.map((item, idx) => (
                                         <tr key={`${item.id}-${item.type}-${idx}`} className="border-t">
                                             <td className="px-3 py-2">{idx + 1}</td>
-                                            <td className="px-3 py-2">{item.type}</td>
                                             <td className="px-3 py-2">{item.name}</td>
                                             <td className="px-3 py-2">{item.rank}</td>
                                             <td className="px-3 py-2">{item.points.toLocaleString()}</td>

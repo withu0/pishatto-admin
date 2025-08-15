@@ -469,6 +469,34 @@ class PaymentController extends Controller
     }
 
     /**
+     * Get a receipt by receipt number (public access)
+     */
+    public function getReceiptByNumber($receiptNumber)
+    {
+        try {
+            $receipt = Receipt::where('receipt_number', $receiptNumber)->first();
+            
+            if (!$receipt) {
+                return response()->json([
+                    'success' => false,
+                    'error' => '領収書が見つかりません'
+                ], 404);
+            }
+            
+            return response()->json([
+                'success' => true,
+                'receipt' => $receipt
+            ]);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'error' => '領収書の取得に失敗しました'
+            ], 500);
+        }
+    }
+
+    /**
      * Generate receipt HTML content
      */
     private function generateReceiptHtml($receiptNumber, $recipientName, $amount, $taxAmount, $totalAmount, $purpose)
