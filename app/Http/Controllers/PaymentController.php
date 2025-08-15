@@ -136,6 +136,21 @@ class PaymentController extends Controller
                     $newPoints = $currentPoints + $request->amount;
                     $model->points = $newPoints;
                     $model->save();
+                    // Update grades accordingly
+                    try {
+                        $gradeService = app(\App\Services\GradeService::class);
+                        if ($request->user_type === 'guest') {
+                            $gradeService->calculateAndUpdateGrade($model);
+                        } else {
+                            $gradeService->calculateAndUpdateCastGrade($model);
+                        }
+                    } catch (\Throwable $e) {
+                        Log::warning('Failed to update grade after direct charge', [
+                            'user_type' => $request->user_type,
+                            'user_id' => $request->user_id,
+                            'error' => $e->getMessage(),
+                        ]);
+                    }
 
                     // Create point transaction record for the direct charge
                     $pointTransactionData = [
@@ -276,6 +291,22 @@ class PaymentController extends Controller
             $newPoints = $currentPoints + $request->amount;
             $model->points = $newPoints;
             $model->save();
+
+            // Update grade based on new balance
+            try {
+                $gradeService = app(\App\Services\GradeService::class);
+                if ($request->user_type === 'guest') {
+                    $gradeService->calculateAndUpdateGrade($model);
+                } else {
+                    $gradeService->calculateAndUpdateCastGrade($model);
+                }
+            } catch (\Throwable $e) {
+                Log::warning('Failed to update grade after purchase', [
+                    'user_type' => $request->user_type,
+                    'user_id' => $request->user_id,
+                    'error' => $e->getMessage(),
+                ]);
+            }
 
             // Create point transaction record for the purchase
             $pointTransactionData = [
@@ -1202,6 +1233,15 @@ class PaymentController extends Controller
             if ($cast) {
                 $cast->points = ($cast->points ?? 0) + $request->amount;
                 $cast->save();
+                try {
+                    $gradeService = app(\App\Services\GradeService::class);
+                    $gradeService->calculateAndUpdateCastGrade($cast);
+                } catch (\Throwable $e) {
+                    Log::warning('Failed to update cast grade after admin create payment', [
+                        'cast_id' => $cast->id,
+                        'error' => $e->getMessage(),
+                    ]);
+                }
             }
         }
 
@@ -1245,6 +1285,15 @@ class PaymentController extends Controller
             if ($cast) {
                 $cast->points = ($cast->points ?? 0) + $payment->amount;
                 $cast->save();
+                try {
+                    $gradeService = app(\App\Services\GradeService::class);
+                    $gradeService->calculateAndUpdateCastGrade($cast);
+                } catch (\Throwable $e) {
+                    Log::warning('Failed to update cast grade after admin payment status change', [
+                        'cast_id' => $cast->id,
+                        'error' => $e->getMessage(),
+                    ]);
+                }
             }
         }
 
@@ -1268,6 +1317,15 @@ class PaymentController extends Controller
             if ($cast) {
                 $cast->points = max(0, ($cast->points ?? 0) - $payment->amount);
                 $cast->save();
+                try {
+                    $gradeService = app(\App\Services\GradeService::class);
+                    $gradeService->calculateAndUpdateCastGrade($cast);
+                } catch (\Throwable $e) {
+                    Log::warning('Failed to update cast grade after admin delete payment', [
+                        'cast_id' => $cast->id,
+                        'error' => $e->getMessage(),
+                    ]);
+                }
             }
         }
 

@@ -45,11 +45,14 @@ class PointTransactionService
             // Update user points based on transaction type
             $this->updateUserPoints($transaction, $data);
 
-            // Recalculate guest grade if this is a guest transaction
+            // Recalculate guest or cast grade as needed
+            /** @var GradeService $gradeService */
+            $gradeService = app(GradeService::class);
             if ($transaction->guest_id) {
-                /** @var GradeService $gradeService */
-                $gradeService = app(GradeService::class);
                 $gradeService->calculateAndUpdateGrade($transaction->guest);
+            }
+            if ($transaction->cast_id) {
+                $gradeService->calculateAndUpdateCastGrade($transaction->cast);
             }
 
             DB::commit();
@@ -145,6 +148,15 @@ class PointTransactionService
             // Update grade points after successful transaction
             $guest->grade_points += $requiredPoints;
             $guest->save();
+            try {
+                $gradeService = app(GradeService::class);
+                $gradeService->calculateAndUpdateGrade($guest);
+            } catch (\Throwable $e) {
+                Log::warning('Failed to update guest grade after creating pending transaction', [
+                    'guest_id' => $guest->id,
+                    'error' => $e->getMessage(),
+                ]);
+            }
 
             DB::commit();
             return true;
@@ -187,6 +199,9 @@ class PointTransactionService
                     if ($cast) {
                         $cast->points += $transaction->amount;
                         $cast->save();
+                        // Update cast grade based on new points
+                        $gradeService = app(GradeService::class);
+                        $gradeService->calculateAndUpdateCastGrade($cast);
                     }
                 }
                 break;
@@ -203,8 +218,25 @@ class PointTransactionService
                 break;
 
             case 'gift':
-                // Gift transactions: points already deducted from guest and added to cast
-                // No additional point updates needed here
+                // Gift transactions: ensure guest grade_points are updated and grades recalculated
+                if ($transaction->guest_id) {
+                    $guest = Guest::find($transaction->guest_id);
+                    if ($guest) {
+                        // Guest grade_points should already be updated in ChatController
+                        // Just recalculate grade to ensure consistency
+                        $gradeService = app(GradeService::class);
+                        $gradeService->calculateAndUpdateGrade($guest);
+                    }
+                }
+                if ($transaction->cast_id) {
+                    $cast = Cast::find($transaction->cast_id);
+                    if ($cast) {
+                        // Cast points should already be updated in ChatController
+                        // Just recalculate grade to ensure consistency
+                        $gradeService = app(GradeService::class);
+                        $gradeService->calculateAndUpdateCastGrade($cast);
+                    }
+                }
                 break;
 
             case 'buy':

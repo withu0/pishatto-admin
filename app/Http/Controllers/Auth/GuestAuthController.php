@@ -1571,6 +1571,16 @@ class GuestAuthController extends Controller
             $guest->points -= $request->amount;
             $guest->grade_points += $request->amount;
             $guest->save();
+            // Update guest grade based on new grade_points
+            try {
+                $gradeService = app(\App\Services\GradeService::class);
+                $gradeService->calculateAndUpdateGrade($guest);
+            } catch (\Throwable $e) {
+                \Log::warning('Failed to update guest grade after manual deduction', [
+                    'guest_id' => $guest->id,
+                    'error' => $e->getMessage(),
+                ]);
+            }
             
             error_log("Points deducted successfully". json_encode($guest));
             DB::commit();

@@ -96,13 +96,25 @@ class ChatController extends Controller
                     if ($guest && $cast) {
                         // Check if guest has enough points
                         if ($guest->points >= $gift->points) {
-                            // Deduct points from guest
+                            // Deduct points from guest and add to grade_points (spending contributes to grade)
                             $guest->points -= $gift->points;
+                            $guest->grade_points += $gift->points;
                             $guest->save();
                             
-                            // Add points to cast
+                            // Add points to cast and update cast grade
                             $cast->points += $gift->points;
                             $cast->save();
+                            // Recalculate cast grade based on accumulated points
+                            try {
+                                $gradeService = app(\App\Services\GradeService::class);
+                                $gradeService->calculateAndUpdateCastGrade($cast);
+                                $gradeService->calculateAndUpdateGrade($guest);
+                            } catch (\Throwable $e) {
+                                \Log::warning('Failed to update cast grade after gift', [
+                                    'cast_id' => $cast->id,
+                                    'error' => $e->getMessage(),
+                                ]);
+                            }
                             
                             // Create point transaction record
                             try {
@@ -505,12 +517,23 @@ class ChatController extends Controller
                         $cast = \App\Models\Cast::find($chat->cast_id);
                         
                         if ($guest && $cast && $guest->points >= $gift->points) {
-                            // Deduct and credit points
+                            // Deduct points from guest and add to grade_points (spending contributes to grade)
                             $guest->points -= $gift->points;
+                            $guest->grade_points += $gift->points;
                             $guest->save();
                             
                             $cast->points += $gift->points;
                             $cast->save();
+                            try {
+                                $gradeService = app(\App\Services\GradeService::class);
+                                $gradeService->calculateAndUpdateCastGrade($cast);
+                                $gradeService->calculateAndUpdateGrade($guest);
+                            } catch (\Throwable $e) {
+                                \Log::warning('Failed to update cast grade after group gift', [
+                                    'cast_id' => $cast->id,
+                                    'error' => $e->getMessage(),
+                                ]);
+                            }
                             
                             // Record point transaction
                             \App\Models\PointTransaction::create([

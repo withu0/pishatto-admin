@@ -205,46 +205,35 @@ class GradeService
     ];
 
     /**
-     * Calculate and update guest grade based on their usage points
+     * Calculate and update guest grade based on their grade_points field
      */
     public function calculateAndUpdateGrade(Guest $guest): array
     {
         $currentGrade = $guest->grade ?? 'green';
-        $currentGradePoints = $guest->grade_points ?? 0;
-        
-        // Calculate total usage points from point transactions
-        $usagePoints = $this->calculateUsagePoints($guest);
-        
-        // Determine new grade based on usage points
-        $newGrade = $this->determineGrade($usagePoints);
-        
-        // Check if grade should be updated
+        $currentGradePoints = (int) ($guest->grade_points ?? 0);
+
+        // Determine new grade based on stored grade_points
+        $newGrade = $this->determineGrade($currentGradePoints);
+
+        // Update grade only when it changes; do not overwrite grade_points here
         if ($newGrade !== $currentGrade) {
             $guest->update([
                 'grade' => $newGrade,
-                'grade_points' => $usagePoints,
                 'grade_updated_at' => now(),
             ]);
-            
+
             return [
                 'old_grade' => $currentGrade,
                 'new_grade' => $newGrade,
-                'grade_points' => $usagePoints,
+                'grade_points' => $currentGradePoints,
                 'upgraded' => true,
             ];
         }
-        
-        // Update grade points even if grade didn't change
-        if ($usagePoints !== $currentGradePoints) {
-            $guest->update([
-                'grade_points' => $usagePoints,
-            ]);
-        }
-        
+
         return [
             'old_grade' => $currentGrade,
             'new_grade' => $currentGrade,
-            'grade_points' => $usagePoints,
+            'grade_points' => $currentGradePoints,
             'upgraded' => false,
         ];
     }
@@ -382,46 +371,35 @@ class GradeService
     }
 
     /**
-     * Calculate and update cast grade based on their FP (Friend Points)
+     * Calculate and update cast grade based on their points balance
      */
     public function calculateAndUpdateCastGrade(Cast $cast): array
     {
         $currentGrade = $cast->grade ?? 'beginner';
-        $currentGradePoints = $cast->grade_points ?? 0;
-        
-        // Calculate total FP from various sources
-        $totalFP = $this->calculateCastFP($cast);
-        
-        // Determine new grade based on FP
-        $newGrade = $this->determineCastGrade($totalFP);
-        
-        // Check if grade should be updated
+        $currentPoints = (int) ($cast->points ?? 0);
+
+        // Determine new grade based on accumulated cast points
+        $newGrade = $this->determineCastGrade($currentPoints);
+
+        // Update grade only when it changes; NEVER overwrite cast.grade_points (used as rate)
         if ($newGrade !== $currentGrade) {
             $cast->update([
                 'grade' => $newGrade,
-                'grade_points' => $totalFP,
                 'grade_updated_at' => now(),
             ]);
-            
+
             return [
                 'old_grade' => $currentGrade,
                 'new_grade' => $newGrade,
-                'grade_points' => $totalFP,
+                'grade_points' => $currentPoints,
                 'upgraded' => true,
             ];
         }
-        
-        // Update grade points even if grade didn't change
-        if ($totalFP !== $currentGradePoints) {
-            $cast->update([
-                'grade_points' => $totalFP,
-            ]);
-        }
-        
+
         return [
             'old_grade' => $currentGrade,
             'new_grade' => $currentGrade,
-            'grade_points' => $totalFP,
+            'grade_points' => $currentPoints,
             'upgraded' => false,
         ];
     }
@@ -534,20 +512,20 @@ class GradeService
     public function getCastGradeInfo(Cast $cast): array
     {
         $grade = $this->normalizeCastGrade($cast->grade ?? 'beginner');
-        $gradePoints = $cast->grade_points ?? 0;
-        
-        // Calculate next grade threshold
+        $accumulatedPoints = (int) ($cast->points ?? 0);
+
+        // Calculate next grade threshold using accumulated points
         $nextGrade = $this->getNextCastGrade($grade);
         $nextGradeThreshold = $nextGrade ? self::CAST_GRADE_THRESHOLDS[$nextGrade] : null;
-        $pointsToNextGrade = $nextGradeThreshold ? $nextGradeThreshold - $gradePoints : 0;
-        
-        // Calculate detailed FP breakdown
+        $pointsToNextGrade = $nextGradeThreshold ? max(0, $nextGradeThreshold - $accumulatedPoints) : 0;
+
+        // Detailed FP breakdown can still be presented for analytics
         $fpBreakdown = $this->calculateCastFPBreakdown($cast);
-        
+
         return [
             'current_grade' => $grade,
             'current_grade_name' => self::CAST_GRADE_NAMES[$grade],
-            'grade_points' => $gradePoints,
+            'grade_points' => $accumulatedPoints,
             'next_grade' => $nextGrade,
             'next_grade_name' => $nextGrade ? self::CAST_GRADE_NAMES[$nextGrade] : null,
             'points_to_next_grade' => $pointsToNextGrade,
