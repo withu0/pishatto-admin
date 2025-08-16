@@ -155,3 +155,4 @@ if (file_exists('debug_cookies.txt')) {
 echo "=== Debug completed ===\n";
 echo "Check the Laravel logs for additional CSRF debugging information.\n";
 echo "Log file location: storage/logs/laravel.log\n";
+

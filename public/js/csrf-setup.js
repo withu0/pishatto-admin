@@ -126,3 +126,4 @@
 
     console.log('CSRF setup completed');
 })();
+

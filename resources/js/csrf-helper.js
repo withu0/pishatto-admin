@@ -205,3 +205,4 @@ if (document.readyState === 'loading') {
 if (typeof module !== 'undefined' && module.exports) {
     module.exports = CSRFHelper;
 }
+

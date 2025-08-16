@@ -161,3 +161,4 @@ echo "2. Check that session files are being created and are writable\n";
 echo "3. Verify session configuration in .env file\n";
 echo "4. Make sure session driver is properly configured\n";
 echo "5. Check for any session-related errors in Laravel logs\n";
+
