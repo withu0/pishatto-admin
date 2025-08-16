@@ -2,6 +2,7 @@
 
 use App\Http\Middleware\HandleAppearance;
 use App\Http\Middleware\HandleInertiaRequests;
+use App\Http\Middleware\HandleCsrfToken;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
@@ -23,11 +24,11 @@ return Application::configure(basePath: dirname(__DIR__))
             AddLinkHeadersForPreloadedAssets::class,
         ]);
 
-        // Exclude upload route from CSRF protection
-        $middleware->validateCsrfTokens(except: [
-            'admin/casts/upload-avatar',
-            'line/*', // Exclude Line authentication routes from CSRF protection
-        ]);
+        // Use custom CSRF middleware for better handling
+        $middleware->replace(
+            \Illuminate\Foundation\Http\Middleware\ValidateCsrfToken::class,
+            HandleCsrfToken::class
+        );
     })
     ->withExceptions(function (Exceptions $exceptions) {
         //

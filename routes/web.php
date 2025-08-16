@@ -101,6 +101,16 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::get('admin/grades/{grade}/guests', [GradeController::class, 'getGuestsByGrade'])->name('admin.grades.guests');
 });
 
+// CSRF token refresh route
+Route::get('/csrf-token', function () {
+    return response()->json(['token' => csrf_token()]);
+})->name('csrf.token');
+
+// Test CSRF token route
+Route::post('/test-csrf', function () {
+    return response()->json(['message' => 'CSRF token is valid']);
+})->name('test.csrf');
+
 // Line authentication routes
 Route::get('/api/line/redirect', [App\Http\Controllers\Auth\LineAuthController::class, 'redirectToLine'])->name('line.redirect');
 Route::get('/api/line/callback', [App\Http\Controllers\Auth\LineAuthController::class, 'handleLineCallback'])->name('line.callback');
