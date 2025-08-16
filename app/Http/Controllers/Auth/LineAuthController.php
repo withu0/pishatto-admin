@@ -141,7 +141,7 @@ class LineAuthController extends Controller
                         'line_avatar' => $lineAvatar,
                         'user_type' => 'guest',
                     ]);
-                    return redirect()->away($frontendUrl . '/line-register?' . $query);
+                    return redirect()->away($frontendUrl . '/line-register-steps?' . $query);
                 }
 
                 return response()->json([
