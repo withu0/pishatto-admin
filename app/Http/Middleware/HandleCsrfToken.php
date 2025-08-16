@@ -5,6 +5,7 @@ namespace App\Http\Middleware;
 use Closure;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Session;
+use Illuminate\Support\Facades\Log;
 use Symfony\Component\HttpFoundation\Response;
 
 class HandleCsrfToken
@@ -25,7 +26,39 @@ class HandleCsrfToken
         if ($request->ajax() || $request->wantsJson()) {
             $token = $request->header('X-CSRF-TOKEN') ?: $request->input('_token');
             
-            if (!$token || !$this->tokensMatch($token)) {
+            // Log CSRF token information for debugging
+            Log::info('CSRF Token Check', [
+                'url' => $request->url(),
+                'method' => $request->method(),
+                'has_token' => !empty($token),
+                'token_length' => $token ? strlen($token) : 0,
+                'session_id' => Session::getId(),
+                'session_has_token' => Session::has('_token')
+            ]);
+            
+            if (!$token) {
+                Log::warning('CSRF token missing', [
+                    'url' => $request->url(),
+                    'headers' => $request->headers->all()
+                ]);
+                
+                return response()->json([
+                    'message' => 'CSRF token missing.',
+                    'error' => 'csrf_missing',
+                    'debug' => [
+                        'session_id' => Session::getId(),
+                        'session_has_token' => Session::has('_token')
+                    ]
+                ], 419);
+            }
+            
+            if (!$this->tokensMatch($token)) {
+                Log::warning('CSRF token mismatch', [
+                    'url' => $request->url(),
+                    'provided_token_length' => strlen($token),
+                    'session_token_length' => Session::has('_token') ? strlen(Session::token()) : 0
+                ]);
+                
                 // Try to refresh the token
                 $this->regenerateToken();
                 
@@ -33,7 +66,12 @@ class HandleCsrfToken
                 if (!$this->tokensMatch($token)) {
                     return response()->json([
                         'message' => 'CSRF token mismatch.',
-                        'error' => 'csrf_mismatch'
+                        'error' => 'csrf_mismatch',
+                        'debug' => [
+                            'session_id' => Session::getId(),
+                            'session_has_token' => Session::has('_token'),
+                            'token_refreshed' => true
+                        ]
                     ], 419);
                 }
             }
@@ -52,6 +90,7 @@ class HandleCsrfToken
             'line/*',
             'sanctum/csrf-cookie',
             'csrf-token',
+            'api/*', // Exclude API routes from CSRF protection
         ];
 
         foreach ($excludedPaths as $path) {
@@ -78,6 +117,16 @@ class HandleCsrfToken
         }
 
         $sessionToken = Session::token();
+        
+        // Ensure session token exists
+        if (!$sessionToken) {
+            Log::error('Session token is null', [
+                'session_id' => Session::getId(),
+                'session_status' => Session::isStarted()
+            ]);
+            return false;
+        }
+        
         return hash_equals($sessionToken, $token);
     }
 
@@ -87,5 +136,8 @@ class HandleCsrfToken
     protected function regenerateToken(): void
     {
         Session::regenerateToken();
+        Log::info('CSRF token regenerated', [
+            'session_id' => Session::getId()
+        ]);
     }
 }

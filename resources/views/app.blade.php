@@ -44,6 +44,9 @@
         @viteReactRefresh
         @vite(['resources/js/app.tsx', "resources/js/pages/{$page['component']}.tsx"])
         @inertiaHead
+        
+        {{-- CSRF Helper Script --}}
+        <script src="{{ asset('js/csrf-setup.js') }}"></script>
     </head>
     <body class="font-sans antialiased">
         @inertia
