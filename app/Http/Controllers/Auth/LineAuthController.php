@@ -124,14 +124,8 @@ class LineAuthController extends Controller
                     ]);
                 }
 
-                // No existing guest linked to this LINE account, create placeholder and proceed to registration
-                $placeholderGuest = Guest::create([
-                    'line_id' => $lineId,
-                    'nickname' => $lineName ?: 'Guest',
-                    'avatar' => $lineAvatar,
-                    'status' => 'active'
-                ]);
-
+                // No existing guest linked to this LINE account, redirect to registration
+                // Don't create a database record yet - wait for complete registration
                 $frontendUrl = $this->getFrontendUrl();
                 if (!($request->expectsJson() || $request->wantsJson())) {
                     $query = http_build_query([
@@ -141,7 +135,7 @@ class LineAuthController extends Controller
                         'line_avatar' => $lineAvatar,
                         'user_type' => 'guest',
                     ]);
-                    return redirect()->away($frontendUrl . '/line-register-steps?' . $query);
+                    return redirect()->away($frontendUrl . '/line-register?' . $query);
                 }
 
                 return response()->json([
@@ -153,7 +147,7 @@ class LineAuthController extends Controller
                         'line_name' => $lineName,
                         'line_avatar' => $lineAvatar
                     ],
-                    'message' => 'New guest created with LINE. Continue registration.'
+                    'message' => 'New guest with LINE. Continue registration.'
                 ]);
             }
             
@@ -372,8 +366,7 @@ class LineAuthController extends Controller
             'line_email' => 'nullable|email',
             'line_name' => 'nullable|string',
             'line_avatar' => 'nullable|string',
-            'additional_data' => 'required|string',
-            'profile_photo' => 'nullable|image|mimes:jpeg,png,jpg,gif,webp|max:20480'
+            'additional_data' => 'required|array'
         ]);
 
         try {
@@ -381,50 +374,26 @@ class LineAuthController extends Controller
             $lineEmail = $request->line_email;
             $lineName = $request->line_name;
             $lineAvatar = $request->line_avatar;
-            $additionalData = json_decode($request->additional_data, true);
+            $additionalData = $request->additional_data;
             $userType = $request->user_type;
-            
-            if (!$additionalData) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Invalid additional_data format'
-                ], 422);
-            }
 
             // Find any existing accounts linked to this LINE ID
             $existingGuest = Guest::where('line_id', $lineId)->first();
             $existingCast = Cast::where('line_id', $lineId)->first();
 
             if ($userType === 'guest') {
-                // Handle profile photo upload if present
-                $avatarPath = $lineAvatar; // Default to LINE avatar
-                
-                // Handle file upload if profile_photo is sent as a file
-                if ($request->hasFile('profile_photo')) {
-                    $file = $request->file('profile_photo');
-                    $fileName = time() . '_' . $file->getClientOriginalName();
-                    $path = $file->storeAs('avatars', $fileName, 'public');
-                    $avatarPath = 'avatars/' . $fileName;
-                }
-
                 if ($existingGuest) {
                     // Update existing guest with additional data
-                    $updateData = $additionalData;
-                    if ($avatarPath && $avatarPath !== $lineAvatar) {
-                        $updateData['avatar'] = $avatarPath;
-                    }
-                    $existingGuest->update($updateData);
+                    $existingGuest->update($additionalData);
                     $guest = $existingGuest;
                 } else {
                     // Create new guest
-                    $guestData = array_merge([
+                    $guest = Guest::create(array_merge([
                         'line_id' => $lineId,
                         'nickname' => $lineName ?: 'Guest',
-                        'avatar' => $avatarPath,
+                        'avatar' => $lineAvatar,
                         'status' => 'active'
-                    ], $additionalData);
-                    
-                    $guest = Guest::create($guestData);
+                    ], $additionalData));
                 }
 
                 // Log the guest in
@@ -445,7 +414,6 @@ class LineAuthController extends Controller
             }
 
         } catch (\Exception $e) {
-            \Log::error('LINE registration error: ' . $e->getMessage());
             return response()->json([
                 'success' => false,
                 'message' => 'Registration failed: ' . $e->getMessage()
