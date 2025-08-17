@@ -166,7 +166,7 @@ export default function GuestEdit({ guest }: Props) {
                     setIsSubmitting(false);
                 }
             });
-        } catch (error) {
+        } catch  {
             toast.error('ゲストの更新に失敗しました');
             setIsSubmitting(false);
         }
@@ -196,11 +196,6 @@ export default function GuestEdit({ guest }: Props) {
         setIsDialogOpen(true);
     };
 
-    const handleCloseDialog = () => {
-        setIsDialogOpen(false);
-        setSelectedImageUrl(null);
-    };
-
     const handleAvatarFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         if (e.target.files && e.target.files[0]) {
             setSelectedAvatarFile(e.target.files[0]);
@@ -212,15 +207,21 @@ export default function GuestEdit({ guest }: Props) {
             toast.error('画像ファイルを選択してください');
             return;
         }
-        if (!formData.phone) {
-            toast.error('電話番号が必要です');
+        if (!formData.phone && !formData.line_id) {
+            toast.error('電話番号またはLINE IDが必要です');
             return;
         }
         setIsUploadingAvatar(true);
         try {
             const form = new FormData();
             form.append('avatar', selectedAvatarFile);
-            form.append('phone', formData.phone);
+            
+            // Use phone if available, otherwise use line_id
+            if (formData.phone) {
+                form.append('phone', formData.phone);
+            } else {
+                form.append('line_id', formData.line_id!);
+            }
 
             const res = await fetch('/api/users/avatar', {
                 method: 'POST',
@@ -235,16 +236,16 @@ export default function GuestEdit({ guest }: Props) {
             setCurrentAvatar(data.avatar || '');
             setSelectedAvatarFile(null);
             toast.success('アバターを更新しました');
-        } catch (error: any) {
-            toast.error(error.message || 'アバターのアップロードに失敗しました');
+        } catch {
+            toast.error( 'アバターのアップロードに失敗しました');
         } finally {
             setIsUploadingAvatar(false);
         }
     };
 
     const deleteAvatar = async () => {
-        if (!formData.phone) {
-            toast.error('電話番号が必要です');
+        if (!formData.phone && !formData.line_id) {
+            toast.error('電話番号またはLINE IDが必要です');
             return;
         }
         if (!currentAvatar) {
@@ -256,7 +257,11 @@ export default function GuestEdit({ guest }: Props) {
             const res = await fetch('/api/users/avatar', {
                 method: 'DELETE',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ phone: formData.phone })
+                body: JSON.stringify(
+                    formData.phone 
+                        ? { phone: formData.phone }
+                        : { line_id: formData.line_id }
+                )
             });
             if (!res.ok) {
                 const err = await res.json().catch(() => ({}));
@@ -265,8 +270,8 @@ export default function GuestEdit({ guest }: Props) {
             setCurrentAvatar('');
             setSelectedAvatarFile(null);
             toast.success('アバターを削除しました');
-        } catch (error: any) {
-            toast.error(error.message || 'アバターの削除に失敗しました');
+        } catch {
+            toast.error('アバターの削除に失敗しました');
         } finally {
             setIsDeletingAvatar(false);
         }
@@ -365,7 +370,7 @@ export default function GuestEdit({ guest }: Props) {
                                                     <Button
                                                         type="button"
                                                         onClick={uploadAvatar}
-                                                        disabled={!selectedAvatarFile || isUploadingAvatar || !formData.phone}
+                                                        disabled={!selectedAvatarFile || isUploadingAvatar || (!formData.phone && !formData.line_id)}
                                                     >
                                                         <Upload className="w-4 h-4 mr-2" />
                                                         {isUploadingAvatar ? 'アップロード中...' : 'アップロード'}
@@ -380,8 +385,8 @@ export default function GuestEdit({ guest }: Props) {
                                                         {isDeletingAvatar ? '削除中...' : '削除'}
                                                     </Button>
                                                 </div>
-                                                {!formData.phone && (
-                                                    <p className="text-xs text-red-500">電話番号を先に入力してください</p>
+                                                {!formData.phone && !formData.line_id && (
+                                                    <p className="text-xs text-red-500">電話番号またはLINE IDを先に入力してください</p>
                                                 )}
                                             </div>
                                         </div>

@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import AppLayout from '@/layouts/app-layout';
 import { Head, router, Link } from '@inertiajs/react';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
@@ -6,7 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { ArrowLeft } from 'lucide-react';
-import { useState, useEffect } from 'react';
+
 
 interface Location {
     id: number;

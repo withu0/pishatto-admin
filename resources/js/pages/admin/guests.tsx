@@ -93,7 +93,7 @@ export default function AdminGuests({ guests, filters }: Props) {
                     setIsDeleting(null);
                 }
             });
-        } catch (error) {
+        } catch {
             toast.error('ゲストの削除に失敗しました');
             setIsDeleting(null);
         }
@@ -118,7 +118,7 @@ export default function AdminGuests({ guests, filters }: Props) {
                     setIsApproving(null);
                 }
             });
-        } catch (error) {
+        } catch {
             toast.error('承認に失敗しました');
             setIsApproving(null);
         }
@@ -143,7 +143,7 @@ export default function AdminGuests({ guests, filters }: Props) {
                     setIsRejecting(null);
                 }
             });
-        } catch (error) {
+        } catch {
             toast.error('却下に失敗しました');
             setIsRejecting(null);
         }
