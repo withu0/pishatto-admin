@@ -17,6 +17,7 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use App\Models\Reservation;
 use App\Models\Notification;
 use App\Models\Badge;
@@ -212,10 +213,25 @@ class GuestAuthController extends Controller
         ]);
     }
 
+    public function getProfileByLineId($line_id)
+    {
+        $guest = Guest::where('line_id', $line_id)->first();
+        
+        if (!$guest) {
+            return response()->json(['message' => 'Guest not found'], 404);
+        }
+        
+        return response()->json([
+            'guest' => $guest,
+            'interests' => $guest->interests ?? [],
+        ]);
+    }
+
     public function updateProfile(Request $request)
     {
         $validator = Validator::make($request->all(), [
-            'phone' => 'required|string|exists:guests,phone',
+            'phone' => 'nullable|string|exists:guests,phone',
+            'line_id' => 'nullable|string',
             'nickname' => 'nullable|string|max:50',
             'location' => 'nullable|string|max:50',
             'profile_photo' => 'nullable|image|mimes:jpeg,png,jpg,gif|max:20480',
@@ -238,6 +254,14 @@ class GuestAuthController extends Controller
             return response()->json([
                 'message' => 'Validation failed',
                 'errors' => $validator->errors()
+            ], 422);
+        }
+
+        // Check if either phone or line_id is provided
+        if (!$request->has('phone') && !$request->has('line_id')) {
+            return response()->json([
+                'message' => 'Either phone or line_id is required',
+                'errors' => ['identification' => 'Either phone or line_id must be provided']
             ], 422);
         }
 
@@ -267,8 +291,16 @@ class GuestAuthController extends Controller
             $data['favorite_area'] = $data['location'];
         }
         
+        // Determine the search condition based on what's provided
+        $searchCondition = [];
+        if (isset($data['phone'])) {
+            $searchCondition['phone'] = $data['phone'];
+        } elseif (isset($data['line_id'])) {
+            $searchCondition['line_id'] = $data['line_id'];
+        }
+        
         $guest = Guest::updateOrCreate(
-            ['phone' => $data['phone']],
+            $searchCondition,
             $data
         );
         
@@ -379,7 +411,7 @@ class GuestAuthController extends Controller
 
         } catch (\Exception $e) {
             DB::rollBack();
-            \Log::error('createReservation error: ' . $e->getMessage() . "\n" . $e->getTraceAsString());
+            Log::error('createReservation error: ' . $e->getMessage() . "\n" . $e->getTraceAsString());
             return response()->json([
                 'message' => 'Failed to create reservation',
                 'error' => $e->getMessage()
@@ -485,7 +517,7 @@ class GuestAuthController extends Controller
 
         } catch (\Exception $e) {
             DB::rollBack();
-            \Log::error('createFreeCall error: ' . $e->getMessage() . "\n" . $e->getTraceAsString());
+            Log::error('createFreeCall error: ' . $e->getMessage() . "\n" . $e->getTraceAsString());
             return response()->json([
                 'message' => 'Failed to create free call',
                 'error' => $e->getMessage()
@@ -582,7 +614,6 @@ class GuestAuthController extends Controller
 
         } catch (\Exception $e) {
             DB::rollBack();
-            \Log::error('createFreeCallReservation error: ' . $e->getMessage() . "\n" . $e->getTraceAsString());
             return response()->json([
                 'message' => 'Failed to create free call reservation',
                 'error' => $e->getMessage()
@@ -597,14 +628,7 @@ class GuestAuthController extends Controller
         $premiumCount = $castCounts['premium'] ?? 0;
         $totalCasts = $royalVipCount + $vipCount + $premiumCount;
         
-        \Log::info('getAvailableCastsForFreeCall called', [
-            'location' => $location,
-            'castCounts' => $castCounts,
-            'royalVipCount' => $royalVipCount,
-            'vipCount' => $vipCount,
-            'premiumCount' => $premiumCount,
-            'totalCasts' => $totalCasts
-        ]);
+
         
         // Get all available casts in the specified location first
         $availableCasts = Cast::where('location', $location)
@@ -612,7 +636,7 @@ class GuestAuthController extends Controller
             ->inRandomOrder()
             ->get();
             
-        \Log::info('Available casts in location', [
+        Log::info('Available casts in location', [
             'location' => $location,
             'count' => $availableCasts->count(),
             'cast_ids' => $availableCasts->pluck('id')->toArray()
@@ -627,11 +651,7 @@ class GuestAuthController extends Controller
                 ->limit($remainingCount)
                 ->get();
                 
-            \Log::info('Additional casts from other locations', [
-                'remainingCount' => $remainingCount,
-                'additionalCount' => $additionalCasts->count(),
-                'additional_cast_ids' => $additionalCasts->pluck('id')->toArray()
-            ]);
+
             
             $availableCasts = $availableCasts->merge($additionalCasts);
         }
@@ -645,7 +665,7 @@ class GuestAuthController extends Controller
                 ->limit($finalRemainingCount)
                 ->get();
                 
-            \Log::info('Final additional casts', [
+            Log::info('Final additional casts', [
                 'finalRemainingCount' => $finalRemainingCount,
                 'finalCount' => $finalCasts->count(),
                 'final_cast_ids' => $finalCasts->pluck('id')->toArray()
@@ -657,7 +677,7 @@ class GuestAuthController extends Controller
         // Take only the required number of casts
         $selectedCasts = $availableCasts->take($totalCasts);
 
-        \Log::info('Final selected casts', [
+        Log::info('Final selected casts', [
             'totalRequested' => $totalCasts,
             'totalSelected' => $selectedCasts->count(),
             'selected_cast_ids' => $selectedCasts->pluck('id')->toArray(),
@@ -893,7 +913,7 @@ class GuestAuthController extends Controller
     // Fetch notifications for a user
     public function getNotifications($userType, $userId)
     {
-        \Log::info('Fetching notifications', ['user_type' => $userType, 'user_id' => $userId]);
+
         
         try {
             $notifications = Notification::where('user_type', $userType)
@@ -901,7 +921,6 @@ class GuestAuthController extends Controller
                 ->orderBy('created_at', 'desc')
                 ->get();
 
-            \Log::info('Found notifications', ['count' => $notifications->count()]);
 
             // For notifications with cast_id, fetch cast information
             foreach ($notifications as $notification) {
@@ -917,10 +936,10 @@ class GuestAuthController extends Controller
                 }
             }
 
-            \Log::info('Returning notifications', ['notifications' => $notifications->toArray()]);
+
             return response()->json(['notifications' => $notifications]);
         } catch (\Exception $e) {
-            \Log::error('Error fetching notifications', ['error' => $e->getMessage(), 'trace' => $e->getTraceAsString()]);
+
             return response()->json(['error' => 'Failed to fetch notifications'], 500);
         }
     }
@@ -968,7 +987,6 @@ class GuestAuthController extends Controller
 
             return response()->json(['count' => $count]);
         } catch (\Exception $e) {
-            \Log::error('Error fetching unread notification count', ['error' => $e->getMessage(), 'trace' => $e->getTraceAsString()]);
             return response()->json(['error' => 'Failed to fetch unread notification count'], 500);
         }
     }
@@ -1044,7 +1062,6 @@ class GuestAuthController extends Controller
             event(new \App\Events\ReservationUpdated($reservation));
             return response()->json(['reservation' => $reservation]);
         } catch (\Throwable $e) {
-            \Log::error('updateReservation error: ' . $e->getMessage() . "\n" . $e->getTraceAsString());
             return response()->json(['message' => 'Server error', 'error' => $e->getMessage(), 'trace' => $e->getTraceAsString()], 500);
         }
     }
@@ -1109,17 +1126,7 @@ class GuestAuthController extends Controller
             $extensionFee = $this->pointTransactionService->calculateExtensionFee($reservation);
             $basePoints = $this->pointTransactionService->calculateReservationPoints($reservation);
 
-            \Log::info('Reservation completion processed successfully', [
-                'reservation_id' => $reservation->id,
-                'guest_id' => $reservation->guest_id,
-                'cast_id' => $cast->id,
-                'points_earned' => $reservation->points_earned,
-                'base_points' => $basePoints,
-                'night_time_bonus' => $nightTimeBonus,
-                'extension_fee' => $extensionFee,
-                'points_reserved' => $reservedAmount,
-                'points_refunded' => $refundAmount
-            ]);
+
 
             return response()->json([
                 'message' => 'Reservation completed successfully',
@@ -1134,7 +1141,7 @@ class GuestAuthController extends Controller
 
         } catch (\Exception $e) {
             DB::rollBack();
-            \Log::error('completeReservation error: ' . $e->getMessage() . "\n" . $e->getTraceAsString());
+            Log::error('completeReservation error: ' . $e->getMessage() . "\n" . $e->getTraceAsString());
             return response()->json([
                 'message' => 'Failed to complete reservation',
                 'error' => $e->getMessage()
@@ -1188,11 +1195,7 @@ class GuestAuthController extends Controller
 
             $refundAmount = $refundTransaction ? $refundTransaction->amount : 0;
 
-            \Log::info('Reservation cancelled and points refunded', [
-                'reservation_id' => $reservation->id,
-                'guest_id' => $guest->id,
-                'points_refunded' => $refundAmount
-            ]);
+
 
             return response()->json([
                 'message' => 'Reservation cancelled successfully',
@@ -1203,7 +1206,6 @@ class GuestAuthController extends Controller
 
         } catch (\Exception $e) {
             DB::rollBack();
-            \Log::error('cancelReservation error: ' . $e->getMessage() . "\n" . $e->getTraceAsString());
             return response()->json([
                 'message' => 'Failed to cancel reservation',
                 'error' => $e->getMessage()
@@ -1278,7 +1280,7 @@ class GuestAuthController extends Controller
             ]);
 
         } catch (\Exception $e) {
-            \Log::error('getPointBreakdown error: ' . $e->getMessage() . "\n" . $e->getTraceAsString());
+            Log::error('getPointBreakdown error: ' . $e->getMessage() . "\n" . $e->getTraceAsString());
             return response()->json([
                 'message' => 'Failed to calculate point breakdown',
                 'error' => $e->getMessage()
@@ -1321,11 +1323,7 @@ class GuestAuthController extends Controller
             $guest = $reservation->guest;
             $guest->refresh();
 
-            \Log::info('Unused points refunded successfully', [
-                'reservation_id' => $reservation->id,
-                'guest_id' => $guest->id,
-                'guest_points_after_refund' => $guest->points
-            ]);
+
 
             return response()->json([
                 'message' => 'Unused points refunded successfully',
@@ -1335,7 +1333,6 @@ class GuestAuthController extends Controller
 
         } catch (\Exception $e) {
             DB::rollBack();
-            \Log::error('refundUnusedPoints error: ' . $e->getMessage() . "\n" . $e->getTraceAsString());
             return response()->json([
                 'message' => 'Failed to refund unused points',
                 'error' => $e->getMessage()
@@ -1350,16 +1347,31 @@ class GuestAuthController extends Controller
     {
         $request->validate([
             'avatar' => 'required|image|mimes:jpeg,png,jpg,gif,webp|max:20480',
-            'phone' => 'required|string',
+            'phone' => 'nullable|string',
+            'line_id' => 'nullable|string',
         ]);
+
+        // Check if either phone or line_id is provided
+        if (!$request->has('phone') && !$request->has('line_id')) {
+            return response()->json([
+                'error' => 'Either phone or line_id is required',
+                'message' => 'Either phone or line_id must be provided'
+            ], 422);
+        }
 
         try {
             $file = $request->file('avatar');
             $fileName = time() . '_' . $file->getClientOriginalName();
             $path = $file->storeAs('avatars', $fileName, 'public');
             
-            // Find the guest by phone number
-            $guest = Guest::where('phone', $request->phone)->first();
+            // Find the guest by phone or line_id
+            $guest = null;
+            if ($request->has('phone')) {
+                $guest = Guest::where('phone', $request->phone)->first();
+            } elseif ($request->has('line_id')) {
+                $guest = Guest::where('line_id', $request->line_id)->first();
+            }
+            
             if (!$guest) {
                 return response()->json(['error' => 'Guest not found'], 404);
             }
@@ -1381,7 +1393,6 @@ class GuestAuthController extends Controller
             ]);
 
         } catch (\Exception $e) {
-            \Log::error('Avatar upload error: ' . $e->getMessage());
             return response()->json([
                 'error' => 'Failed to upload avatar',
                 'message' => $e->getMessage()
@@ -1395,12 +1406,27 @@ class GuestAuthController extends Controller
     public function deleteAvatar(Request $request)
     {
         $request->validate([
-            'phone' => 'required|string',
+            'phone' => 'nullable|string',
+            'line_id' => 'nullable|string',
         ]);
 
+        // Check if either phone or line_id is provided
+        if (!$request->has('phone') && !$request->has('line_id')) {
+            return response()->json([
+                'error' => 'Either phone or line_id is required',
+                'message' => 'Either phone or line_id must be provided'
+            ], 422);
+        }
+
         try {
-            // Find the guest by phone number
-            $guest = Guest::where('phone', $request->phone)->first();
+            // Find the guest by phone or line_id
+            $guest = null;
+            if ($request->has('phone')) {
+                $guest = Guest::where('phone', $request->phone)->first();
+            } elseif ($request->has('line_id')) {
+                $guest = Guest::where('line_id', $request->line_id)->first();
+            }
+            
             if (!$guest) {
                 return response()->json(['error' => 'Guest not found'], 404);
             }
@@ -1421,7 +1447,6 @@ class GuestAuthController extends Controller
             ]);
 
         } catch (\Exception $e) {
-            \Log::error('Avatar delete error: ' . $e->getMessage());
             return response()->json([
                 'error' => 'Failed to delete avatar',
                 'message' => $e->getMessage()
@@ -1576,7 +1601,7 @@ class GuestAuthController extends Controller
                 $gradeService = app(\App\Services\GradeService::class);
                 $gradeService->calculateAndUpdateGrade($guest);
             } catch (\Throwable $e) {
-                \Log::warning('Failed to update guest grade after manual deduction', [
+                Log::warning('Failed to update guest grade after manual deduction', [
                     'guest_id' => $guest->id,
                     'error' => $e->getMessage(),
                 ]);

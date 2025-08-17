@@ -17,6 +17,7 @@ use App\Http\Controllers\ConciergeController;
 use App\Models\Feedback;
 use App\Http\Controllers\Admin\LocationController;
 use App\Http\Controllers\Api\GradeController;
+use Illuminate\Support\Facades\DB;
 
 /*
 |--------------------------------------------------------------------------
@@ -43,6 +44,7 @@ Route::post('/guest/register', [GuestAuthController::class, 'register']);
 Route::post('/guest/login', [GuestAuthController::class, 'login']);
 Route::get('/guest/check-auth', [GuestAuthController::class, 'checkAuth']);
 Route::get('/guest/profile/{phone}', [GuestAuthController::class, 'getProfile']);
+Route::get('/guest/profile/line/{line_id}', [GuestAuthController::class, 'getProfileByLineId']);
 Route::post('/guest/profile', [GuestAuthController::class, 'updateProfile']);
 Route::post('/cast/login', [CastAuthController::class, 'login']);
 Route::get('/cast/check-auth', [CastAuthController::class, 'checkAuth']);
@@ -132,7 +134,7 @@ Route::get('/badges/{castId}', function ($castId) {
     }
     
     // Get badge information and count occurrences
-    $badgesWithCounts = \App\Models\Badge::select('badges.*', \DB::raw('COUNT(feedback.badge_id) as count'))
+    $badgesWithCounts = \App\Models\Badge::select('badges.*', DB::raw('COUNT(feedback.badge_id) as count'))
         ->join('feedback', 'badges.id', '=', 'feedback.badge_id')
         ->where('feedback.cast_id', $castId)
         ->groupBy('badges.id', 'badges.name', 'badges.icon', 'badges.description', 'badges.created_at', 'badges.updated_at')
