@@ -303,8 +303,7 @@ export default function GuestEdit({ guest }: Props) {
                                             id="phone"
                                             value={formData.phone}
                                             onChange={(e) => handleChange('phone', e.target.value)}
-                                            placeholder="090-1234-5678"
-                                            required
+                                            placeholder="09012345678"
                                             disabled={isSubmitting}
                                         />
                                     </div>

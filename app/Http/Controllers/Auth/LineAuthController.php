@@ -366,7 +366,16 @@ class LineAuthController extends Controller
             'line_email' => 'nullable|email',
             'line_name' => 'nullable|string',
             'line_avatar' => 'nullable|string',
-            'additional_data' => 'required|array'
+            // Individual field validation instead of additional_data array
+            'phone' => 'nullable|string',
+            'verification_code' => 'nullable|string',
+            'nickname' => 'nullable|string',
+            'favorite_area' => 'nullable|string',
+            'location' => 'nullable|string',
+            'age' => 'nullable|string',
+            'shiatsu' => 'nullable|string',
+            'interests' => 'nullable|array',
+            'profile_photo' => 'nullable|file|image|max:2048'
         ]);
 
         try {
@@ -374,7 +383,6 @@ class LineAuthController extends Controller
             $lineEmail = $request->line_email;
             $lineName = $request->line_name;
             $lineAvatar = $request->line_avatar;
-            $additionalData = $request->additional_data;
             $userType = $request->user_type;
 
             // Find any existing accounts linked to this LINE ID
@@ -382,18 +390,39 @@ class LineAuthController extends Controller
             $existingCast = Cast::where('line_id', $lineId)->first();
 
             if ($userType === 'guest') {
+                // Prepare guest data mapping to database fields
+                $guestData = [
+                    'line_id' => $lineId,
+                    'nickname' => $request->nickname ?: $lineName ?: 'Guest',
+                    'avatar' => $lineAvatar,
+                    'status' => 'active',
+                    'phone' => $request->phone,
+                    'favorite_area' => $request->favorite_area,
+                    'location' => $request->location,
+                    'age' => $request->age,
+                    'shiatsu' => $request->shiatsu,
+                ];
+
+                // Handle interests array
+                if ($request->has('interests') && is_array($request->interests)) {
+                    $guestData['interests'] = $request->interests;
+                }
+
+                // Handle profile photo upload
+                if ($request->hasFile('profile_photo')) {
+                    $profilePhoto = $request->file('profile_photo');
+                    $filename = time() . '_' . $profilePhoto->getClientOriginalName();
+                    $path = $profilePhoto->storeAs('avatars', $filename, 'public');
+                    $guestData['avatar'] = $path;
+                }
+
                 if ($existingGuest) {
-                    // Update existing guest with additional data
-                    $existingGuest->update($additionalData);
+                    // Update existing guest with new data
+                    $existingGuest->update($guestData);
                     $guest = $existingGuest;
                 } else {
                     // Create new guest
-                    $guest = Guest::create(array_merge([
-                        'line_id' => $lineId,
-                        'nickname' => $lineName ?: 'Guest',
-                        'avatar' => $lineAvatar,
-                        'status' => 'active'
-                    ], $additionalData));
+                    $guest = Guest::create($guestData);
                 }
 
                 // Log the guest in

@@ -111,3 +111,4 @@ echo "1. Make sure your frontend includes the CSRF setup script\n";
 echo "2. Test your actual application functionality\n";
 echo "3. Check browser console for any CSRF-related errors\n";
 
+

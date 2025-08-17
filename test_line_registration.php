@@ -182,3 +182,4 @@ if (file_exists('line_test_cookies.txt')) {
 echo "=== Test completed ===\n";
 echo "\nIf both tests passed, your LINE registration with avatar upload is working correctly!\n";
 
+
