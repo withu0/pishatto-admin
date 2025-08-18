@@ -7,6 +7,7 @@ use App\Models\Chat;
 use App\Models\Message;
 use App\Models\Gift;
 use Illuminate\Support\Facades\DB; // Added for DB facade
+use Illuminate\Support\Facades\Log; // Added for Log facade
 
 class ChatController extends Controller
 {
@@ -14,26 +15,47 @@ class ChatController extends Controller
     {
         $userId = $request->query('user_id');
         $userType = $request->query('user_type'); // 'guest' or 'cast'
-        $chats = Chat::with(['guest', 'cast', 'group', 'messages' => function($q) {
-            $q->orderBy('created_at', 'desc');
-        }])->get();
+        
+        // Use more efficient query with proper eager loading and subqueries
+        $chats = Chat::with([
+            'guest:id,nickname,avatar',
+            'cast:id,nickname,avatar',
+            'group:id,name',
+            'messages' => function($q) {
+                $q->select('id', 'chat_id', 'message', 'created_at')
+                  ->orderBy('created_at', 'desc')
+                  ->limit(1); // Only get the last message
+            }
+        ])->get();
 
-        $result = $chats->map(function ($chat) use ($userId, $userType) {
+        // Get unread counts in a single query to avoid N+1
+        $unreadCounts = DB::table('messages as m')
+            ->join('chats as c', 'm.chat_id', '=', 'c.id')
+            ->select(
+                'm.chat_id',
+                DB::raw('COUNT(*) as unread_count')
+            )
+            ->where('m.is_read', false)
+            ->when($userType === 'guest', function($query) use ($userId) {
+                return $query->where('m.sender_cast_id', '!=', null)
+                           ->where('c.guest_id', $userId);
+            })
+            ->when($userType === 'cast', function($query) use ($userId) {
+                return $query->where('m.sender_guest_id', '!=', null)
+                           ->where('c.cast_id', $userId);
+            })
+            ->groupBy('m.chat_id')
+            ->pluck('unread_count', 'chat_id')
+            ->toArray();
+
+        $result = $chats->map(function ($chat) use ($userId, $userType, $unreadCounts) {
             $user = $chat->guest ?? $chat->cast;
             $name = $user->nickname ?? 'Unknown';
             $avatar = $user->avatar ?? '/assets/avatar/default.png';
             $lastMessage = $chat->messages->first();
             
-            // Count unread messages for this user in this chat
-            $unread = $chat->messages->where('is_read', false)
-                ->filter(function($msg) use ($userId, $userType) {
-                    if ($userType === 'guest') {
-                        return $msg->sender_cast_id && $msg->is_read == false && $msg->chat->guest_id == $userId;
-                    } else if ($userType === 'cast') {
-                        return $msg->sender_guest_id && $msg->is_read == false && $msg->chat->cast_id == $userId;
-                    }
-                    return false;
-                })->count();
+            // Get unread count from pre-fetched array
+            $unread = $unreadCounts[$chat->id] ?? 0;
             
             $chatData = [
                 'id' => $chat->id,
@@ -86,7 +108,7 @@ class ChatController extends Controller
             $chat = $message->chat;
             if ($chat && $message->sender_guest_id && $chat->cast_id) {
                 // Get the gift details
-                $gift = \App\Models\Gift::find($request->input('gift_id'));
+                $gift = Gift::find($request->input('gift_id'));
                 
                 if ($gift && $gift->points > 0) {
                     // Get guest and cast
@@ -110,7 +132,7 @@ class ChatController extends Controller
                                 $gradeService->calculateAndUpdateCastGrade($cast);
                                 $gradeService->calculateAndUpdateGrade($guest);
                             } catch (\Throwable $e) {
-                                \Log::warning('Failed to update cast grade after gift', [
+                                Log::warning('Failed to update cast grade after gift', [
                                     'cast_id' => $cast->id,
                                     'error' => $e->getMessage(),
                                 ]);
@@ -129,7 +151,7 @@ class ChatController extends Controller
                                 ]);
                             } catch (\Exception $e) {
                                 // Log the error for debugging
-                                \Log::error('Failed to create point transaction for gift', [
+                                Log::error('Failed to create point transaction for gift', [
                                     'error' => $e->getMessage(),
                                     'guest_id' => $guest->id,
                                     'cast_id' => $cast->id,
@@ -139,7 +161,7 @@ class ChatController extends Controller
                                 
                                 // Try using raw SQL as fallback
                                 try {
-                                    \DB::table('point_transactions')->insert([
+                                    DB::table('point_transactions')->insert([
                                         'guest_id' => $guest->id,
                                         'cast_id' => $cast->id,
                                         'type' => 'gift',
@@ -151,7 +173,7 @@ class ChatController extends Controller
                                         'updated_at' => now()
                                     ]);
                                 } catch (\Exception $e2) {
-                                    \Log::error('Raw SQL also failed for point transaction', [
+                                    Log::error('Raw SQL also failed for point transaction', [
                                         'error' => $e2->getMessage()
                                     ]);
                                 }
@@ -227,29 +249,49 @@ class ChatController extends Controller
     {
         $userId = $request->query('user_id');
         $userType = $request->query('user_type');
-        $messages = Message::with(['guest', 'cast', 'gift'])
+        $perPage = $request->query('per_page', 50); // Add pagination
+        $page = $request->query('page', 1);
+        
+        // Use more efficient query with pagination
+        $messages = Message::with(['guest:id,nickname,avatar', 'cast:id,nickname,avatar', 'gift:id,name,icon,points'])
             ->where('chat_id', $chatId)
-            ->orderBy('created_at', 'asc') 
-            ->get();
-        // Mark all messages as read for this user
-        $messagesMarkedAsRead = false;
-        foreach ($messages as $msg) {
-            if ($userType === 'guest' && $msg->sender_cast_id && $msg->is_read == false && $msg->chat->guest_id == $userId) {
-                $msg->is_read = true;
-                $msg->save();
-                $messagesMarkedAsRead = true;
-            } else if ($userType === 'cast' && $msg->sender_guest_id && $msg->is_read == false && $msg->chat->cast_id == $userId) {
-                $msg->is_read = true;
-                $msg->save();
-                $messagesMarkedAsRead = true;
+            ->orderBy('created_at', 'desc') // Changed to desc for better UX
+            ->paginate($perPage, ['*'], 'page', $page);
+        
+        // Mark messages as read in batch to reduce database calls
+        if ($userType && $userId) {
+            $messageIds = $messages->pluck('id')->toArray();
+            
+            if (!empty($messageIds)) {
+                $updateQuery = Message::whereIn('id', $messageIds);
+                
+                if ($userType === 'guest') {
+                    $updateQuery->where('sender_cast_id', '!=', null)
+                               ->where('is_read', false);
+                } else if ($userType === 'cast') {
+                    $updateQuery->where('sender_guest_id', '!=', null)
+                               ->where('is_read', false);
+                }
+                
+                $updatedCount = $updateQuery->update(['is_read' => true]);
+                
+                // Broadcast MessagesRead event if any messages were marked as read
+                if ($updatedCount > 0) {
+                    event(new \App\Events\MessagesRead($chatId, $userId, $userType));
+                }
             }
         }
         
-        // Broadcast MessagesRead event if any messages were marked as read
-        if ($messagesMarkedAsRead) {
-            event(new \App\Events\MessagesRead($chatId, $userId, $userType));
-        }
-        return response()->json(['messages' => $messages]);
+        return response()->json([
+            'messages' => $messages->items(),
+            'pagination' => [
+                'current_page' => $messages->currentPage(),
+                'last_page' => $messages->lastPage(),
+                'per_page' => $messages->perPage(),
+                'total' => $messages->total(),
+                'has_more_pages' => $messages->hasMorePages(),
+            ]
+        ]);
     }
 
     // Fetch all available gifts
@@ -262,7 +304,7 @@ class ChatController extends Controller
     // Fetch all gifts received by a cast
     public function receivedGifts($castId)
     {
-        $gifts = \DB::table('guest_gifts')
+        $gifts = DB::table('guest_gifts')
             ->join('gifts', 'guest_gifts.gift_id', '=', 'gifts.id')
             ->join('guests', 'guest_gifts.sender_guest_id', '=', 'guests.id')
             ->where('guest_gifts.receiver_cast_id', $castId)
@@ -341,7 +383,7 @@ class ChatController extends Controller
                     if (!$hasPending) {
                         /** @var \App\Services\PointTransactionService $pointService */
                         $pointService = app(\App\Services\PointTransactionService::class);
-                        $requiredPoints = $pointService->calculateReservationPointsLegacy($reservation);
+                        $requiredPoints = $pointService->calculateReservationPoints($reservation);
                         $castIds = $validated['cast_ids'] ?? [];
                         $numCasts = count($castIds);
                         if ($numCasts > 0 && $requiredPoints > 0) {
@@ -385,7 +427,7 @@ class ChatController extends Controller
 
         } catch (\Exception $e) {
             DB::rollBack();
-            \Log::error('createChatGroup error: ' . $e->getMessage());
+            Log::error('createChatGroup error: ' . $e->getMessage());
             return response()->json([
                 'message' => 'Failed to create chat group',
                 'error' => $e->getMessage()
@@ -496,7 +538,7 @@ class ChatController extends Controller
             $message->load(['guest', 'cast']);
 
             // Log the message being sent
-            \Log::info('GroupMessageSent: Broadcasting message', [
+            Log::info('GroupMessageSent: Broadcasting message', [
                 'message_id' => $message->id,
                 'group_id' => $validated['group_id'],
                 'channel' => 'group.' . $validated['group_id'],
@@ -529,7 +571,7 @@ class ChatController extends Controller
                                 $gradeService->calculateAndUpdateCastGrade($cast);
                                 $gradeService->calculateAndUpdateGrade($guest);
                             } catch (\Throwable $e) {
-                                \Log::warning('Failed to update cast grade after group gift', [
+                                Log::warning('Failed to update cast grade after group gift', [
                                     'cast_id' => $cast->id,
                                     'error' => $e->getMessage(),
                                 ]);
@@ -573,7 +615,7 @@ class ChatController extends Controller
 
         } catch (\Exception $e) {
             DB::rollBack();
-            \Log::error('sendGroupMessage error: ' . $e->getMessage());
+            Log::error('sendGroupMessage error: ' . $e->getMessage());
             return response()->json([
                 'message' => 'Failed to send group message',
                 'error' => $e->getMessage()

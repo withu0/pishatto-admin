@@ -163,7 +163,7 @@ class ReservationApplicationController extends Controller
                 if (!$existingPending) {
                     /** @var \App\Services\PointTransactionService $pointService */
                     $pointService = app(\App\Services\PointTransactionService::class);
-                    $requiredPoints = $pointService->calculateReservationPointsLegacy($reservation);
+                    $requiredPoints = $pointService->calculateReservationPoints($reservation);
 
                     // Determine total casts currently on reservation to split fairly
                     $castIds = is_array($reservation->cast_ids) ? $reservation->cast_ids : [];

@@ -7,6 +7,8 @@ use App\Models\ReservationApplication;
 use App\Models\Reservation;
 use App\Models\Cast;
 use App\Models\Guest;
+use Illuminate\Support\Facades\DB; // Added for DB facade
+use Illuminate\Support\Facades\Log; 
 
 class AdminController extends Controller
 {
@@ -107,7 +109,7 @@ class AdminController extends Controller
             ], 400);
         }
 
-        \DB::transaction(function () use ($application, $validated) {
+        DB::transaction(function () use ($application, $validated) {
             // Update application status
             $application->update([
                 'status' => 'approved',
@@ -276,7 +278,7 @@ class AdminController extends Controller
             ], 400);
         }
 
-        \DB::transaction(function () use ($reservation, $validated) {
+        DB::transaction(function () use ($reservation, $validated) {
             // Update reservation with multiple cast IDs and store the first selected cast in cast_id field
             $reservation->update([
                 'active' => false,
@@ -320,7 +322,7 @@ class AdminController extends Controller
             if (!$hasPending) {
                 /** @var \App\Services\PointTransactionService $pointService */
                 $pointService = app(\App\Services\PointTransactionService::class);
-                $requiredPoints = $pointService->calculateReservationPointsLegacy($reservation);
+                $requiredPoints = $pointService->calculateReservationPoints($reservation);
 
                 $castIds = $validated['cast_ids'];
                 $numCasts = count($castIds);
