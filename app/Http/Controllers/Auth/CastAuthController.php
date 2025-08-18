@@ -5,6 +5,9 @@ namespace App\Http\Controllers\Auth;
 use App\Http\Controllers\Controller;
 use App\Models\Cast;
 use App\Models\Badge;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
+use App\Models\Like;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Auth;
@@ -134,21 +137,21 @@ class CastAuthController extends Controller
             
             return response()->json(['reservations' => $reservations]);
         } catch (\Exception $e) {
-            \Log::error('Error in allReservations: ' . $e->getMessage());
+            Log::error('Error in allReservations: ' . $e->getMessage());
             return response()->json(['reservations' => [], 'error' => $e->getMessage()], 500);
         }
     }
 
     public function getProfile($id)
     {
-        $cast = \App\Models\Cast::with(['badges', 'receivedGifts'])->find($id);
+        $cast = Cast::with(['badges', 'receivedGifts'])->find($id);
         if (!$cast) {
             return response()->json(['message' => 'Cast not found'], 404);
         }
         // Get recommended casts (top 3 by recent, excluding self)
-        $recommended = \App\Models\Cast::where('id', '!=', $id)->orderBy('created_at', 'desc')->limit(3)->get();
+        $recommended = Cast::where('id', '!=', $id)->orderBy('created_at', 'desc')->limit(3)->get();
         // Get badges with counts for this cast from feedback table
-        $badgesWithCounts = \App\Models\Badge::select('badges.*', \DB::raw('COUNT(feedback.badge_id) as count'))
+        $badgesWithCounts = Badge::select('badges.*', DB::raw('COUNT(feedback.badge_id) as count'))
             ->join('feedback', 'badges.id', '=', 'feedback.badge_id')
             ->where('feedback.cast_id', $id)
             ->groupBy('badges.id', 'badges.name', 'badges.icon', 'badges.description', 'badges.created_at', 'badges.updated_at')
@@ -165,7 +168,7 @@ class CastAuthController extends Controller
 
     public function getCastProfile($id)
     {
-        $cast = \App\Models\Cast::find($id);
+        $cast = Cast::find($id);
         if (!$cast) {
             return response()->json(['message' => 'Cast not found'], 404);
         }
@@ -401,8 +404,8 @@ class CastAuthController extends Controller
         try {
             $counts = Cast::select(
                     // Extract everything before first slash, or full residence if no slash.
-                    \DB::raw("SUBSTRING_INDEX(residence, '/', 1) as residence_group"),
-                    \DB::raw('count(*) as count')
+                    DB::raw("SUBSTRING_INDEX(residence, '/', 1) as residence_group"),
+                    DB::raw('count(*) as count')
                 )
                 ->whereNotNull('residence')
                 ->where('residence', '!=', '')
@@ -412,7 +415,7 @@ class CastAuthController extends Controller
 
             return response()->json($counts);
         } catch (\Exception $e) {
-            \Log::error('Error in getCastCountsByLocation: ' . $e->getMessage());
+            Log::error('Error in getCastCountsByLocation: ' . $e->getMessage());
             return response()->json([], 500);
         }
     }
@@ -423,15 +426,15 @@ class CastAuthController extends Controller
     {
         $guestId = $request->input('guest_id');
         $castId = $request->input('cast_id');
-        $like = \App\Models\Like::where('guest_id', $guestId)->where('cast_id', $castId)->first();
+        $like = Like::where('guest_id', $guestId)->where('cast_id', $castId)->first();
         if ($like) {
             $like->delete();
             return response()->json(['liked' => false]);
         } else {
-            \App\Models\Like::create(['guest_id' => $guestId, 'cast_id' => $castId]);
+            Like::create(['guest_id' => $guestId, 'cast_id' => $castId]);
             
             // Send notification if enabled
-            $cast = \App\Models\Cast::find($castId);
+            $cast = Cast::find($castId);
             if ($cast) {
                 \App\Services\NotificationService::sendLikeNotification($guestId, $castId, $cast->nickname);
             }
@@ -443,15 +446,15 @@ class CastAuthController extends Controller
     // Get all liked casts for a guest
     public function likedCasts($guestId)
     {
-        $castIds = \App\Models\Like::where('guest_id', $guestId)->pluck('cast_id');
-        $casts = \App\Models\Cast::whereIn('id', $castIds)->get();
+        $castIds = Like::where('guest_id', $guestId)->pluck('cast_id');
+        $casts = Cast::whereIn('id', $castIds)->get();
         return response()->json(['casts' => $casts]);
     }
 
     // Record when a cast visits a guest profile
     public function recordGuestVisit(Request $request)
     {
-        $validator = \Validator::make($request->all(), [
+        $validator = Validator::make($request->all(), [
             'cast_id' => 'required|exists:casts,id',
             'guest_id' => 'required|exists:guests,id',
         ]);
@@ -478,7 +481,7 @@ class CastAuthController extends Controller
         \App\Models\VisitHistory::create(['cast_id' => $castId, 'guest_id' => $guestId]);
         
         // Create notification for the guest about the cast visit
-        $cast = \App\Models\Cast::find($castId);
+        $cast = Cast::find($castId);
         if ($cast) {
             \App\Services\NotificationService::sendFootprintNotification($guestId, $castId, $cast->nickname);
         }
@@ -555,14 +558,14 @@ class CastAuthController extends Controller
     // Start reservation (cast triggers this)
     public function startReservation(Request $request)
     {
-        $validator = \Validator::make($request->all(), [
+        $validator = Validator::make($request->all(), [
             'reservation_id' => 'required|exists:reservations,id',
             'cast_id' => 'required|exists:casts,id',
         ]);
         if ($validator->fails()) {
             return response()->json(['message' => 'Validation failed', 'errors' => $validator->errors()], 422);
         }
-        $reservation = \App\Models\Reservation::find($request->reservation_id);
+        $reservation = Reservation::find($request->reservation_id);
         // Optionally: check if this cast is allowed to start this reservation
         if ($reservation->started_at) {
             return response()->json(['message' => 'Reservation already started'], 400);
@@ -575,14 +578,14 @@ class CastAuthController extends Controller
     // Stop reservation (cast triggers this)
     public function stopReservation(Request $request)
     {
-        $validator = \Validator::make($request->all(), [
+        $validator = Validator::make($request->all(), [
             'reservation_id' => 'required|exists:reservations,id',
             'cast_id' => 'required|exists:casts,id',
         ]);
         if ($validator->fails()) {
             return response()->json(['message' => 'Validation failed', 'errors' => $validator->errors()], 422);
         }
-        $reservation = \App\Models\Reservation::find($request->reservation_id);
+        $reservation = Reservation::find($request->reservation_id);
         if (!$reservation->started_at) {
             return response()->json(['message' => 'Reservation not started'], 400);
         }
