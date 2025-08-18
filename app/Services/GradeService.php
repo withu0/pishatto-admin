@@ -132,12 +132,12 @@ class GradeService
     // Cast grade thresholds (FP-based)
     const CAST_GRADE_THRESHOLDS = [
         'beginner' => 0,      // Default grade
-        'green' => 500000,    // 500,000 FP
-        'orange' => 1000000,  // 1,000,000 FP
-        'bronze' => 2000000,  // 2,000,000 FP
-        'silver' => 5000000,  // 5,000,000 FP
-        'gold' => 10000000,   // 10,000,000 FP
-        'platinum' => 30000000, // 30,000,000 FP
+        'green' => 100000,    // 100,000 FP
+        'orange' => 200000,  // 200,000 FP
+        'bronze' => 400000,  // 400,000 FP
+        'silver' => 1000000,  // 1000,000 FP
+        'gold' => 2000000,   // 2,000,000 FP
+        'platinum' => 6000000, // 6,000,000 FP
     ];
 
     // Cast grade display names in Japanese
@@ -244,11 +244,11 @@ class GradeService
     public function calculateUsagePoints(Guest $guest): int
     {
         // Sum all point transactions representing actual spending
-        $spent = \App\Models\PointTransaction::where('guest_id', $guest->id)
+        $spent = PointTransaction::where('guest_id', $guest->id)
             ->whereIn('type', ['pending', 'transfer'])
             ->sum('amount');
         // Subtract all refund transactions
-        $refunded = \App\Models\PointTransaction::where('guest_id', $guest->id)
+        $refunded = PointTransaction::where('guest_id', $guest->id)
             ->where('type', 'convert')
             ->sum('amount');
         return max(0, $spent - $refunded);
