@@ -156,7 +156,7 @@ export default function GuestEdit({ guest }: Props) {
         try {
             await router.put(`/admin/guests/${guest.id}`, submitData, {
                 onSuccess: () => {
-                    toast.success('ゲストが正常に更新されました');
+                    router.visit(`/admin/guests/${guest.id}`);
                 },
                 onError: (errors) => {
                     toast.error('ゲストの更新に失敗しました');

@@ -123,8 +123,9 @@ class GuestController extends Controller
     public function update(Request $request, Guest $guest)
     {
         $validated = $request->validate([
-            'phone' => 'required|string|max:20|unique:guests,phone,' . $guest->id,
-            'line_id' => 'nullable|string|max:50|unique:guests,line_id,' . $guest->id,
+            // Allow updates when either phone or line_id is provided
+            'phone' => 'nullable|required_without:line_id|string|max:20|unique:guests,phone,' . $guest->id,
+            'line_id' => 'nullable|required_without:phone|string|max:50|unique:guests,line_id,' . $guest->id,
             'nickname' => 'nullable|string|max:50',
             'age' => 'nullable|string|max:50',
             'shiatsu' => 'nullable|string|max:50',
@@ -156,7 +157,7 @@ class GuestController extends Controller
 
         $guest->update($validated);
 
-        return redirect()->route('admin.guests.index')
+        return redirect()->route('admin.guests.show', $guest)
             ->with('success', 'ゲストが正常に更新されました。');
     }
 
