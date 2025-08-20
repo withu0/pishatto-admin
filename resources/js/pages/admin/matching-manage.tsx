@@ -238,10 +238,10 @@ export default function AdminMatchingManage({ chats: initialChats }: Props) {
     };
 
     return (
-        <AppLayout breadcrumbs={[{ title: 'マッチング管理', href: '/admin/matching-manage' }]}>
-            <Head title="マッチング管理" />
+        <AppLayout breadcrumbs={[{ title: 'マッチング履歴管理', href: '/admin/matching-manage' }]}>
+            <Head title="マッチング履歴管理" />
             <div className="p-6">
-                <h1 className="text-2xl font-bold mb-4">マッチング管理</h1>
+                <h1 className="text-2xl font-bold mb-4">マッチング履歴管理</h1>
                 <Card>
                     <CardHeader className="flex flex-row items-center justify-between gap-4 pb-2">
                         <CardTitle>チャット一覧</CardTitle>

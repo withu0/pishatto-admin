@@ -45,15 +45,7 @@ class PointTransactionService
             // Update user points based on transaction type
             $this->updateUserPoints($transaction, $data);
 
-            // Recalculate guest or cast grade as needed
-            /** @var GradeService $gradeService */
-            $gradeService = app(GradeService::class);
-            if ($transaction->guest_id) {
-                $gradeService->calculateAndUpdateGrade($transaction->guest);
-            }
-            if ($transaction->cast_id) {
-                $gradeService->calculateAndUpdateCastGrade($transaction->cast);
-            }
+            // Grades are primarily managed by quarterly evaluation; keep recalculation minimal
 
             DB::commit();
 
@@ -148,15 +140,7 @@ class PointTransactionService
             // Update grade points after successful transaction
             $guest->grade_points += $requiredPoints;
             $guest->save();
-            try {
-                $gradeService = app(GradeService::class);
-                $gradeService->calculateAndUpdateGrade($guest);
-            } catch (\Throwable $e) {
-                Log::warning('Failed to update guest grade after creating pending transaction', [
-                    'guest_id' => $guest->id,
-                    'error' => $e->getMessage(),
-                ]);
-            }
+            // Grade upgrades are handled via quarterly evaluation & admin approval
 
             DB::commit();
             return true;
@@ -199,9 +183,7 @@ class PointTransactionService
                     if ($cast) {
                         $cast->points += $transaction->amount;
                         $cast->save();
-                        // Update cast grade based on new points
-                        $gradeService = app(GradeService::class);
-                        $gradeService->calculateAndUpdateCastGrade($cast);
+                        // Grade upgrades are handled via quarterly evaluation & admin approval
                     }
                 }
                 break;
@@ -218,25 +200,8 @@ class PointTransactionService
                 break;
 
             case 'gift':
-                // Gift transactions: ensure guest grade_points are updated and grades recalculated
-                if ($transaction->guest_id) {
-                    $guest = Guest::find($transaction->guest_id);
-                    if ($guest) {
-                        // Guest grade_points should already be updated in ChatController
-                        // Just recalculate grade to ensure consistency
-                        $gradeService = app(GradeService::class);
-                        $gradeService->calculateAndUpdateGrade($guest);
-                    }
-                }
-                if ($transaction->cast_id) {
-                    $cast = Cast::find($transaction->cast_id);
-                    if ($cast) {
-                        // Cast points should already be updated in ChatController
-                        // Just recalculate grade to ensure consistency
-                        $gradeService = app(GradeService::class);
-                        $gradeService->calculateAndUpdateCastGrade($cast);
-                    }
-                }
+                // Gift transactions: points are updated but grades are handled via quarterly evaluation
+                // No automatic grade upgrades - only point balance updates
                 break;
 
             case 'buy':
@@ -438,10 +403,7 @@ class PointTransactionService
                     // Reduce grade_points by refunded amount
                     $guest->grade_points = max(0, (int) $guest->grade_points - $reservedPoints);
                     $guest->save();
-
-                    /** @var GradeService $gradeService */
-                    $gradeService = app(GradeService::class);
-                    $gradeService->calculateAndUpdateGrade($guest);
+                    // Grade updates are handled via quarterly evaluation & admin approval
                 }
 
                 DB::commit();
@@ -577,11 +539,7 @@ class PointTransactionService
             // Reduce grade_points by refunded amount
             $guest->grade_points = max(0, (int) $guest->grade_points - $reservedPoints);
             $guest->save();
-
-            // Update grade after adjustment
-            /** @var GradeService $gradeService */
-            $gradeService = app(GradeService::class);
-            $gradeService->calculateAndUpdateGrade($guest);
+            // Grade updates are handled via quarterly evaluation & admin approval
 
             DB::commit();
             return true;

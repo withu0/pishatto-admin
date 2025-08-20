@@ -204,6 +204,22 @@ Route::delete('/tweets/{id}', [TweetController::class, 'destroy']);
 // Tweet like endpoints
 Route::post('/tweets/like', [TweetController::class, 'like']);
 
+// Grade management APIs
+Route::get('/grades/guest/{guest_id}', [GradeController::class, 'getGuestGrade']);
+Route::post('/grades/guest/update', [GradeController::class, 'updateGuestGrade']);
+Route::get('/grades/cast/{cast_id}', [GradeController::class, 'getCastGrade']);
+Route::post('/grades/cast/update', [GradeController::class, 'updateCastGrade']);
+Route::get('/grades/info', [GradeController::class, 'getAllGradesInfo']);
+Route::post('/grades/benefits', [GradeController::class, 'getGradeBenefits']);
+// Candidates for management approval and auto-downgrade
+Route::get('/admin/grades/candidates', [GradeController::class, 'candidates']);
+Route::post('/admin/grades/approve-guest', [GradeController::class, 'approveGuestUpgrade']);
+Route::post('/admin/grades/approve-cast', [GradeController::class, 'approveCastUpgrade']);
+Route::post('/admin/grades/auto-downgrade', [GradeController::class, 'runAutoDowngrades']);
+Route::get('/admin/grades/downgrade-candidates', [GradeController::class, 'downgradeCandidates']);
+Route::get('/admin/grades/evaluation-info', [GradeController::class, 'getEvaluationInfo']);
+Route::get('/admin/grades/quarterly-points-info', [GradeController::class, 'getQuarterlyPointsInfo']);
+
 Route::get('/guests/phones', [GuestAuthController::class, 'allPhones']);
 Route::get('/gifts', [ChatController::class, 'gifts']);
 // Gift box: received gifts for cast

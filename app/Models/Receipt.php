@@ -22,6 +22,7 @@ class Receipt extends Model
         'tax_rate',
         'total_amount',
         'purpose',
+        'transaction_created_at',
         'issued_at',
         'company_name',
         'company_address',
@@ -37,6 +38,7 @@ class Receipt extends Model
         'tax_amount' => 'decimal:2',
         'total_amount' => 'decimal:2',
         'tax_rate' => 'decimal:2',
+        'transaction_created_at' => 'datetime',
         'issued_at' => 'datetime',
     ];
 

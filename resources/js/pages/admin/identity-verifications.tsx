@@ -4,7 +4,6 @@ import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { Badge } from '@/components/ui/badge';
 import { Check, X, Search, Eye, Download } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { useDebounce } from '@/hooks/use-debounce';
@@ -103,6 +102,7 @@ export default function AdminIdentityVerifications({ verifications, filters }: P
                 }
             });
         } catch (error) {
+            console.error('承認に失敗しました:', error);
             toast.error('承認に失敗しました');
             setIsApproving(null);
         }
@@ -128,6 +128,7 @@ export default function AdminIdentityVerifications({ verifications, filters }: P
                 }
             });
         } catch (error) {
+            console.error('却下に失敗しました:', error);
             toast.error('却下に失敗しました');
             setIsRejecting(null);
         }
@@ -259,7 +260,8 @@ export default function AdminIdentityVerifications({ verifications, filters }: P
                                                             size="sm"
                                                             variant="outline"
                                                             onClick={() => openImageModal(verification)}
-                                                            className="text-blue-600 border-blue-200 hover:bg-blue-50"
+                                                            disabled={!verification.identity_verification_url && !verification.identity_verification}
+                                                            className="text-blue-600 border-blue-200 hover:bg-blue-50 disabled:opacity-50"
                                                         >
                                                             <Eye className="w-4 h-4 mr-1" />
                                                             確認
@@ -394,17 +396,17 @@ export default function AdminIdentityVerifications({ verifications, filters }: P
                             </div>
                         </DialogHeader>
 
-                        {selectedVerification && selectedVerification.identity_verification && (
+                        {selectedVerification && (selectedVerification.identity_verification_url || selectedVerification.identity_verification) && (
                             <div className="flex flex-col h-full">
                                 {/* Image Display Section */}
                                 <div className="flex-1 min-h-0 p-6">
                                     <div className="relative w-full max-w-4xl mx-auto bg-gray-50 rounded-lg border-2 border-dashed border-gray-200 overflow-hidden">
                                         <img
-                                            src={selectedVerification.identity_verification_url}
+                                            src={selectedVerification.identity_verification_url || (selectedVerification.identity_verification ? `/storage/${selectedVerification.identity_verification}` : '')}
                                             alt="身分証明書"
                                             className="w-full h-auto max-h-[70vh] object-contain"
                                             onError={(e) => {
-                                                console.error('Image failed to load:', selectedVerification.identity_verification_url);
+                                                console.error('Image failed to load:', selectedVerification.identity_verification_url || selectedVerification.identity_verification);
                                                 e.currentTarget.style.display = 'none';
                                                 e.currentTarget.nextElementSibling?.classList.remove('hidden');
                                             }}
@@ -419,15 +421,17 @@ export default function AdminIdentityVerifications({ verifications, filters }: P
                                                 <h3 className="text-lg font-medium text-gray-900 mb-2">画像を読み込めませんでした</h3>
                                                 <p className="text-sm text-gray-500 mb-4">画像の読み込みに失敗しました。以下を確認してください。</p>
                                                 <div className="text-xs text-gray-400 space-y-1 mb-4">
-                                                    <p>URL: {selectedVerification.identity_verification_url}</p>
-                                                    <p>File Path: {selectedVerification.identity_verification}</p>
+                                                    <p>URL: {selectedVerification.identity_verification_url || '(なし)'}</p>
+                                                    <p>File Path: {selectedVerification.identity_verification || '(なし)'}</p>
                                                 </div>
                                                 <Button
                                                     size="sm"
                                                     variant="outline"
                                                     onClick={() => {
-                                                        const directUrl = `/storage/${selectedVerification.identity_verification}`;
-                                                        window.open(directUrl, '_blank');
+                                                        const directUrl = selectedVerification.identity_verification_url || (selectedVerification.identity_verification ? `/storage/${selectedVerification.identity_verification}` : '');
+                                                        if (directUrl) {
+                                                            window.open(directUrl, '_blank');
+                                                        }
                                                     }}
                                                 >
                                                     直接リンクを試す
@@ -466,10 +470,11 @@ export default function AdminIdentityVerifications({ verifications, filters }: P
                                                     size="sm"
                                                     variant="outline"
                                                     onClick={() => downloadImage(
-                                                        selectedVerification.identity_verification_url!,
+                                                        selectedVerification.identity_verification_url || `/storage/${selectedVerification.identity_verification}`,
                                                         `verification_${selectedVerification.id}.jpg`
                                                     )}
-                                                    className="text-xs"
+                                                    disabled={!selectedVerification.identity_verification_url && !selectedVerification.identity_verification}
+                                                    className="text-xs disabled:opacity-50"
                                                 >
                                                     <Download className="w-3 h-3 mr-1" />
                                                     ダウンロード

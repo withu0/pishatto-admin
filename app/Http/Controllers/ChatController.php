@@ -99,7 +99,7 @@ class ChatController extends Controller
             $validated['image'] = 'chat_images/' . $fileName;
         }
 
-        $message = \App\Models\Message::create($validated);
+        $message = Message::create($validated);
         $message->load(['guest', 'cast']);
         event(new \App\Events\MessageSent($message));
 
@@ -123,20 +123,10 @@ class ChatController extends Controller
                             $guest->grade_points += $gift->points;
                             $guest->save();
                             
-                            // Add points to cast and update cast grade
+                            // Add points to cast
                             $cast->points += $gift->points;
                             $cast->save();
-                            // Recalculate cast grade based on accumulated points
-                            try {
-                                $gradeService = app(\App\Services\GradeService::class);
-                                $gradeService->calculateAndUpdateCastGrade($cast);
-                                $gradeService->calculateAndUpdateGrade($guest);
-                            } catch (\Throwable $e) {
-                                Log::warning('Failed to update cast grade after gift', [
-                                    'cast_id' => $cast->id,
-                                    'error' => $e->getMessage(),
-                                ]);
-                            }
+                            // Grade upgrades are handled via quarterly evaluation & admin approval
                             
                             // Create point transaction record
                             try {
@@ -566,16 +556,7 @@ class ChatController extends Controller
                             
                             $cast->points += $gift->points;
                             $cast->save();
-                            try {
-                                $gradeService = app(\App\Services\GradeService::class);
-                                $gradeService->calculateAndUpdateCastGrade($cast);
-                                $gradeService->calculateAndUpdateGrade($guest);
-                            } catch (\Throwable $e) {
-                                Log::warning('Failed to update cast grade after group gift', [
-                                    'cast_id' => $cast->id,
-                                    'error' => $e->getMessage(),
-                                ]);
-                            }
+                            // Grade upgrades are handled via quarterly evaluation & admin approval
                             
                             // Record point transaction
                             \App\Models\PointTransaction::create([

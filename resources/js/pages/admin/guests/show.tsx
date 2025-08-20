@@ -168,10 +168,6 @@ export default function GuestShow({ guest }: Props) {
         setIsDialogOpen(true);
     };
 
-    const handleCloseDialog = () => {
-        setIsDialogOpen(false);
-        setSelectedImageUrl(null);
-    };
 
     const nextGradeInfo = getNextGradeInfo(guest.grade, guest.grade_points);
 

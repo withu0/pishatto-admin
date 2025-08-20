@@ -107,7 +107,7 @@ class GradeController extends Controller
     public function getGradeBenefits(Request $request): JsonResponse
     {
         $request->validate([
-            'grade' => 'required|string|in:green,orange,bronze,silver,gold,platinum,centurion',
+            'grade' => 'required|string|in:green,orange,bronze,silver,gold,sapphire,emerald,platinum,centurion',
         ]);
 
         $benefits = $this->gradeService->getGradeBenefits($request->grade);
@@ -133,5 +133,72 @@ class GradeController extends Controller
             'data' => $results,
             'message' => "Updated grades for {$results['total_guests']} guests. {$results['upgraded_guests']} guests were upgraded.",
         ]);
+    }
+
+    /**
+     * Management: collect upgrade candidates (guests and casts) for current quarter
+     */
+    public function candidates(): JsonResponse
+    {
+        $data = $this->gradeService->collectUpgradeCandidates();
+        return response()->json(['success' => true, 'data' => $data]);
+    }
+
+    /**
+     * Management: approve one-level upgrade for a guest
+     */
+    public function approveGuestUpgrade(Request $request): JsonResponse
+    {
+        $request->validate(['guest_id' => 'required|integer|exists:guests,id']);
+        $guest = Guest::findOrFail($request->guest_id);
+        $result = $this->gradeService->applyGuestUpgrade($guest);
+        return response()->json(['success' => $result['updated'] ?? false, 'data' => $result]);
+    }
+
+    /**
+     * Management: approve one-level upgrade for a cast
+     */
+    public function approveCastUpgrade(Request $request): JsonResponse
+    {
+        $request->validate(['cast_id' => 'required|integer|exists:casts,id']);
+        $cast = Cast::findOrFail($request->cast_id);
+        $result = $this->gradeService->applyCastUpgrade($cast);
+        return response()->json(['success' => $result['updated'] ?? false, 'data' => $result]);
+    }
+
+    /**
+     * Quarterly auto-downgrade executor (can be scheduled)
+     */
+    public function runAutoDowngrades(): JsonResponse
+    {
+        $result = $this->gradeService->applyQuarterlyDowngrades();
+        return response()->json(['success' => true, 'data' => $result]);
+    }
+
+    /**
+     * Management: collect downgrade candidates for current quarter
+     */
+    public function downgradeCandidates(): JsonResponse
+    {
+        $data = $this->gradeService->collectDowngradeCandidates();
+        return response()->json(['success' => true, 'data' => $data]);
+    }
+
+    /**
+     * Get current evaluation period information
+     */
+    public function getEvaluationInfo(): JsonResponse
+    {
+        $info = $this->gradeService->getCurrentEvaluationInfo();
+        return response()->json(['success' => true, 'data' => $info]);
+    }
+
+    /**
+     * Get quarterly points information for the current quarter
+     */
+    public function getQuarterlyPointsInfo(): JsonResponse
+    {
+        $info = $this->gradeService->getQuarterlyPointsInfo();
+        return response()->json(['success' => true, 'data' => $info]);
     }
 } 

@@ -4,8 +4,8 @@ import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Edit, Trash2, Plus, Eye, Search } from 'lucide-react';
-import { useState, useEffect } from 'react';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { useState } from 'react';
+import { Dialog, DialogContent, DialogHeader, DialogTitle} from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -54,6 +54,16 @@ export default function AdminReceipts({ receipts: initialReceipts }: { receipts:
         amount: 0,
         purpose: '',
     });
+
+    const formatYen = (value: number | string) => {
+        const num = typeof value === 'number' ? value : parseFloat(String(value));
+        if (isNaN(num)) return '￥0';
+        try {
+            return new Intl.NumberFormat('ja-JP', { style: 'currency', currency: 'JPY', maximumFractionDigits: 0 }).format(num);
+        } catch {
+            return `￥${Number(num || 0).toLocaleString('ja-JP')}`;
+        }
+    };
 
     const filtered = receipts.filter(
         (r) => r.user_name.toLowerCase().includes(search.toLowerCase()) ||
@@ -259,7 +269,7 @@ export default function AdminReceipts({ receipts: initialReceipts }: { receipts:
                                                         </div>
                                                     </div>
                                                 </td>
-                                                <td className="px-3 py-2">{item.total_amount.toLocaleString()}円</td>
+                                                <td className="px-3 py-2">{formatYen(item.total_amount)}</td>
                                                 <td className="px-3 py-2">{item.purpose}</td>
                                                 <td className="px-3 py-2">{getStatusBadge(item.status)}</td>
                                                 <td className="px-3 py-2">{item.issued_at}</td>
@@ -319,11 +329,12 @@ export default function AdminReceipts({ receipts: initialReceipts }: { receipts:
                                 <div className="border-b border-gray-300 h-8"></div>
                             </div>
 
-                            {/* Total Amount */}
+                            {/* Total Amount */
+                            }
                             <div className="text-center mb-6">
                                 <div className="border-2 border-gray-800 p-4 mx-8">
                                     <div className="text-3xl font-bold text-gray-800">
-                                        ¥{selectedReceipt.total_amount.toLocaleString()}
+                                        {formatYen(selectedReceipt.total_amount)}
                                     </div>
                                 </div>
                             </div>
@@ -351,14 +362,21 @@ export default function AdminReceipts({ receipts: initialReceipts }: { receipts:
                                     </div>
                                     <div className="text-sm text-gray-700">
                                         <div className="font-bold mb-2">内訳</div>
-                                        <div>税抜き金額 ¥{selectedReceipt.amount.toLocaleString()}</div>
-                                        <div>消費税額 ¥{((selectedReceipt.total_amount - selectedReceipt.amount) || 0).toLocaleString()}</div>
+                                        <div>税抜き金額 {formatYen(selectedReceipt.amount)}</div>
+                                        <div>消費税額 {formatYen((selectedReceipt.total_amount - selectedReceipt.amount) || 0)}</div>
                                         <div>消費税率 {selectedReceipt.total_amount > selectedReceipt.amount ? '10' : '0'}%</div>
                                     </div>
                                 </div>
 
                                 {/* Right Section - Company Info */}
                                 <div className="text-right space-y-2">
+                                    <div className="inline-flex items-center justify-center border-[3px] border-red-600 rounded-full text-red-600 w-24 h-24 text-center ml-auto">
+                                        <div>
+                                            <div className="text-xs leading-tight">株式会社</div>
+                                            <div className="text-sm font-bold leading-tight">Pishatto</div>
+                                            <div className="text-xs leading-tight">印</div>
+                                        </div>
+                                    </div>
                                     <div className="text-sm text-gray-700">
                                         <div className="font-bold">株式会社Pishatto</div>
                                         <div>〒106-0032</div>

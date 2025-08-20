@@ -7,6 +7,7 @@ use App\Models\ReservationApplication;
 use App\Models\Reservation;
 use App\Models\Cast;
 use App\Models\Guest;
+use App\Services\MatchingMessageService;
 use Illuminate\Support\Facades\DB; // Added for DB facade
 use Illuminate\Support\Facades\Log; 
 
@@ -174,6 +175,10 @@ class AdminController extends Controller
                 'group_id' => $chatGroup->id,
             ]);
 
+            // Send automatic matching information message
+            $matchingMessageService = app(MatchingMessageService::class);
+            $matchingMessageService->sendMatchingMessage($reservation, $application->cast_id, $chat->id, $chatGroup->id);
+
             // Notify guest
             $guestNotification = \App\Models\Notification::create([
                 'user_id' => $reservation->guest_id,
@@ -184,6 +189,8 @@ class AdminController extends Controller
                 'message' => '予約がキャストにマッチされました',
                 'read' => false,
             ]);
+            // Broadcast to guest
+            event(new \App\Events\NotificationSent($guestNotification));
 
             // Notify approved cast
             $castNotification = \App\Models\Notification::create([
@@ -194,6 +201,8 @@ class AdminController extends Controller
                 'message' => '予約の応募が承認されました',
                 'read' => false,
             ]);
+            // Broadcast to approved cast
+            event(new \App\Events\NotificationSent($castNotification));
 
             // Notify rejected casts
             $rejectedApplications = ReservationApplication::where('reservation_id', $reservation->id)
@@ -201,7 +210,7 @@ class AdminController extends Controller
                 ->get();
 
             foreach ($rejectedApplications as $rejectedApp) {
-                \App\Models\Notification::create([
+                $rejectedNotification = \App\Models\Notification::create([
                     'user_id' => $rejectedApp->cast_id,
                     'user_type' => 'cast',
                     'type' => 'application_rejected',
@@ -209,6 +218,8 @@ class AdminController extends Controller
                     'message' => '予約の応募が却下されました',
                     'read' => false,
                 ]);
+                // Broadcast to rejected cast
+                event(new \App\Events\NotificationSent($rejectedNotification));
             }
 
             // Update rankings
@@ -354,6 +365,10 @@ class AdminController extends Controller
                 ]);
             }
 
+            // Send automatic matching information message for multiple casts
+            $matchingMessageService = app(MatchingMessageService::class);
+            $matchingMessageService->sendMultipleMatchingMessage($reservation, $validated['cast_ids'], $chatGroup->id);
+
             // Notify guest
             $guestNotification = \App\Models\Notification::create([
                 'user_id' => $reservation->guest_id,
@@ -363,10 +378,12 @@ class AdminController extends Controller
                 'message' => '予約が複数のキャストにマッチされました',
                 'read' => false,
             ]);
+            // Broadcast to guest
+            event(new \App\Events\NotificationSent($guestNotification));
 
             // Notify approved casts
             foreach ($validated['cast_ids'] as $castId) {
-                \App\Models\Notification::create([
+                $approvedNotification = \App\Models\Notification::create([
                     'user_id' => $castId,
                     'user_type' => 'cast',
                     'type' => 'application_approved',
@@ -374,6 +391,8 @@ class AdminController extends Controller
                     'message' => 'プレミアム予約の応募が承認されました',
                     'read' => false,
                 ]);
+                // Broadcast to approved cast
+                event(new \App\Events\NotificationSent($approvedNotification));
             }
 
             // Notify rejected casts
@@ -382,7 +401,7 @@ class AdminController extends Controller
                 ->get();
 
             foreach ($rejectedApplications as $rejectedApp) {
-                \App\Models\Notification::create([
+                $rejectedNotification = \App\Models\Notification::create([
                     'user_id' => $rejectedApp->cast_id,
                     'user_type' => 'cast',
                     'type' => 'application_rejected',
@@ -390,6 +409,8 @@ class AdminController extends Controller
                     'message' => '予約の応募が却下されました',
                     'read' => false,
                 ]);
+                // Broadcast to rejected cast
+                event(new \App\Events\NotificationSent($rejectedNotification));
             }
 
             // Update rankings

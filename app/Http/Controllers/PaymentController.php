@@ -6,6 +6,7 @@ use Illuminate\Http\Request;
 use App\Models\Payment;
 use App\Models\Receipt;
 use App\Models\PointTransaction;
+use App\Models\Cast;
 use App\Services\PayJPService;
 use App\Services\CustomerService;
 use App\Services\PointTransactionService;
@@ -136,21 +137,7 @@ class PaymentController extends Controller
                     $newPoints = $currentPoints + $request->amount;
                     $model->points = $newPoints;
                     $model->save();
-                    // Update grades accordingly
-                    try {
-                        $gradeService = app(\App\Services\GradeService::class);
-                        if ($request->user_type === 'guest') {
-                            $gradeService->calculateAndUpdateGrade($model);
-                        } else {
-                            $gradeService->calculateAndUpdateCastGrade($model);
-                        }
-                    } catch (\Throwable $e) {
-                        Log::warning('Failed to update grade after direct charge', [
-                            'user_type' => $request->user_type,
-                            'user_id' => $request->user_id,
-                            'error' => $e->getMessage(),
-                        ]);
-                    }
+                    // Grade updates are handled via quarterly evaluation & admin approval
 
                     // Create point transaction record for the direct charge
                     $pointTransactionData = [
@@ -429,6 +416,7 @@ class PaymentController extends Controller
             'recipient_name' => 'required|string|max:255',
             'amount' => 'required|numeric|min:0',
             'purpose' => 'required|string|max:255',
+            'transaction_created_at' => 'nullable|date',
         ]);
 
         try {
@@ -450,6 +438,7 @@ class PaymentController extends Controller
                 'tax_rate' => $taxRate,
                 'total_amount' => $totalAmount,
                 'purpose' => $request->purpose,
+                'transaction_created_at' => $request->transaction_created_at,
                 'issued_at' => now(),
                 // Required company fields (NOT NULL in schema)
                 'company_name' => '株式会社キネカ',
@@ -1233,15 +1222,7 @@ class PaymentController extends Controller
             if ($cast) {
                 $cast->points = ($cast->points ?? 0) + $request->amount;
                 $cast->save();
-                try {
-                    $gradeService = app(\App\Services\GradeService::class);
-                    $gradeService->calculateAndUpdateCastGrade($cast);
-                } catch (\Throwable $e) {
-                    Log::warning('Failed to update cast grade after admin create payment', [
-                        'cast_id' => $cast->id,
-                        'error' => $e->getMessage(),
-                    ]);
-                }
+                // Grade updates are handled via quarterly evaluation & admin approval
             }
         }
 
@@ -1285,15 +1266,7 @@ class PaymentController extends Controller
             if ($cast) {
                 $cast->points = ($cast->points ?? 0) + $payment->amount;
                 $cast->save();
-                try {
-                    $gradeService = app(\App\Services\GradeService::class);
-                    $gradeService->calculateAndUpdateCastGrade($cast);
-                } catch (\Throwable $e) {
-                    Log::warning('Failed to update cast grade after admin payment status change', [
-                        'cast_id' => $cast->id,
-                        'error' => $e->getMessage(),
-                    ]);
-                }
+                // Grade updates are handled via quarterly evaluation & admin approval
             }
         }
 
@@ -1317,15 +1290,7 @@ class PaymentController extends Controller
             if ($cast) {
                 $cast->points = max(0, ($cast->points ?? 0) - $payment->amount);
                 $cast->save();
-                try {
-                    $gradeService = app(\App\Services\GradeService::class);
-                    $gradeService->calculateAndUpdateCastGrade($cast);
-                } catch (\Throwable $e) {
-                    Log::warning('Failed to update cast grade after admin delete payment', [
-                        'cast_id' => $cast->id,
-                        'error' => $e->getMessage(),
-                    ]);
-                }
+                // Grade updates are handled via quarterly evaluation & admin approval
             }
         }
 

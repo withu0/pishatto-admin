@@ -12,15 +12,17 @@ use Illuminate\Support\Facades\DB;
 
 class GradeService
 {
-    // Grade thresholds based on the screenshots
+    // Guest grade thresholds per quarter (usage points)
     const GRADE_THRESHOLDS = [
-        'green' => 0,      // Default grade
-        'orange' => 100000, // 100,000P
-        'bronze' => 300000, // 300,000P
-        'silver' => 500000, // 500,000P
-        'gold' => 1000000,  // 1,000,000P
-        'platinum' => 6000000, // 6,000,000P
-        'centurion' => 30000000, // 30,000,000P
+        'green' => 0,
+        'orange' => 100000,
+        'bronze' => 300000,
+        'silver' => 500000,
+        'gold' => 1000000,
+        'sapphire' => 3000000,
+        'emerald' => 5000000,
+        'platinum' => 10000000,
+        'centurion' => 30000000,
     ];
 
     /**
@@ -58,6 +60,8 @@ class GradeService
         'bronze' => 'ブロンズ',
         'silver' => 'シルバー',
         'gold' => 'ゴールド',
+        'sapphire' => 'サファイア',
+        'emerald' => 'エメラルド',
         'platinum' => 'プラチナ',
         'centurion' => 'センチュリオン',
     ];
@@ -129,15 +133,18 @@ class GradeService
         ],
     ];
 
-    // Cast grade thresholds (FP-based)
+    // Cast grade thresholds per quarter (FPT earned)
     const CAST_GRADE_THRESHOLDS = [
-        'beginner' => 0,      // Default grade
-        'green' => 100000,    // 100,000 FP
-        'orange' => 200000,  // 200,000 FP
-        'bronze' => 400000,  // 400,000 FP
-        'silver' => 1000000,  // 1000,000 FP
-        'gold' => 2000000,   // 2,000,000 FP
-        'platinum' => 6000000, // 6,000,000 FP
+        'beginner' => 0,
+        'green' => 100000,
+        'orange' => 300000,
+        'bronze' => 500000,
+        'silver' => 1000000,
+        'gold' => 3000000,
+        'sapphire' => 5000000,
+        'emerald' => 10000000,
+        'platinum' => 30000000,
+        'black' => 50000000,
     ];
 
     // Cast grade display names in Japanese
@@ -148,7 +155,10 @@ class GradeService
         'bronze' => 'ブロンズ',
         'silver' => 'シルバー',
         'gold' => 'ゴールド',
+        'sapphire' => 'サファイア',
+        'emerald' => 'エメラルド',
         'platinum' => 'プラチナ',
+        'black' => 'ブラック',
     ];
 
     // Cast grade benefits
@@ -263,6 +273,10 @@ class GradeService
             return 'centurion';
         } elseif ($usagePoints >= self::GRADE_THRESHOLDS['platinum']) {
             return 'platinum';
+        } elseif ($usagePoints >= self::GRADE_THRESHOLDS['emerald']) {
+            return 'emerald';
+        } elseif ($usagePoints >= self::GRADE_THRESHOLDS['sapphire']) {
+            return 'sapphire';
         } elseif ($usagePoints >= self::GRADE_THRESHOLDS['gold']) {
             return 'gold';
         } elseif ($usagePoints >= self::GRADE_THRESHOLDS['silver']) {
@@ -332,9 +346,16 @@ class GradeService
     public function getAllGradesInfo(): array
     {
         return [
-            'thresholds' => self::GRADE_THRESHOLDS,
-            'names' => self::GRADE_NAMES,
-            'benefits' => self::GRADE_BENEFITS,
+            'guest' => [
+                'thresholds' => self::GRADE_THRESHOLDS,
+                'names' => self::GRADE_NAMES,
+                'benefits' => self::GRADE_BENEFITS,
+            ],
+            'cast' => [
+                'thresholds' => self::CAST_GRADE_THRESHOLDS,
+                'names' => self::CAST_GRADE_NAMES,
+                'benefits' => self::CAST_GRADE_BENEFITS,
+            ],
         ];
     }
 
@@ -489,8 +510,14 @@ class GradeService
      */
     public function determineCastGrade(int $fp): string
     {
-        if ($fp >= self::CAST_GRADE_THRESHOLDS['platinum']) {
+        if ($fp >= self::CAST_GRADE_THRESHOLDS['black']) {
+            return 'black';
+        } elseif ($fp >= self::CAST_GRADE_THRESHOLDS['platinum']) {
             return 'platinum';
+        } elseif ($fp >= self::CAST_GRADE_THRESHOLDS['emerald']) {
+            return 'emerald';
+        } elseif ($fp >= self::CAST_GRADE_THRESHOLDS['sapphire']) {
+            return 'sapphire';
         } elseif ($fp >= self::CAST_GRADE_THRESHOLDS['gold']) {
             return 'gold';
         } elseif ($fp >= self::CAST_GRADE_THRESHOLDS['silver']) {
@@ -534,6 +561,463 @@ class GradeService
             'grade_names' => self::CAST_GRADE_NAMES,
             'fp_breakdown' => $fpBreakdown,
         ];
+    }
+
+    /**
+     * Quarterly evaluation helpers and candidate collection/apply logic
+     * Evaluations are conducted four times a year:
+     * - 1-3 months (Jan-Mar)
+     * - 4-6 months (Apr-Jun) 
+     * - 7-9 months (Jul-Sep)
+     * - 10-12 months (Oct-Dec)
+     */
+    public function getCurrentQuarterPeriod(?Carbon $reference = null): array
+    {
+        $ref = $reference ? $reference->copy() : Carbon::now();
+        $month = (int) $ref->format('n');
+        
+        if ($month >= 1 && $month <= 3) {
+            $start = Carbon::create($ref->year, 1, 1, 0, 0, 0);
+            $end = Carbon::create($ref->year, 3, 31, 23, 59, 59);
+        } elseif ($month >= 4 && $month <= 6) {
+            $start = Carbon::create($ref->year, 4, 1, 0, 0, 0);
+            $end = Carbon::create($ref->year, 6, 30, 23, 59, 59);
+        } elseif ($month >= 7 && $month <= 9) {
+            $start = Carbon::create($ref->year, 7, 1, 0, 0, 0);
+            $end = Carbon::create($ref->year, 9, 30, 23, 59, 59);
+        } else {
+            $start = Carbon::create($ref->year, 10, 1, 0, 0, 0);
+            $end = Carbon::create($ref->year, 12, 31, 23, 59, 59);
+        }
+        
+        return [$start, $end];
+    }
+
+    /**
+     * Get the previous quarter period for evaluation purposes
+     * This is used to evaluate the previous quarter's performance
+     */
+    public function getPreviousQuarterPeriod(?Carbon $reference = null): array
+    {
+        $ref = $reference ? $reference->copy() : Carbon::now();
+        $month = (int) $ref->format('n');
+        
+        if ($month >= 1 && $month <= 3) {
+            // Previous quarter: Oct-Dec of previous year
+            $start = Carbon::create($ref->year - 1, 10, 1, 0, 0, 0);
+            $end = Carbon::create($ref->year - 1, 12, 31, 23, 59, 59);
+        } elseif ($month >= 4 && $month <= 6) {
+            // Previous quarter: Jan-Mar of current year
+            $start = Carbon::create($ref->year, 1, 1, 0, 0, 0);
+            $end = Carbon::create($ref->year, 3, 31, 23, 59, 59);
+        } elseif ($month >= 7 && $month <= 9) {
+            // Previous quarter: Apr-Jun of current year
+            $start = Carbon::create($ref->year, 4, 1, 0, 0, 0);
+            $end = Carbon::create($ref->year, 6, 30, 23, 59, 59);
+        } else {
+            // Previous quarter: Jul-Sep of current year
+            $start = Carbon::create($ref->year, 7, 1, 0, 0, 0);
+            $end = Carbon::create($ref->year, 9, 30, 23, 59, 59);
+        }
+        
+        return [$start, $end];
+    }
+
+    /**
+     * Get current evaluation period information for display purposes
+     * Returns information about the current quarter and what period is being evaluated
+     */
+    public function getCurrentEvaluationInfo(?Carbon $reference = null): array
+    {
+        $ref = $reference ? $reference->copy() : Carbon::now();
+        $month = (int) $ref->format('n');
+        
+        if ($month >= 1 && $month <= 3) {
+            $currentQuarter = 'Q1 (Jan-Mar)';
+            $evaluationPeriod = 'Oct-Dec (previous year)';
+            $evaluationStart = Carbon::create($ref->year - 1, 10, 1, 0, 0, 0);
+            $evaluationEnd = Carbon::create($ref->year - 1, 12, 31, 23, 59, 59);
+        } elseif ($month >= 4 && $month <= 6) {
+            $currentQuarter = 'Q2 (Apr-Jun)';
+            $evaluationPeriod = 'Jan-Mar (current year)';
+            $evaluationStart = Carbon::create($ref->year, 1, 1, 0, 0, 0);
+            $evaluationEnd = Carbon::create($ref->year, 3, 31, 23, 59, 59);
+        } elseif ($month >= 7 && $month <= 9) {
+            $currentQuarter = 'Q3 (Jul-Sep)';
+            $evaluationPeriod = 'Apr-Jun (current year)';
+            $evaluationStart = Carbon::create($ref->year, 4, 1, 0, 0, 0);
+            $evaluationEnd = Carbon::create($ref->year, 6, 30, 23, 59, 59);
+        } else {
+            $currentQuarter = 'Q4 (Oct-Dec)';
+            $evaluationPeriod = 'Jul-Sep (current year)';
+            $evaluationStart = Carbon::create($ref->year, 7, 1, 0, 0, 0);
+            $evaluationEnd = Carbon::create($ref->year, 9, 30, 23, 59, 59);
+        }
+        
+        return [
+            'current_quarter' => $currentQuarter,
+            'evaluation_period' => $evaluationPeriod,
+            'evaluation_start' => $evaluationStart,
+            'evaluation_end' => $evaluationEnd,
+            'next_evaluation_date' => $this->getNextEvaluationDate($ref),
+        ];
+    }
+
+    /**
+     * Get quarterly points information for casts and guests
+     * This shows the current quarter's accumulated points
+     */
+    public function getQuarterlyPointsInfo(?Carbon $reference = null): array
+    {
+        $ref = $reference ? $reference->copy() : Carbon::now();
+        $month = (int) $ref->format('n');
+        
+        if ($month >= 1 && $month <= 3) {
+            $currentQuarter = 'Q1 (Jan-Mar)';
+            $quarterStart = Carbon::create($ref->year, 1, 1, 0, 0, 0);
+            $quarterEnd = Carbon::create($ref->year, 3, 31, 23, 59, 59);
+        } elseif ($month >= 4 && $month <= 6) {
+            $currentQuarter = 'Q2 (Apr-Jun)';
+            $quarterStart = Carbon::create($ref->year, 4, 1, 0, 0, 0);
+            $quarterEnd = Carbon::create($ref->year, 6, 30, 23, 59, 59);
+        } elseif ($month >= 7 && $month <= 9) {
+            $currentQuarter = 'Q3 (Jul-Sep)';
+            $quarterStart = Carbon::create($ref->year, 7, 1, 0, 0, 0);
+            $quarterEnd = Carbon::create($ref->year, 9, 30, 23, 59, 59);
+        } else {
+            $currentQuarter = 'Q4 (Oct-Dec)';
+            $quarterStart = Carbon::create($ref->year, 10, 1, 0, 0, 0);
+            $quarterEnd = Carbon::create($ref->year, 12, 31, 23, 59, 59);
+        }
+        
+        // Get next reset date
+        $nextResetDate = $this->getNextQuarterResetDate($ref);
+        
+        return [
+            'current_quarter' => $currentQuarter,
+            'quarter_start' => $quarterStart,
+            'quarter_end' => $quarterEnd,
+            'next_reset_date' => $nextResetDate,
+            'days_until_reset' => $quarterEnd->diffInDays($ref, false),
+        ];
+    }
+
+    /**
+     * Get the next quarter reset date (when points will be reset)
+     */
+    private function getNextQuarterResetDate(Carbon $reference): Carbon
+    {
+        $month = (int) $reference->format('n');
+        
+        if ($month >= 1 && $month <= 3) {
+            // Next reset: April 1st
+            return Carbon::create($reference->year, 4, 1, 0, 1, 0);
+        } elseif ($month >= 4 && $month <= 6) {
+            // Next reset: July 1st
+            return Carbon::create($reference->year, 7, 1, 0, 1, 0);
+        } elseif ($month >= 7 && $month <= 9) {
+            // Next reset: October 1st
+            return Carbon::create($reference->year, 10, 1, 0, 1, 0);
+        } else {
+            // Next reset: January 1st (next year)
+            return Carbon::create($reference->year + 1, 1, 1, 0, 1, 0);
+        }
+    }
+
+    /**
+     * Get the next evaluation date (when the next quarterly evaluation will run)
+     */
+    private function getNextEvaluationDate(Carbon $reference): Carbon
+    {
+        $month = (int) $reference->format('n');
+        
+        if ($month >= 1 && $month <= 3) {
+            // Next evaluation: April 1st
+            return Carbon::create($reference->year, 4, 1, 4, 0, 0);
+        } elseif ($month >= 4 && $month <= 6) {
+            // Next evaluation: July 1st
+            return Carbon::create($reference->year, 7, 1, 4, 0, 0);
+        } elseif ($month >= 7 && $month <= 9) {
+            // Next evaluation: October 1st
+            return Carbon::create($reference->year, 10, 1, 4, 0, 0);
+        } else {
+            // Next evaluation: January 1st (next year)
+            return Carbon::create($reference->year + 1, 1, 1, 4, 0, 0);
+        }
+    }
+
+    public function calculateGuestQuarterUsage(Guest $guest, ?Carbon $reference = null): int
+    {
+        [$start, $end] = $this->getCurrentQuarterPeriod($reference);
+        $spent = PointTransaction::where('guest_id', $guest->id)
+            ->whereIn('type', ['pending', 'transfer'])
+            ->whereBetween('created_at', [$start, $end])
+            ->sum('amount');
+        $refunded = PointTransaction::where('guest_id', $guest->id)
+            ->where('type', 'convert')
+            ->whereBetween('created_at', [$start, $end])
+            ->sum('amount');
+        return max(0, $spent - $refunded);
+    }
+
+    public function calculateCastQuarterEarnedPoints(Cast $cast, ?Carbon $reference = null): int
+    {
+        [$start, $end] = $this->getCurrentQuarterPeriod($reference);
+        return (int) PointTransaction::where('cast_id', $cast->id)
+            ->whereIn('type', ['transfer', 'gift'])
+            ->whereBetween('created_at', [$start, $end])
+            ->sum('amount');
+    }
+
+    public function getNextGuestGrade(string $currentGrade): ?string
+    {
+        $grades = array_keys(self::GRADE_THRESHOLDS);
+        $index = array_search($currentGrade, $grades, true);
+        if ($index === false || $index >= count($grades) - 1) {
+            return null;
+        }
+        return $grades[$index + 1];
+    }
+
+    public function getPreviousGuestGrade(string $currentGrade): ?string
+    {
+        $grades = array_keys(self::GRADE_THRESHOLDS);
+        $index = array_search($currentGrade, $grades, true);
+        if ($index === false || $index === 0) {
+            return null;
+        }
+        return $grades[$index - 1];
+    }
+
+    public function getNextCastGradeKey(string $currentGrade): ?string
+    {
+        $grades = array_keys(self::CAST_GRADE_THRESHOLDS);
+        $index = array_search($currentGrade, $grades, true);
+        if ($index === false || $index >= count($grades) - 1) {
+            return null;
+        }
+        return $grades[$index + 1];
+    }
+
+    public function getPreviousCastGradeKey(string $currentGrade): ?string
+    {
+        $grades = array_keys(self::CAST_GRADE_THRESHOLDS);
+        $index = array_search($currentGrade, $grades, true);
+        if ($index === false || $index === 0) {
+            return null;
+        }
+        return $grades[$index - 1];
+    }
+
+    public function getGuestUpgradeCandidate(Guest $guest, ?Carbon $reference = null): ?array
+    {
+        // Use the stored grade_points field directly instead of calculating from transactions
+        $currentGradePoints = (int) ($guest->grade_points ?? 0);
+        $current = $this->normalizeGuestGrade($guest->grade ?? 'green');
+        $next = $this->getNextGuestGrade($current);
+        if (!$next) {
+            return null;
+        }
+        $threshold = self::GRADE_THRESHOLDS[$next];
+        if ($currentGradePoints >= $threshold) {
+            return [
+                'guest_id' => $guest->id,
+                'current_grade' => $current,
+                'target_grade' => $next,
+                'quarter_usage' => $currentGradePoints,
+                'threshold' => $threshold,
+            ];
+        }
+        return null;
+    }
+
+    public function getGuestDowngradeCandidate(Guest $guest, ?Carbon $reference = null): ?array
+    {
+        // Use the stored grade_points field directly instead of calculating from transactions
+        $currentGradePoints = (int) ($guest->grade_points ?? 0);
+        $current = $this->normalizeGuestGrade($guest->grade ?? 'green');
+        if ($current === 'green') {
+            return null;
+        }
+        $threshold = self::GRADE_THRESHOLDS[$current];
+        if ($currentGradePoints < $threshold) {
+            $previous = $this->getPreviousGuestGrade($current);
+            return [
+                'guest_id' => $guest->id,
+                'current_grade' => $current,
+                'target_grade' => $previous,
+                'quarter_usage' => $currentGradePoints,
+                'threshold' => $threshold,
+            ];
+        }
+        return null;
+    }
+
+    public function getCastUpgradeCandidate(Cast $cast, ?Carbon $reference = null): ?array
+    {
+        // Use the stored points field directly instead of calculating from transactions
+        $currentPoints = (int) ($cast->points ?? 0);
+        $current = $this->normalizeCastGrade($cast->grade ?? 'beginner');
+        $next = $this->getNextCastGradeKey($current);
+        if (!$next) {
+            return null;
+        }
+        $threshold = self::CAST_GRADE_THRESHOLDS[$next];
+        if ($currentPoints >= $threshold) {
+            return [
+                'cast_id' => $cast->id,
+                'current_grade' => $current,
+                'target_grade' => $next,
+                'quarter_earned_points' => $currentPoints,
+                'threshold' => $threshold,
+            ];
+        }
+        return null;
+    }
+
+    public function getCastDowngradeCandidate(Cast $cast, ?Carbon $reference = null): ?array
+    {
+        // Use the stored points field directly instead of calculating from transactions
+        $currentPoints = (int) ($cast->points ?? 0);
+        $current = $this->normalizeCastGrade($cast->grade ?? 'beginner');
+        if ($current === 'beginner') {
+            return null;
+        }
+        $threshold = self::CAST_GRADE_THRESHOLDS[$current];
+        if ($currentPoints < $threshold) {
+            $previous = $this->getPreviousCastGradeKey($current);
+            return [
+                'cast_id' => $cast->id,
+                'current_grade' => $current,
+                'target_grade' => $previous,
+                'quarter_earned_points' => $currentPoints,
+                'threshold' => $threshold,
+            ];
+        }
+        return null;
+    }
+
+    public function collectUpgradeCandidates(?Carbon $reference = null): array
+    {
+        $guestCandidates = [];
+        $castCandidates = [];
+        Guest::select('id', 'grade', 'grade_points')
+            ->chunk(200, function ($guests) use (&$guestCandidates, $reference) {
+                foreach ($guests as $guest) {
+                    $candidate = $this->getGuestUpgradeCandidate($guest, $reference);
+                    if ($candidate) {
+                        $guestCandidates[] = $candidate;
+                    }
+                }
+            });
+        Cast::select('id', 'grade', 'points')
+            ->chunk(200, function ($casts) use (&$castCandidates, $reference) {
+                foreach ($casts as $cast) {
+                    $candidate = $this->getCastUpgradeCandidate($cast, $reference);
+                    if ($candidate) {
+                        $castCandidates[] = $candidate;
+                    }
+                }
+            });
+        return [
+            'guests' => $guestCandidates,
+            'casts' => $castCandidates,
+        ];
+    }
+
+    public function collectDowngradeCandidates(?Carbon $reference = null): array
+    {
+        $guestCandidates = [];
+        $castCandidates = [];
+        
+        // For downgrade evaluation, we need to evaluate the previous quarter
+        // This ensures we're evaluating completed performance, not current quarter
+        $evalReference = $reference ? $reference->copy() : Carbon::now();
+        
+        Guest::select('id', 'grade', 'grade_points')
+            ->chunk(200, function ($guests) use (&$guestCandidates, $evalReference) {
+                foreach ($guests as $guest) {
+                    $candidate = $this->getGuestDowngradeCandidate($guest, $evalReference);
+                    if ($candidate) {
+                        $guestCandidates[] = $candidate;
+                    }
+                }
+            });
+            
+        Cast::select('id', 'grade', 'points')
+            ->chunk(200, function ($casts) use (&$castCandidates, $evalReference) {
+                foreach ($casts as $cast) {
+                    $candidate = $this->getCastDowngradeCandidate($cast, $evalReference);
+                    if ($candidate) {
+                        $castCandidates[] = $candidate;
+                    }
+                }
+            });
+            
+        return [
+            'guests' => $guestCandidates,
+            'casts' => $castCandidates,
+        ];
+    }
+
+    public function applyGuestUpgrade(Guest $guest): array
+    {
+        $current = $this->normalizeGuestGrade($guest->grade ?? 'green');
+        $next = $this->getNextGuestGrade($current);
+        if (!$next) {
+            return ['updated' => false, 'message' => 'No higher grade available'];
+        }
+        $guest->update([
+            'grade' => $next,
+            'grade_updated_at' => now(),
+        ]);
+        return ['updated' => true, 'old_grade' => $current, 'new_grade' => $next];
+    }
+
+    public function applyCastUpgrade(Cast $cast): array
+    {
+        $current = $this->normalizeCastGrade($cast->grade ?? 'beginner');
+        $next = $this->getNextCastGradeKey($current);
+        if (!$next) {
+            return ['updated' => false, 'message' => 'No higher grade available'];
+        }
+        $cast->update([
+            'grade' => $next,
+            'grade_updated_at' => now(),
+        ]);
+        return ['updated' => true, 'old_grade' => $current, 'new_grade' => $next];
+    }
+
+    public function applyQuarterlyDowngrades(?Carbon $reference = null): array
+    {
+        $results = [
+            'guest_downgraded' => 0,
+            'cast_downgraded' => 0,
+            'guests' => [],
+            'casts' => [],
+        ];
+        // Evaluate the PREVIOUS quarter relative to reference (or now)
+        $evalRef = $reference ? $reference->copy()->subMonthNoOverflow() : Carbon::now()->subMonthNoOverflow();
+        $collected = $this->collectDowngradeCandidates($evalRef);
+        foreach ($collected['guests'] as $g) {
+            $guest = Guest::find($g['guest_id']);
+            if ($guest && $g['target_grade']) {
+                $old = $guest->grade;
+                $guest->update(['grade' => $g['target_grade'], 'grade_updated_at' => now()]);
+                $results['guest_downgraded']++;
+                $results['guests'][] = ['guest_id' => $guest->id, 'old' => $old, 'new' => $g['target_grade']];
+            }
+        }
+        foreach ($collected['casts'] as $c) {
+            $cast = Cast::find($c['cast_id']);
+            if ($cast && $c['target_grade']) {
+                $old = $cast->grade;
+                $cast->update(['grade' => $c['target_grade'], 'grade_updated_at' => now()]);
+                $results['cast_downgraded']++;
+                $results['casts'][] = ['cast_id' => $cast->id, 'old' => $old, 'new' => $c['target_grade']];
+            }
+        }
+        return $results;
     }
 
     /**

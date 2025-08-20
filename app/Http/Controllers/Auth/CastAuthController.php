@@ -59,7 +59,7 @@ class CastAuthController extends Controller
     {
         $data = $request->only([
             'id', 'phone', 'line_id', 'password', 'nickname', 'avatar', 'birth_year', 'height', 'residence',
-            'birthplace', 'profile_text', 'created_at', 'updated_at'
+            'birthplace', 'profile_text', 'created_at', 'updated_at', 'grade_points'
         ]);
         
         if (!empty($data['id'])) {

@@ -13,14 +13,14 @@ class UpdateGuestGrades extends Command
      *
      * @var string
      */
-    protected $signature = 'guests:update-grades {--guest-id= : Update specific guest grade}';
+    protected $signature = 'grades:quarterly {--guest-id= : Update specific guest grade} {--auto-downgrade : Run auto downgrades for the quarter}';
 
     /**
      * The console command description.
      *
      * @var string
      */
-    protected $description = 'Update guest grades based on their usage points';
+    protected $description = 'Update guest grades based on their usage points and run quarterly auto-downgrades';
 
     protected $gradeService;
 
@@ -40,10 +40,59 @@ class UpdateGuestGrades extends Command
     {
         $guestId = $this->option('guest-id');
 
-        if ($guestId) {
+        if ($this->option('auto-downgrade')) {
+            $this->runAutoDowngrade();
+            return;
+        } elseif ($guestId) {
             $this->updateSpecificGuest($guestId);
         } else {
             $this->updateAllGuests();
+        }
+    }
+
+    private function runAutoDowngrade(): void
+    {
+        $this->info('Running quarterly auto-downgrades...');
+        
+        // Get current quarter information for context
+        $now = \Carbon\Carbon::now();
+        $month = (int) $now->format('n');
+        
+        if ($month >= 1 && $month <= 3) {
+            $quarterName = 'Q1 (Jan-Mar)';
+            $evaluationPeriod = 'Oct-Dec (previous year)';
+        } elseif ($month >= 4 && $month <= 6) {
+            $quarterName = 'Q2 (Apr-Jun)';
+            $evaluationPeriod = 'Jan-Mar (current year)';
+        } elseif ($month >= 7 && $month <= 9) {
+            $quarterName = 'Q3 (Jul-Sep)';
+            $evaluationPeriod = 'Apr-Jun (current year)';
+        } else {
+            $quarterName = 'Q4 (Oct-Dec)';
+            $evaluationPeriod = 'Jul-Sep (current year)';
+        }
+        
+        $this->info("Current quarter: {$quarterName}");
+        $this->info("Evaluating performance for: {$evaluationPeriod}");
+        
+        $result = $this->gradeService->applyQuarterlyDowngrades();
+        
+        $this->info("✅ Quarterly evaluation completed!");
+        $this->info("Guests downgraded: {$result['guest_downgraded']}");
+        $this->info("Casts downgraded: {$result['cast_downgraded']}");
+        
+        if (!empty($result['guests'])) {
+            $this->info("\nGuest downgrades:");
+            foreach ($result['guests'] as $guest) {
+                $this->line("  - Guest ID {$guest['guest_id']}: {$guest['old']} → {$guest['new']}");
+            }
+        }
+        
+        if (!empty($result['casts'])) {
+            $this->info("\nCast downgrades:");
+            foreach ($result['casts'] as $cast) {
+                $this->line("  - Cast ID {$cast['cast_id']}: {$cast['old']} → {$cast['new']}");
+            }
         }
     }
 

@@ -4,7 +4,7 @@ import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
-import { Edit, Trash2, Plus, Check, X, Eye, RefreshCw, User, Calendar, MapPin, Clock, MessageCircle, Star, Mail, Phone, MapPin as LocationIcon, CalendarDays, Award, Heart, Languages, DollarSign, Clock as TimeIcon, Users, Star as StarIcon, CheckCircle } from 'lucide-react';
+import {  Check, X, Eye, RefreshCw, User, Calendar, Star,  Phone, MapPin as LocationIcon, Users, Star as StarIcon, CheckCircle } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { router } from '@inertiajs/react';
 
@@ -53,6 +53,7 @@ interface ReservationApplication {
         status?: string;
         created_at?: string;
         total_reservations?: number;
+        category?: string;
     };
     status: 'pending' | 'approved' | 'rejected';
     applied_at: string;
@@ -216,7 +217,6 @@ export default function AdminReservationApplications({ applications: initialAppl
             });
 
             if (response.ok) {
-                const result = await response.json();
                 setApplications(prev => prev.map(app => 
                     selectedCasts.some(selected => selected.id === app.id)
                         ? { ...app, status: 'approved' as const }
@@ -472,7 +472,7 @@ export default function AdminReservationApplications({ applications: initialAppl
                                             {selectedApplication.reservation.guest.points && (
                                                 <div className="flex items-center mt-1">
                                                     <StarIcon className="w-4 h-4 text-yellow-500 mr-1" />
-                                                    <span className="text-blue-700 font-medium">{selectedApplication.reservation.guest.points}P</span>
+                                                    <span className="text-blue-700 font-medium">{Number(selectedApplication.reservation.guest.points).toLocaleString()}P</span>
                                                 </div>
                                             )}
                                         </div>
@@ -596,7 +596,7 @@ export default function AdminReservationApplications({ applications: initialAppl
                                             {selectedApplication.cast.points && (
                                                 <div className="flex items-center mt-1">
                                                     <StarIcon className="w-4 h-4 text-yellow-500 mr-1" />
-                                                    <span className="text-purple-700 font-medium">{selectedApplication.cast.points}P</span>
+                                                    <span className="text-purple-700 font-medium">{Number(selectedApplication.cast.points).toLocaleString()}P</span>
                                                 </div>
                                             )}
                                         </div>
@@ -620,6 +620,12 @@ export default function AdminReservationApplications({ applications: initialAppl
                                             <div className="flex items-center">
                                                 <LocationIcon className="w-4 h-4 text-purple-600 mr-3" />
                                                 <span className="text-purple-800">{selectedApplication.cast.residence}</span>
+                                            </div>
+                                        )}
+                                        {selectedApplication.cast.category && (
+                                            <div className="flex items-center">
+                                                <User className="w-4 h-4 text-purple-600 mr-3" />
+                                                <span className="text-purple-800">{selectedApplication.cast.category}</span>
                                             </div>
                                         )}
                                     </div>
@@ -647,7 +653,7 @@ export default function AdminReservationApplications({ applications: initialAppl
                                         {selectedApplication.cast.grade_points && (
                                             <div className="bg-purple-200 rounded-lg p-3">
                                                 <p className="text-xs text-purple-600 mb-1">グレードポイント</p>
-                                                <p className="text-purple-900 font-semibold">{selectedApplication.cast.grade_points}P</p>
+                                                <p className="text-purple-900 font-semibold">{Number(selectedApplication.cast.grade_points).toLocaleString()}P</p>
                                             </div>
                                         )}
                                         {selectedApplication.cast.created_at && (
@@ -692,41 +698,6 @@ export default function AdminReservationApplications({ applications: initialAppl
                                     <Calendar className="w-5 h-5 text-green-600 mr-2" />
                                     <h3 className="text-lg font-semibold text-green-900">予約詳細</h3>
                                 </div>
-                                
-                                {/* Basic Reservation Info */}
-                                {/* <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-                                    <div className="flex items-center">
-                                        <Clock className="w-4 h-4 text-green-600 mr-2" />
-                                        <div>
-                                            <p className="text-xs text-green-600">予約日時</p>
-                                            <p className="text-green-800 font-medium">{formatDate(selectedApplication.reservation.scheduled_at)}</p>
-                                        </div>
-                                    </div>
-                                    <div className="flex items-center">
-                                        <MapPin className="w-4 h-4 text-green-600 mr-2" />
-                                        <div>
-                                            <p className="text-xs text-green-600">場所</p>
-                                            <p className="text-green-800">{selectedApplication.reservation.location || '未設定'}</p>
-                                        </div>
-                                    </div>
-                                    <div className="flex items-center">
-                                        <MessageCircle className="w-4 h-4 text-green-600 mr-2" />
-                                        <div>
-                                            <p className="text-xs text-green-600">タイプ</p>
-                                            <p className="text-green-800">{selectedApplication.reservation.type}</p>
-                                        </div>
-                                    </div>
-                                    {selectedApplication.reservation.duration && (
-                                        <div className="flex items-center">
-                                            <TimeIcon className="w-4 h-4 text-green-600 mr-2" />
-                                            <div>
-                                                <p className="text-xs text-green-600">時間</p>
-                                                <p className="text-green-800">{selectedApplication.reservation.duration}時間</p>
-                                            </div>
-                                        </div>
-                                    )}
-                                </div> */}
-
                                 {/* Additional Reservation Info */}
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                     <div className="bg-green-200 rounded-lg p-3">
@@ -983,7 +954,7 @@ export default function AdminReservationApplications({ applications: initialAppl
                                                     </p>
                                                     {application.cast.points && (
                                                         <p className="text-sm text-yellow-600">
-                                                            {application.cast.points}P
+                                                            {Number(application.cast.points).toLocaleString()}P
                                                         </p>
                                                     )}
                                                 </div>

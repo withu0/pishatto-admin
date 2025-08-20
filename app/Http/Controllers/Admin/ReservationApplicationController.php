@@ -10,6 +10,7 @@ use App\Models\Guest;
 use App\Models\Chat;
 use App\Models\ChatGroup;
 use App\Models\Notification;
+use App\Services\MatchingMessageService;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Illuminate\Support\Facades\DB;
@@ -102,6 +103,10 @@ class ReservationApplicationController extends Controller
                 'reservation_id' => $reservation->id,
             ]);
 
+            // Send automatic matching information message
+            $matchingMessageService = app(MatchingMessageService::class);
+            $matchingMessageService->sendMatchingMessage($reservation, $application->cast_id, $chat->id);
+
             // Notify guest
             $guestNotification = Notification::create([
                 'user_id' => $reservation->guest_id,
@@ -112,6 +117,8 @@ class ReservationApplicationController extends Controller
                 'message' => '予約がキャストにマッチされました',
                 'read' => false,
             ]);
+            // Broadcast to guest
+            event(new \App\Events\NotificationSent($guestNotification));
 
             // Notify approved cast
             $castNotification = Notification::create([
@@ -122,6 +129,8 @@ class ReservationApplicationController extends Controller
                 'message' => '予約の応募が承認されました',
                 'read' => false,
             ]);
+            // Broadcast to approved cast
+            event(new \App\Events\NotificationSent($castNotification));
 
             $updateChatGroup=ChatGroup::where('reservation_id', $reservation->id)->update([
                 'cast_ids' => array_merge($chat->cast_ids, [$application->cast_id]),
@@ -133,7 +142,7 @@ class ReservationApplicationController extends Controller
                 ->get();
 
             foreach ($rejectedApplications as $rejectedApp) {
-                Notification::create([
+                $rejectedNotification = Notification::create([
                     'user_id' => $rejectedApp->cast_id,
                     'user_type' => 'cast',
                     'type' => 'application_rejected',
@@ -141,6 +150,8 @@ class ReservationApplicationController extends Controller
                     'message' => '予約の応募が却下されました',
                     'read' => false,
                 ]);
+                // Broadcast to rejected cast
+                event(new \App\Events\NotificationSent($rejectedNotification));
             }
         });
 

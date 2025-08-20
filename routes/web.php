@@ -10,6 +10,7 @@ use App\Http\Controllers\Admin\BadgeController;
 use App\Http\Controllers\Admin\GiftController;
 use App\Http\Controllers\Admin\AdminNewsController;
 use App\Http\Controllers\Admin\LocationController;
+use App\Http\Controllers\Admin\GradeController as AdminGradeController;
 use App\Http\Controllers\Admin\MessagesController;
 use App\Http\Controllers\Admin\ChatController;
 use App\Http\Controllers\Admin\IdentityVerificationController;
@@ -56,6 +57,9 @@ Route::middleware(['auth', 'verified'])->group(function () {
 
     Route::get('admin/matching-manage', [ChatController::class, 'index'])->name('admin.matching-manage');
     Route::get('admin/chats/{id}', [ChatController::class, 'show'])->name('admin.chats.show');
+
+    // Grade management screen
+    Route::get('admin/grades', [AdminGradeController::class, 'index'])->name('admin.grades.index');
     Route::put('admin/chats/{id}', [ChatController::class, 'update'])->name('admin.chats.update');
     Route::delete('admin/chats/{id}', [ChatController::class, 'destroy'])->name('admin.chats.destroy');
     Route::delete('admin/chats/{chatId}/messages/{messageId}', [ChatController::class, 'deleteMessage'])->name('admin.chats.messages.destroy');
@@ -92,13 +96,6 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::get('admin/identity-verifications/stats', [IdentityVerificationController::class, 'stats'])->name('admin.identity-verifications.stats');
     Route::get('admin/identity-verifications/debug', [IdentityVerificationController::class, 'debug'])->name('admin.identity-verifications.debug');
     Route::get('admin/identity-verifications/test-storage', [IdentityVerificationController::class, 'testStorage'])->name('admin.identity-verifications.test-storage');
-    
-    // Grade Management routes
-    Route::get('admin/grades', [GradeController::class, 'index'])->name('admin.grades');
-    Route::post('admin/grades/update-all', [GradeController::class, 'updateAllGrades'])->name('admin.grades.update-all');
-    Route::post('admin/grades/update-guest', [GradeController::class, 'updateGuestGrade'])->name('admin.grades.update-guest');
-    Route::get('admin/grades/stats', [GradeController::class, 'getGradeStats'])->name('admin.grades.stats');
-    Route::get('admin/grades/{grade}/guests', [GradeController::class, 'getGuestsByGrade'])->name('admin.grades.guests');
 });
 
 // CSRF token refresh route

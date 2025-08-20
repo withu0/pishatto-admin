@@ -1,14 +1,12 @@
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Icon } from '@/components/ui/icon';
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
-import { Users, UserCheck, DollarSign, MessageCircle, Gift, Trophy, ListChecks, Megaphone, Sparkles, Clock, Shield } from 'lucide-react';
+import { Users, UserCheck, ListChecks, Sparkles, Clock, Shield } from 'lucide-react';
 import AppLayout from '@/layouts/app-layout';
 import { type BreadcrumbItem } from '@/types';
 import { Head, Link, usePage } from '@inertiajs/react';
-import { ChartContainer } from '@/components/ui/chart';
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 
 const breadcrumbs: BreadcrumbItem[] = [
     {
@@ -94,6 +92,7 @@ export default function Dashboard() {
         { name: 'アクティブ', 数: activeReservations },
         { name: '保留中応募', 数: pendingApplications },
     ];
+    
     return (
         <AppLayout breadcrumbs={breadcrumbs}>
             <Head title="ダッシュボード" />

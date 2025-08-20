@@ -7,6 +7,7 @@ use App\Models\ReservationApplication;
 use App\Models\Reservation;
 use App\Models\Chat;
 use App\Models\Notification;
+use App\Services\MatchingMessageService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Auth;
 
@@ -151,6 +152,10 @@ class ReservationApplicationController extends Controller
                 'reservation_id' => $reservation->id,
                 'group_id' => $chatGroup->id,
             ]);
+
+            // Send automatic matching information message
+            $matchingMessageService = app(MatchingMessageService::class);
+            $matchingMessageService->sendMatchingMessage($reservation, $application->cast_id, $chat->id, $chatGroup->id);
 
             // For pishatto or free reservations with multiple casts, create pending point
             // transaction for this approved cast if not already created at multi-approve step

@@ -16,6 +16,10 @@ class Kernel extends ConsoleKernel
         $schedule->command('rankings:monthly-earned')->monthlyOn(15, '03:00');
         // Auto-exit over budget reservations every minute
         $schedule->command('reservations:auto-exit')->everyMinute();
+        // Quarterly evaluations: run on 1st of Jan/Apr/Jul/Oct at 04:00
+        $schedule->command('grades:quarterly --auto-downgrade')->cron('0 4 1 1,4,7,10 *');
+        // Reset quarterly points: run on 1st of Jan/Apr/Jul/Oct at 00:01 (just after midnight)
+        $schedule->command('points:reset-quarterly')->cron('1 0 1 1,4,7,10 *');
     }
 
     /**

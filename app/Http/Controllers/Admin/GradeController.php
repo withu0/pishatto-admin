@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\Guest;
+use App\Models\Cast;
 use App\Services\GradeService;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -27,6 +28,9 @@ class GradeController extends Controller
             ->orderBy('grade_points', 'desc')
             ->paginate(20);
 
+        $guestCandidates = $this->gradeService->collectUpgradeCandidates()['guests'] ?? [];
+        $castCandidates = $this->gradeService->collectUpgradeCandidates()['casts'] ?? [];
+
         $gradeStats = [
             'total_guests' => Guest::count(),
             'grade_distribution' => Guest::selectRaw('grade, COUNT(*) as count')
@@ -36,9 +40,15 @@ class GradeController extends Controller
             'grade_info' => $this->gradeService->getAllGradesInfo(),
         ];
 
-        return Inertia::render('Admin/Grades/Index', [
+        // Get quarterly points information
+        $quarterlyInfo = $this->gradeService->getQuarterlyPointsInfo();
+
+        return Inertia::render('admin/grades', [
             'guests' => $guests,
             'gradeStats' => $gradeStats,
+            'guestCandidates' => $guestCandidates,
+            'castCandidates' => $castCandidates,
+            'quarterlyInfo' => $quarterlyInfo,
         ]);
     }
 
@@ -103,7 +113,7 @@ class GradeController extends Controller
     public function getGuestsByGrade(Request $request)
     {
         $request->validate([
-            'grade' => 'required|string|in:green,orange,bronze,silver,gold,platinum,centurion',
+            'grade' => 'required|string|in:green,orange,bronze,silver,gold,sapphire,emerald,platinum,centurion',
         ]);
 
         $guests = Guest::where('grade', $request->grade)
@@ -115,5 +125,41 @@ class GradeController extends Controller
             'success' => true,
             'data' => $guests,
         ]);
+    }
+
+    /**
+     * Get downgrade candidates for current quarter
+     */
+    public function downgradeCandidates()
+    {
+        $data = $this->gradeService->collectDowngradeCandidates();
+        return response()->json(['success' => true, 'data' => $data]);
+    }
+
+    /**
+     * Get evaluation period information
+     */
+    public function getEvaluationInfo()
+    {
+        $info = $this->gradeService->getCurrentEvaluationInfo();
+        return response()->json(['success' => true, 'data' => $info]);
+    }
+
+    /**
+     * Get quarterly points information
+     */
+    public function getQuarterlyPointsInfo()
+    {
+        $info = $this->gradeService->getQuarterlyPointsInfo();
+        return response()->json(['success' => true, 'data' => $info]);
+    }
+
+    /**
+     * Run auto downgrade process
+     */
+    public function runAutoDowngrade()
+    {
+        $result = $this->gradeService->applyQuarterlyDowngrades();
+        return response()->json(['success' => true, 'data' => $result]);
     }
 } 

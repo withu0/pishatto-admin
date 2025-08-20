@@ -192,12 +192,17 @@ export default function AdminGuests({ guests, filters }: Props) {
                 <Card>
                     <CardHeader className="flex flex-row items-center justify-between gap-4 pb-2">
                         <CardTitle>ゲスト一覧</CardTitle>
-                        <Link href="/admin/guests/create">
+                        <div className="flex gap-2">
+                            <Link href="/admin/grades">
+                                <Button size="sm" variant="outline">グレード管理</Button>
+                            </Link>
+                            <Link href="/admin/guests/create">
                             <Button size="sm" className="gap-1">
                                 <Plus className="w-4 h-4" />
                                 新規登録
                             </Button>
-                        </Link>
+                            </Link>
+                        </div>
                     </CardHeader>
                     <CardContent>
                         <div className="mb-4 flex items-center gap-2">
