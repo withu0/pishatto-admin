@@ -67,13 +67,25 @@ export default function AdminBadges({ badges, filters }: Props) {
                 <Card>
                     <CardHeader>
                         <CardTitle>バッジ一覧</CardTitle>
-                        <div className="flex items-center space-x-2">
+                        <div className="flex items-center space-x-4">
                             <Input
                                 placeholder="バッジ名または説明で検索..."
                                 value={search}
                                 onChange={(e) => setSearch(e.target.value)}
                                 className="max-w-sm"
                             />
+                            <div className="flex items-center gap-2">
+                                <span className="text-sm text-muted-foreground">表示件数</span>
+                                <select
+                                    className="px-2 py-1 border rounded text-sm"
+                                    value={String(badges.per_page || 10)}
+                                    onChange={(e) => router.get('/admin/badges', { search, page: 1, per_page: Number(e.target.value) }, { preserveState: true })}
+                                >
+                                    <option value="10">10</option>
+                                    <option value="20">20</option>
+                                    <option value="50">50</option>
+                                </select>
+                            </div>
                         </div>
                     </CardHeader>
                     <CardContent>
@@ -131,37 +143,24 @@ export default function AdminBadges({ badges, filters }: Props) {
                             )}
                         </div>
 
-                        {/* Pagination */}
+                        {/* Pagination (numbered) */}
                         {badges.last_page > 1 && (
-                            <div className="flex justify-center mt-6">
-                                <div className="flex space-x-2">
-                                    {badges.current_page > 1 && (
+                            <div className="flex items-center justify-between mt-6">
+                                <div className="text-sm text-muted-foreground">
+                                    {badges.from} - {badges.to} / {badges.total} 件
+                                </div>
+                                <div className="flex gap-2 flex-wrap">
+                                    {Array.from({ length: badges.last_page }, (_, i) => i + 1).map((page) => (
                                         <Button
-                                            variant="outline"
-                                            onClick={() => router.get('/admin/badges', {
-                                                page: badges.current_page - 1,
-                                                search: filters.search
-                                            })}
+                                            key={page}
+                                            variant={page === badges.current_page ? 'default' : 'outline'}
+                                            size="sm"
+                                            disabled={page === badges.current_page}
+                                            onClick={() => router.get('/admin/badges', { page, search: filters.search, per_page: badges.per_page || 10 }, { preserveState: true })}
                                         >
-                                            前へ
+                                            {page}
                                         </Button>
-                                    )}
-
-                                    <span className="flex items-center px-3 py-2 text-sm">
-                                        {badges.current_page} / {badges.last_page}
-                                    </span>
-
-                                    {badges.current_page < badges.last_page && (
-                                        <Button
-                                            variant="outline"
-                                            onClick={() => router.get('/admin/badges', {
-                                                page: badges.current_page + 1,
-                                                search: filters.search
-                                            })}
-                                        >
-                                            次へ
-                                        </Button>
-                                    )}
+                                    ))}
                                 </div>
                             </div>
                         )}

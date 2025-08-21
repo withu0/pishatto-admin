@@ -1149,7 +1149,8 @@ class PaymentController extends Controller
         }
 
         // Get paginated results
-        $payments = $query->paginate(15);
+        $perPage = (int) $request->input('per_page', 10);
+        $payments = $query->paginate($perPage);
 
         // Transform data for frontend
         $transformedPayments = $payments->getCollection()->map(function($payment) {

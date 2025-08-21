@@ -66,6 +66,7 @@ export default function AdminPayments({ payments: initialPayments, filters: init
             if (params.status && params.status !== 'all') queryParams.append('status', params.status);
             if (params.payment_method && params.payment_method !== 'all') queryParams.append('payment_method', params.payment_method);
             if (params.page) queryParams.append('page', params.page.toString());
+            if (params.per_page) queryParams.append('per_page', params.per_page.toString());
 
             const response = await fetch(`/api/admin/payments/cast?${queryParams.toString()}`);
             if (response.ok) {
@@ -182,6 +183,25 @@ export default function AdminPayments({ payments: initialPayments, filters: init
                         <div className="text-center">
                             <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
                             <p className="text-muted-foreground">データを読み込み中...</p>
+                        </div>
+                        <div className="mb-4 flex items-center gap-2">
+                            <span className="text-sm text-muted-foreground">表示件数</span>
+                            <select 
+                                value={String(payments.pagination.per_page || 10)}
+                                onChange={e => fetchPayments({
+                                    search,
+                                    status: statusFilter,
+                                    payment_method: paymentMethodFilter,
+                                    page: 1,
+                                    per_page: Number(e.target.value)
+                                })}
+                                className="px-3 py-2 border rounded-md text-sm"
+                                disabled={loading}
+                            >
+                                <option value="10">10</option>
+                                <option value="20">20</option>
+                                <option value="50">50</option>
+                            </select>
                         </div>
                     </div>
                 </div>
@@ -363,43 +383,30 @@ export default function AdminPayments({ payments: initialPayments, filters: init
                             </table>
                         </div>
                         
-                        {/* Pagination */}
+                        {/* Pagination (numbered) */}
                         {payments.pagination.last_page > 1 && (
                             <div className="flex items-center justify-between mt-4">
                                 <div className="text-sm text-muted-foreground">
                                     表示 {payments.pagination.from}-{payments.pagination.to} / {payments.pagination.total} 件
                                 </div>
-                                <div className="flex gap-2">
-                                    {payments.pagination.current_page > 1 && (
+                                <div className="flex gap-2 flex-wrap">
+                                    {Array.from({ length: payments.pagination.last_page }, (_, i) => i + 1).map((page) => (
                                         <Button
+                                            key={page}
                                             size="sm"
-                                            variant="outline"
+                                            variant={page === payments.pagination.current_page ? 'default' : 'outline'}
+                                            disabled={loading || page === payments.pagination.current_page}
                                             onClick={() => fetchPayments({
-                                                page: payments.pagination.current_page - 1,
+                                                page,
                                                 search,
                                                 status: statusFilter,
-                                                payment_method: paymentMethodFilter
+                                                payment_method: paymentMethodFilter,
+                                                per_page: payments.pagination.per_page || 10
                                             })}
-                                            disabled={loading}
                                         >
-                                            前へ
+                                            {page}
                                         </Button>
-                                    )}
-                                    {payments.pagination.current_page < payments.pagination.last_page && (
-                                        <Button
-                                            size="sm"
-                                            variant="outline"
-                                            onClick={() => fetchPayments({
-                                                page: payments.pagination.current_page + 1,
-                                                search,
-                                                status: statusFilter,
-                                                payment_method: paymentMethodFilter
-                                            })}
-                                            disabled={loading}
-                                        >
-                                            次へ
-                                        </Button>
-                                    )}
+                                    ))}
                                 </div>
                             </div>
                         )}

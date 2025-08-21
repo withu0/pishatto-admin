@@ -99,7 +99,7 @@ class MatchingMessageService
     private function getReservationTypeText(?string $type): string
     {
         return match($type) {
-            'pishatto' => 'ピシャット',
+            'Pishatto' => 'ピシャット',
             'free' => 'フリーコール',
             default => '予約'
         };

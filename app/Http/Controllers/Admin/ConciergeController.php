@@ -48,7 +48,8 @@ class ConciergeController extends Controller
         }
         $query->where('user_type', $effectiveUserType);
 
-        $messages = $query->paginate(20);
+        $perPage = (int) $request->input('per_page', 10);
+        $messages = $query->paginate($perPage);
 
         // Get statistics
         $stats = [

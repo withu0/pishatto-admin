@@ -22,11 +22,12 @@ class GradeController extends Controller
     /**
      * Display the grade management page
      */
-    public function index(): Response
+    public function index(Request $request): Response
     {
+        $perPage = (int) $request->input('per_page', 10);
         $guests = Guest::select('id', 'nickname', 'grade', 'grade_points', 'grade_updated_at', 'points')
             ->orderBy('grade_points', 'desc')
-            ->paginate(20);
+            ->paginate($perPage);
 
         $guestCandidates = $this->gradeService->collectUpgradeCandidates()['guests'] ?? [];
         $castCandidates = $this->gradeService->collectUpgradeCandidates()['casts'] ?? [];
@@ -116,10 +117,11 @@ class GradeController extends Controller
             'grade' => 'required|string|in:green,orange,bronze,silver,gold,sapphire,emerald,platinum,centurion',
         ]);
 
+        $perPage = (int) $request->input('per_page', 10);
         $guests = Guest::where('grade', $request->grade)
             ->select('id', 'nickname', 'grade', 'grade_points', 'grade_updated_at', 'points')
             ->orderBy('grade_points', 'desc')
-            ->paginate(20);
+            ->paginate($perPage);
 
         return response()->json([
             'success' => true,

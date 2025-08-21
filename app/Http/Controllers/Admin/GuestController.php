@@ -28,7 +28,8 @@ class GuestController extends Controller
             });
         }
 
-        $guests = $query->orderBy('created_at', 'desc')->paginate(20);
+        $perPage = (int) $request->input('per_page', 10);
+        $guests = $query->orderBy('created_at', 'desc')->paginate($perPage);
 
         // Add avatar_url to each guest
         $guests->getCollection()->transform(function ($guest) {
@@ -39,7 +40,7 @@ class GuestController extends Controller
 
         return Inertia::render('admin/guests', [
             'guests' => $guests,
-            'filters' => $request->only(['search'])
+            'filters' => $request->only(['search', 'per_page'])
         ]);
     }
 

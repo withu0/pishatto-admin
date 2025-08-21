@@ -15,75 +15,82 @@ use Illuminate\Support\Facades\Storage;
 
 class MessagesController extends Controller
 {
-    public function index()
+    public function index(Request $request)
     {
-        $messages = Message::with(['guest', 'cast', 'chat.guest', 'chat.cast', 'gift'])
+        $perPage = (int) $request->input('per_page', 10);
+
+        $messagesPaginator = Message::with(['guest', 'cast', 'chat.guest', 'chat.cast', 'gift'])
             ->latest('created_at')
-            ->get()
-            ->map(function ($message) {
-                $guest = null;
-                $cast = null;
-                $content = null;
-                $image = null;
-                $gift = null;
-                
-                // Get guest name - try direct relationship first, then through chat
-                if ($message->sender_guest_id && $message->guest) {
-                    $guest = $message->guest->nickname ?? $message->guest->phone;
-                } elseif ($message->chat && $message->chat->guest) {
-                    $guest = $message->chat->guest->nickname ?? $message->chat->guest->phone;
-                }
-                
-                // Get cast name - try direct relationship first, then through chat
-                if ($message->sender_cast_id && $message->cast) {
-                    $cast = $message->cast->nickname ?? $message->cast->phone;
-                } elseif ($message->chat && $message->chat->cast) {
-                    $cast = $message->chat->cast->nickname ?? $message->chat->cast->phone;
-                }
+            ->paginate($perPage);
 
-                // Handle content - check for text, image, or gift
-                if ($message->message) {
-                    $content = substr($message->message, 0, 50) . (strlen($message->message) > 50 ? '...' : '');
-                } elseif ($message->image) {
-                    $content = '[画像]';
-                    $image = asset('storage/' . $message->image);
-                } elseif ($message->gift_id && $message->gift) {
-                    $content = '[ギフト] ' . $message->gift->name;
-                    $gift = [
-                        'id' => $message->gift->id,
-                        'name' => $message->gift->name,
-                        'icon' => $message->gift->icon, // Direct emoji, not file path
-                        'points' => $message->gift->points
-                    ];
+        $rawMessages = $messagesPaginator->getCollection();
+
+        $transformed = $messagesPaginator->getCollection()->map(function ($message) {
+            $guest = null;
+            $cast = null;
+            $content = null;
+            $image = null;
+            $gift = null;
+            
+            // Get guest name - try direct relationship first, then through chat
+            if ($message->sender_guest_id && $message->guest) {
+                $guest = $message->guest->nickname ?? $message->guest->phone;
+            } elseif ($message->chat && $message->chat->guest) {
+                $guest = $message->chat->guest->nickname ?? $message->chat->guest->phone;
+            }
+            
+            // Get cast name - try direct relationship first, then through chat
+            if ($message->sender_cast_id && $message->cast) {
+                $cast = $message->cast->nickname ?? $message->cast->phone;
+            } elseif ($message->chat && $message->chat->cast) {
+                $cast = $message->chat->cast->nickname ?? $message->chat->cast->phone;
+            }
+
+            // Handle content - check for text, image, or gift
+            if ($message->message) {
+                $content = substr($message->message, 0, 50) . (strlen($message->message) > 50 ? '...' : '');
+            } elseif ($message->image) {
+                $content = '[画像]';
+                $image = asset('storage/' . $message->image);
+            } elseif ($message->gift_id && $message->gift) {
+                $content = '[ギフト] ' . $message->gift->name;
+                $gift = [
+                    'id' => $message->gift->id,
+                    'name' => $message->gift->name,
+                    'icon' => $message->gift->icon, // Direct emoji, not file path
+                    'points' => $message->gift->points
+                ];
+            } else {
+                $content = 'No content';
+            }
+
+            // Safe date formatting
+            $date = 'Unknown';
+            if ($message->created_at) {
+                if ($message->created_at instanceof Carbon) {
+                    $date = $message->created_at->format('Y-m-d H:i');
                 } else {
-                    $content = 'No content';
-                }
-
-                // Safe date formatting
-                $date = 'Unknown';
-                if ($message->created_at) {
-                    if ($message->created_at instanceof Carbon) {
-                        $date = $message->created_at->format('Y-m-d H:i');
-                    } else {
-                        // If it's a string, try to parse it
-                        try {
-                            $date = Carbon::parse($message->created_at)->format('Y-m-d H:i');
-                        } catch (\Exception $e) {
-                            $date = $message->created_at;
-                        }
+                    // If it's a string, try to parse it
+                    try {
+                        $date = Carbon::parse($message->created_at)->format('Y-m-d H:i');
+                    } catch (\Exception $e) {
+                        $date = $message->created_at;
                     }
                 }
+            }
 
-                return [
-                    'id' => $message->id,
-                    'guest' => $guest ?? 'Unknown',
-                    'cast' => $cast ?? 'Unknown',
-                    'content' => $content,
-                    'image' => $image,
-                    'gift' => $gift,
-                    'date' => $date,
-                ];
-            });
+            return [
+                'id' => $message->id,
+                'guest' => $guest ?? 'Unknown',
+                'cast' => $cast ?? 'Unknown',
+                'content' => $content,
+                'image' => $image,
+                'gift' => $gift,
+                'date' => $date,
+            ];
+        });
+
+        $messagesPaginator->setCollection($transformed);
 
         // Get additional data for forms
         $guests = Guest::select('id', 'nickname', 'phone')->get();
@@ -91,11 +98,11 @@ class MessagesController extends Controller
         $gifts = Gift::select('id', 'name', 'icon', 'points')->get();
 
         return Inertia::render('admin/messages', [
-            'messages' => $messages,
+            'messages' => $messagesPaginator,
             'guests' => $guests,
             'casts' => $casts,
             'gifts' => $gifts,
-            'rawMessages' => Message::with(['guest', 'cast', 'chat.guest', 'chat.cast', 'gift'])->get()
+            'rawMessages' => $rawMessages,
         ]);
     }
 

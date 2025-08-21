@@ -36,7 +36,8 @@ class PaymentDetailController extends Controller
         }
 
         // Get paginated results
-        $paymentDetails = $query->paginate(15);
+        $perPage = (int) $request->input('per_page', 10);
+        $paymentDetails = $query->paginate($perPage);
 
         // Transform data for frontend
         $transformedDetails = $paymentDetails->getCollection()->map(function($detail) {
@@ -239,7 +240,8 @@ class PaymentDetailController extends Controller
         }
 
         // Get paginated results
-        $paymentDetails = $query->paginate(15);
+        $perPage = (int) $request->input('per_page', 10);
+        $paymentDetails = $query->paginate($perPage);
 
         // Transform data for frontend
         $transformedDetails = $paymentDetails->getCollection()->map(function($detail) {

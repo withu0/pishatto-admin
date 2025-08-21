@@ -205,13 +205,25 @@ export default function AdminGuests({ guests, filters }: Props) {
                         </div>
                     </CardHeader>
                     <CardContent>
-                        <div className="mb-4 flex items-center gap-2">
+                        <div className="mb-4 flex items-center gap-4">
                             <Input
                                 placeholder="名前・電話番号・LINE IDで検索"
                                 value={search}
                                 onChange={e => setSearch(e.target.value)}
                                 className="max-w-xs"
                             />
+                            <div className="flex items-center gap-2">
+                                <span className="text-sm text-muted-foreground">表示件数</span>
+                                <select
+                                    className="px-2 py-1 border rounded text-sm"
+                                    value={String(guests.per_page || 10)}
+                                    onChange={(e) => router.get('/admin/guests', { search: debouncedSearch, page: 1, per_page: Number(e.target.value) }, { preserveState: true })}
+                                >
+                                    <option value="10">10</option>
+                                    <option value="20">20</option>
+                                    <option value="50">50</option>
+                                </select>
+                            </div>
                         </div>
                         <div className="overflow-x-auto">
                             <table className="min-w-full text-sm border">
@@ -320,37 +332,28 @@ export default function AdminGuests({ guests, filters }: Props) {
                             </table>
                         </div>
 
-                        {/* Pagination */}
+                        {/* Pagination (numbered) */}
                         {guests.last_page > 1 && (
                             <div className="mt-4 flex items-center justify-between">
                                 <div className="text-sm text-muted-foreground">
                                     {guests.from} - {guests.to} / {guests.total} 件
                                 </div>
-                                <div className="flex gap-2">
-                                    {guests.current_page > 1 && (
+                                <div className="flex flex-wrap gap-2">
+                                    {Array.from({ length: guests.last_page }, (_, i) => i + 1).map((pageNum) => (
                                         <Button
-                                            variant="outline"
+                                            key={pageNum}
                                             size="sm"
+                                            variant={pageNum === guests.current_page ? 'default' : 'outline'}
+                                            disabled={pageNum === guests.current_page}
                                             onClick={() => router.get('/admin/guests', {
-                                                page: guests.current_page - 1,
-                                                search: debouncedSearch
-                                            })}
+                                                page: pageNum,
+                                                search: debouncedSearch,
+                                                per_page: guests.per_page || 10
+                                            }, { preserveState: true })}
                                         >
-                                            前へ
+                                            {pageNum}
                                         </Button>
-                                    )}
-                                    {guests.current_page < guests.last_page && (
-                                        <Button
-                                            variant="outline"
-                                            size="sm"
-                                            onClick={() => router.get('/admin/guests', {
-                                                page: guests.current_page + 1,
-                                                search: debouncedSearch
-                                            })}
-                                        >
-                                            次へ
-                                        </Button>
-                                    )}
+                                    ))}
                                 </div>
                             </div>
                         )}

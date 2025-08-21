@@ -25,7 +25,8 @@ class SalesController extends Controller
             });
         }
 
-        $sales = $query->paginate(20)->through(function ($payment) {
+        $perPage = (int) $request->input('per_page', 10);
+        $sales = $query->paginate($perPage)->through(function ($payment) {
             $guest = null;
             if ($payment->guest) {
                 $guest = $payment->guest->nickname ?? $payment->guest->phone ?? "ゲスト{$payment->user_id}";
@@ -45,7 +46,7 @@ class SalesController extends Controller
 
         return Inertia::render('admin/sales', [
             'sales' => $sales,
-            'filters' => $request->only(['search']),
+            'filters' => $request->only(['search', 'per_page']),
         ]);
     }
 

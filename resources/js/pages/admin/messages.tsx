@@ -60,8 +60,18 @@ interface RawMessage {
     };
 }
 
+interface PaginatedMessages {
+    data: Message[];
+    current_page: number;
+    last_page: number;
+    per_page: number;
+    total: number;
+    from?: number;
+    to?: number;
+}
+
 interface Props {
-    messages: Message[];
+    messages: PaginatedMessages;
     guests: Guest[];
     casts: Cast[];
     gifts: Gift[];
@@ -93,7 +103,7 @@ export default function AdminMessages({ messages, guests, casts, gifts, rawMessa
         image: null
     });
 
-    const filtered = messages.filter(
+    const filtered = messages.data.filter(
         (m) => m.guest.includes(search) || m.cast.includes(search) || m.content.includes(search)
     );
 
@@ -391,13 +401,31 @@ export default function AdminMessages({ messages, guests, casts, gifts, rawMessa
                         </Dialog>
                     </CardHeader>
                     <CardContent>
-                        <div className="mb-4 flex items-center gap-2">
+                        <div className="mb-4 flex items-center gap-4">
                             <Input
                                 placeholder="ゲスト・キャスト・内容で検索"
                                 value={search}
                                 onChange={e => setSearch(e.target.value)}
                                 className="max-w-xs"
                             />
+                            <div className="flex items-center gap-2">
+                                <span className="text-sm text-muted-foreground">表示件数</span>
+                                <Select
+                                    value={String(messages.per_page || 10)}
+                                    onValueChange={(value) =>
+                                        router.get('/admin/messages', { page: 1, per_page: Number(value) })
+                                    }
+                                >
+                                    <SelectTrigger className="w-[100px]">
+                                        <SelectValue placeholder="件数" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="10">10</SelectItem>
+                                        <SelectItem value="20">20</SelectItem>
+                                        <SelectItem value="50">50</SelectItem>
+                                    </SelectContent>
+                                </Select>
+                            </div>
                         </div>
                         <div className="overflow-x-auto">
                             <table className="min-w-full text-sm border">
@@ -419,7 +447,7 @@ export default function AdminMessages({ messages, guests, casts, gifts, rawMessa
                                     ) : (
                                         filtered.map((item, idx) => (
                                             <tr key={item.id} className="border-t">
-                                                <td className="px-3 py-2">{idx + 1}</td>
+                                                <td className="px-3 py-2">{((messages.from || 0) + idx)}</td>
                                                 <td className="px-3 py-2">{item.guest}</td>
                                                 <td className="px-3 py-2">{item.cast}</td>
                                                 <td className="px-3 py-2">
@@ -602,6 +630,30 @@ export default function AdminMessages({ messages, guests, casts, gifts, rawMessa
                                 </tbody>
                             </table>
                         </div>
+                        {/* Pagination (numbered) */}
+                        {messages.last_page > 1 && (
+                            <div className="mt-4 flex items-center justify-between">
+                                <div className="text-sm text-muted-foreground">
+                                    {messages.from} - {messages.to} / {messages.total} 件
+                                </div>
+                                <div className="flex flex-wrap gap-2">
+                                    {Array.from({ length: messages.last_page }, (_, i) => i + 1).map((pageNum) => (
+                                        <Button
+                                            key={pageNum}
+                                            size="sm"
+                                            variant={pageNum === messages.current_page ? 'default' : 'outline'}
+                                            disabled={pageNum === messages.current_page}
+                                            onClick={() => router.get('/admin/messages', {
+                                                page: pageNum,
+                                                per_page: messages.per_page || 20,
+                                            })}
+                                        >
+                                            {pageNum}
+                                        </Button>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
                     </CardContent>
                 </Card>
             </div>

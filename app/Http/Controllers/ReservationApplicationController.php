@@ -111,9 +111,9 @@ class ReservationApplicationController extends Controller
                 ]);
             }
 
-            // For pishatto reservations, don't reject other applications immediately
+            // For Pishatto reservations, don't reject other applications immediately
             // For regular reservations, reject all other pending applications
-            if ($reservation->type !== 'pishatto') {
+            if ($reservation->type !== 'Pishatto') {
                 ReservationApplication::where('reservation_id', $reservation->id)
                     ->where('id', '!=', $application->id)
                     ->where('status', 'pending')
@@ -157,9 +157,9 @@ class ReservationApplicationController extends Controller
             $matchingMessageService = app(MatchingMessageService::class);
             $matchingMessageService->sendMatchingMessage($reservation, $application->cast_id, $chat->id, $chatGroup->id);
 
-            // For pishatto or free reservations with multiple casts, create pending point
+            // For Pishatto or free reservations with multiple casts, create pending point
             // transaction for this approved cast if not already created at multi-approve step
-            if (in_array($reservation->type, ['pishatto', 'free'])) {
+            if (in_array($reservation->type, ['Pishatto', 'free'])) {
                 $existingPending = \App\Models\PointTransaction::where('reservation_id', $reservation->id)
                     ->where('cast_id', $application->cast_id)
                     ->where('type', 'pending')

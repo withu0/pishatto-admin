@@ -230,7 +230,7 @@ class PointTransactionService
 
         if ($reservation->type === 'free') {
             $perMinute = (int) floor(($cast->category_points ?? 0) / 30);
-        } else { // pishatto or default
+        } else { // Pishatto or default
             $perMinute = (int) floor(($cast->grade_points ?? 0) / 30);
         }
 

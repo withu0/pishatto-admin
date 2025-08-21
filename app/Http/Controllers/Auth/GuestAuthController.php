@@ -332,7 +332,7 @@ class GuestAuthController extends Controller
         $validator = Validator::make($request->all(), [
             'guest_id' => 'required|exists:guests,id',
             'cast_id' => 'nullable|exists:casts,id',
-            'type' => 'nullable|in:free,pishatto',
+            'type' => 'nullable|in:free,Pishatto',
             'scheduled_at' => 'required|date',
             'location' => 'nullable|string|max:255',
             'meeting_location' => 'nullable|string|max:255',
@@ -357,7 +357,7 @@ class GuestAuthController extends Controller
                 'guest_id', 'type', 'location', 'meeting_location', 'reservation_name', 'duration', 'details', 'time', 'cast_id'
             ]);
             $data['scheduled_at'] = \Carbon\Carbon::parse($request->scheduled_at);
-            $data['type'] = 'pishatto';
+            $data['type'] = 'Pishatto';
             
             $reservation = Reservation::create($data);
 
@@ -888,13 +888,15 @@ class GuestAuthController extends Controller
     {
         $guests = Guest::withCount('reservations')
             ->having('reservations_count', '>', 1)
-            ->get(['id', 'nickname', 'avatar']);
+            ->get(['id', 'nickname', 'avatar', 'birth_year', 'residence']);
         
         $result = $guests->map(function ($guest) {
             return [
                 'id' => $guest->id,
                 'nickname' => $guest->nickname,
                 'avatar' => $guest->avatar,
+                'birth_year' => $guest->birth_year,
+                'residence' => $guest->residence,
                 'reservations_count' => $guest->reservations_count,
             ];
         });

@@ -456,6 +456,26 @@ export default function AdminConciergeIndex({ messages, stats, filters, newCount
                 <Card>
                     <CardHeader>
                         <CardTitle>メッセージ一覧</CardTitle>
+                        <div className="flex items-center gap-2">
+                            <span className="text-sm text-muted-foreground">表示件数</span>
+                            <select
+                                className="px-2 py-1 border rounded text-sm"
+                                value={String(messages.per_page || 10)}
+                                onChange={(e) => router.get('/admin/concierge', {
+                                    user_type: activeTab,
+                                    search,
+                                    status: statusFilter !== 'all' ? statusFilter : undefined,
+                                    message_type: typeFilter !== 'all' ? typeFilter : undefined,
+                                    category: categoryFilter !== 'all' ? categoryFilter : undefined,
+                                    page: 1,
+                                    per_page: Number(e.target.value)
+                                }, { preserveState: true, preserveScroll: true, replace: true })}
+                            >
+                                <option value="10">10</option>
+                                <option value="20">20</option>
+                                <option value="50">50</option>
+                            </select>
+                        </div>
                     </CardHeader>
                     <CardContent>
                         <div className="overflow-x-auto">
@@ -537,15 +557,19 @@ export default function AdminConciergeIndex({ messages, stats, filters, newCount
                             </table>
                         </div>
 
-                        {/* Pagination */}
+                        {/* Pagination (numbered) */}
                         {messages.last_page > 1 && (
-                            <div className="flex justify-center mt-4">
-                                <div className="flex gap-2">
+                            <div className="flex items-center justify-between mt-4">
+                                <div className="text-sm text-muted-foreground">
+                                    {(messages.current_page - 1) * messages.per_page + 1} - {Math.min(messages.current_page * messages.per_page, messages.total)} / {messages.total} 件
+                                </div>
+                                <div className="flex gap-2 flex-wrap">
                                     {Array.from({ length: messages.last_page }, (_, i) => i + 1).map((page) => (
                                         <Button
                                             key={page}
                                             variant={page === messages.current_page ? "default" : "outline"}
                                             size="sm"
+                                            disabled={page === messages.current_page}
                                             onClick={() =>
                                                 router.get(
                                                     '/admin/concierge',
@@ -556,6 +580,7 @@ export default function AdminConciergeIndex({ messages, stats, filters, newCount
                                                         status: statusFilter !== 'all' ? statusFilter : undefined,
                                                         message_type: typeFilter !== 'all' ? typeFilter : undefined,
                                                         category: categoryFilter !== 'all' ? categoryFilter : undefined,
+                                                        per_page: messages.per_page || 10,
                                                     },
                                                     { preserveState: true, preserveScroll: true, replace: true }
                                                 )

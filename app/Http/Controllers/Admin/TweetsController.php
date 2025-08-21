@@ -12,34 +12,39 @@ use Illuminate\Support\Facades\Storage;
 
 class TweetsController extends Controller
 {
-    public function index()
+    public function index(Request $request)
     {
-        $tweets = Tweet::with(['guest', 'cast'])
-            ->latest()
-            ->get()
-            ->map(function ($tweet) {
-                $userType = '';
-                $user = '';
-                
-                if ($tweet->guest_id && $tweet->guest) {
-                    $userType = 'ゲスト';
-                    $user = $tweet->guest->nickname ?? $tweet->guest->phone ?? 'Unknown';
-                } elseif ($tweet->cast_id && $tweet->cast) {
-                    $userType = 'キャスト';
-                    $user = $tweet->cast->nickname ?? $tweet->cast->phone ?? 'Unknown';
-                }
+        $perPage = (int) $request->input('per_page', 10);
 
-                return [
-                    'id' => $tweet->id,
-                    'userType' => $userType,
-                    'user' => $user,
-                    'content' => $tweet->content,
-                    'date' => $tweet->created_at ? (is_string($tweet->created_at) ? $tweet->created_at : $tweet->created_at->format('Y-m-d H:i')) : 'Unknown',
-                ];
-            });
+        $paginator = Tweet::with(['guest', 'cast'])
+            ->latest()
+            ->paginate($perPage);
+
+        $transformed = $paginator->getCollection()->map(function ($tweet) {
+            $userType = '';
+            $user = '';
+            
+            if ($tweet->guest_id && $tweet->guest) {
+                $userType = 'ゲスト';
+                $user = $tweet->guest->nickname ?? $tweet->guest->phone ?? 'Unknown';
+            } elseif ($tweet->cast_id && $tweet->cast) {
+                $userType = 'キャスト';
+                $user = $tweet->cast->nickname ?? $tweet->cast->phone ?? 'Unknown';
+            }
+
+            return [
+                'id' => $tweet->id,
+                'userType' => $userType,
+                'user' => $user,
+                'content' => $tweet->content,
+                'date' => $tweet->created_at ? (is_string($tweet->created_at) ? $tweet->created_at : $tweet->created_at->format('Y-m-d H:i')) : 'Unknown',
+            ];
+        });
+
+        $paginator->setCollection($transformed);
 
         return Inertia::render('admin/tweets', [
-            'tweets' => $tweets,
+            'tweets' => $paginator,
             'guests' => Guest::select('id', 'nickname', 'phone')->get(),
             'casts' => Cast::select('id', 'nickname', 'phone')->get(),
         ]);

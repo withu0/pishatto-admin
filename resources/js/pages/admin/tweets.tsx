@@ -27,7 +27,15 @@ interface Cast {
 }
 
 interface PageProps {
-    tweets: Tweet[];
+    tweets: {
+        data: Tweet[];
+        current_page: number;
+        last_page: number;
+        per_page: number;
+        total: number;
+        from?: number;
+        to?: number;
+    };
     guests: Guest[];
     casts: Cast[];
     [key: string]: any;
@@ -39,7 +47,7 @@ export default function AdminTweets() {
     const [isDeleting, setIsDeleting] = useState<number | null>(null);
     const [activeTab, setActiveTab] = useState<'ゲスト' | 'キャスト'>('ゲスト');
     
-    const filteredTweets = tweets.filter(tweet => {
+    const filteredTweets = (tweets.data || []).filter(tweet => {
         console.log("TWEET", tweet);
         const matchesSearch = tweet.user.includes(search) || tweet.content.includes(search);
         const matchesTab = tweet.userType === activeTab;
@@ -102,13 +110,25 @@ export default function AdminTweets() {
                         </Link>
                     </CardHeader>
                     <CardContent>
-                        <div className="mb-4 flex items-center gap-2">
+                        <div className="mb-4 flex items-center gap-4">
                             <Input
                                 placeholder={`${activeTab === 'ゲスト' ? 'ゲスト' : 'キャスト'}のユーザー・内容で検索`}
                                 value={search}
                                 onChange={e => setSearch(e.target.value)}
                                 className="max-w-xs"
                             />
+                            <div className="flex items-center gap-2">
+                                <span className="text-sm text-muted-foreground">表示件数</span>
+                                <select
+                                    className="px-2 py-1 border rounded text-sm"
+                                    value={String(tweets.per_page || 10)}
+                                    onChange={(e) => router.get('/admin/tweets', { page: 1, per_page: Number(e.target.value) }, { preserveState: true })}
+                                >
+                                    <option value="10">10</option>
+                                    <option value="20">20</option>
+                                    <option value="50">50</option>
+                                </select>
+                            </div>
                         </div>
                         <div className="overflow-x-auto">
                             <table className="min-w-full text-sm border">
@@ -125,7 +145,7 @@ export default function AdminTweets() {
                                     {filteredTweets.length === 0 ? (
                                         <tr>
                                             <td colSpan={5} className="text-center py-6 text-muted-foreground">
-                                                {tweets.filter(t => t.userType === activeTab).length === 0
+                                                {(tweets.data || []).filter(t => t.userType === activeTab).length === 0
                                                     ? `${activeTab === 'ゲスト' ? 'ゲスト' : 'キャスト'}のつぶやきデータがありません` 
                                                     : '該当するデータがありません'
                                                 }
@@ -134,7 +154,7 @@ export default function AdminTweets() {
                                     ) : (   
                                         filteredTweets.map((item, idx) => (
                                             <tr key={item.id} className="border-t">
-                                                <td className="px-3 py-2">{idx + 1}</td>
+                                                <td className="px-3 py-2">{((tweets.from || 0) + idx)}</td>
                                                 <td className="px-3 py-2">{item.user}</td>
                                                 <td className="px-3 py-2">{item.content}</td>
                                                 <td className="px-3 py-2">{item.date}</td>
@@ -161,6 +181,27 @@ export default function AdminTweets() {
                                 </tbody>
                             </table>
                         </div>
+                        {/* Pagination (numbered) */}
+                        {tweets.last_page > 1 && (
+                            <div className="mt-4 flex items-center justify-between">
+                                <div className="text-sm text-muted-foreground">
+                                    {tweets.from} - {tweets.to} / {tweets.total} 件
+                                </div>
+                                <div className="flex flex-wrap gap-2">
+                                    {Array.from({ length: tweets.last_page }, (_, i) => i + 1).map((pageNum) => (
+                                        <Button
+                                            key={pageNum}
+                                            size="sm"
+                                            variant={pageNum === tweets.current_page ? 'default' : 'outline'}
+                                            disabled={pageNum === tweets.current_page}
+                                            onClick={() => router.get('/admin/tweets', { page: pageNum, per_page: tweets.per_page || 10 }, { preserveState: true })}
+                                        >
+                                            {pageNum}
+                                        </Button>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
                     </CardContent>
                 </Card>
             </div>

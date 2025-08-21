@@ -65,7 +65,7 @@ class DatabaseSeeder extends Seeder
         //         ],
         //         [
         //             'active' => true,
-        //             'type' => rand(0, 1) ? 'free' : 'pishatto',
+        //             'type' => rand(0, 1) ? 'free' : 'Pishatto',
         //             'time' => '19:00',
         //             'location' => '東京都',
         //             'duration' => 60,

@@ -133,7 +133,7 @@ export default function AdminSales({ sales, filters }: Props) {
                         </Button>
                     </CardHeader>
                     <CardContent>
-                        <div className="mb-4 flex items-center gap-2">
+                        <div className="mb-4 flex items-center gap-4">
                             <Input
                                 placeholder="ゲストで検索"
                                 value={search}
@@ -141,7 +141,7 @@ export default function AdminSales({ sales, filters }: Props) {
                                 className="max-w-xs"
                                 onKeyDown={(e) => {
                                     if (e.key === 'Enter') {
-                                        router.get('/admin/sales', { search }, {
+                                        router.get('/admin/sales', { search, per_page: sales.per_page || 10 }, {
                                             preserveState: true,
                                             preserveScroll: true,
                                         });
@@ -150,13 +150,25 @@ export default function AdminSales({ sales, filters }: Props) {
                             />
                             <Button 
                                 size="sm" 
-                                onClick={() => router.get('/admin/sales', { search }, {
+                                onClick={() => router.get('/admin/sales', { search, per_page: sales.per_page || 10 }, {
                                     preserveState: true,
                                     preserveScroll: true,
                                 })}
                             >
                                 検索
                             </Button>
+                            <div className="flex items-center gap-2">
+                                <span className="text-sm text-muted-foreground">表示件数</span>
+                                <select
+                                    className="px-2 py-1 border rounded text-sm"
+                                    value={String(sales.per_page || 10)}
+                                    onChange={(e) => router.get('/admin/sales', { search, page: 1, per_page: Number(e.target.value) }, { preserveState: true })}
+                                >
+                                    <option value="10">10</option>
+                                    <option value="20">20</option>
+                                    <option value="50">50</option>
+                                </select>
+                            </div>
                         </div>
                         <div className="overflow-x-auto">
                             <table className="min-w-full text-sm border">
@@ -230,43 +242,31 @@ export default function AdminSales({ sales, filters }: Props) {
                             </table>
                         </div>
                         
-                        {/* Pagination */}
+                        {/* Pagination (numbered) */}
                         {sales.last_page > 1 && (
                             <div className="flex items-center justify-between mt-4">
                                 <div className="text-sm text-muted-foreground">
                                     表示 {sales.from}-{sales.to} / {sales.total} 件
                                 </div>
-                                <div className="flex gap-2">
-                                    {sales.current_page > 1 && (
+                                <div className="flex gap-2 flex-wrap">
+                                    {Array.from({ length: sales.last_page }, (_, i) => i + 1).map((page) => (
                                         <Button
+                                            key={page}
                                             size="sm"
-                                            variant="outline"
+                                            variant={page === sales.current_page ? 'default' : 'outline'}
+                                            disabled={page === sales.current_page}
                                             onClick={() => router.get('/admin/sales', { 
-                                                page: sales.current_page - 1,
-                                                search 
+                                                page,
+                                                search,
+                                                per_page: sales.per_page || 10
                                             }, {
                                                 preserveState: true,
                                                 preserveScroll: true,
                                             })}
                                         >
-                                            前へ
+                                            {page}
                                         </Button>
-                                    )}
-                                    {sales.current_page < sales.last_page && (
-                                        <Button
-                                            size="sm"
-                                            variant="outline"
-                                            onClick={() => router.get('/admin/sales', { 
-                                                page: sales.current_page + 1,
-                                                search 
-                                            }, {
-                                                preserveState: true,
-                                                preserveScroll: true,
-                                            })}
-                                        >
-                                            次へ
-                                        </Button>
-                                    )}
+                                    ))}
                                 </div>
                             </div>
                         )}

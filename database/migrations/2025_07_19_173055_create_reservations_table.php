@@ -15,7 +15,7 @@ return new class extends Migration
             $table->id();
             $table->boolean('active')->default(true);
             $table->unsignedBigInteger('guest_id')->nullable();
-            $table->enum('type', ['free','pishatto'])->nullable();
+            $table->enum('type', ['free','Pishatto'])->nullable();
             $table->dateTime('scheduled_at')->nullable();
             $table->string('time',10)->nullable();
             $table->string('location', 255)->nullable();

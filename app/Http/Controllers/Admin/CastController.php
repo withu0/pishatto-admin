@@ -28,7 +28,8 @@ class CastController extends Controller
             });
         }
 
-        $casts = $query->orderBy('created_at', 'desc')->paginate(20);
+        $perPage = (int) $request->input('per_page', 10);
+        $casts = $query->orderBy('created_at', 'desc')->paginate($perPage);
 
         // Add avatar_urls to each cast
         $casts->getCollection()->transform(function ($cast) {
@@ -38,7 +39,7 @@ class CastController extends Controller
 
         return Inertia::render('admin/casts', [
             'casts' => $casts,
-            'filters' => $request->only(['search'])
+            'filters' => $request->only(['search', 'per_page'])
         ]);
     }
 

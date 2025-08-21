@@ -185,7 +185,7 @@ export default function AdminReservationApplications({ applications: initialAppl
         setSelectedApplication(null);
     };
 
-    // New function to handle multi-cast selection for pishatto calls
+    // New function to handle multi-cast selection for Pishatto calls
     const handleMultiCastSelection = (reservation: ReservationApplication['reservation']) => {
         setCurrentReservation(reservation);
         // Get all pending applications for this reservation
@@ -390,7 +390,7 @@ export default function AdminReservationApplications({ applications: initialAppl
                                                             >
                                                                 <Check className="w-4 h-4" />
                                                             </Button>
-                                                            {item.reservation.type === 'pishatto' && (
+                                                            {item.reservation.type === 'Pishatto' && (
                                                                 <Button 
                                                                     size="sm" 
                                                                     variant="outline" 
@@ -707,7 +707,7 @@ export default function AdminReservationApplications({ applications: initialAppl
                                     <div className="bg-green-200 rounded-lg p-3">
                                         <p className="text-xs text-green-600 mb-1">予約タイプ</p>
                                         <p className="text-green-900 font-semibold">
-                                            {selectedApplication.reservation.type === 'pishatto' ? 'プレミアム' : 
+                                            {selectedApplication.reservation.type === 'Pishatto' ? 'プレミアム' : 
                                              selectedApplication.reservation.type === 'normal' ? '通常' : 
                                              selectedApplication.reservation.type}
                                         </p>

@@ -87,7 +87,7 @@ export default function AdminGiftsIndex({ gifts, filters, categories }: Props) {
                 <Card>
                     <CardHeader className="flex flex-row items-center justify-between gap-4 pb-2">
                         <CardTitle>ギフト一覧</CardTitle>
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-4">
                             <div className="relative">
                                 <Search className="absolute left-2 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
                                 <Input
@@ -110,6 +110,18 @@ export default function AdminGiftsIndex({ gifts, filters, categories }: Props) {
                                     ))}
                                 </SelectContent>
                             </Select>
+                            <div className="flex items-center gap-2">
+                                <span className="text-sm text-muted-foreground">表示件数</span>
+                                <select
+                                    className="px-2 py-1 border rounded text-sm"
+                                    value={String(gifts.per_page || 10)}
+                                    onChange={(e) => router.get('/admin/gifts', { search, category: category === 'all' ? '' : category, page: 1, per_page: Number(e.target.value) }, { preserveState: true })}
+                                >
+                                    <option value="10">10</option>
+                                    <option value="20">20</option>
+                                    <option value="50">50</option>
+                                </select>
+                            </div>
                         </div>
                     </CardHeader>
                     <CardContent>
@@ -177,21 +189,26 @@ export default function AdminGiftsIndex({ gifts, filters, categories }: Props) {
                             </table>
                         </div>
 
-                        {/* Pagination */}
+                        {/* Pagination (numbered) */}
                         {gifts.last_page > 1 && (
-                            <div className="flex justify-center mt-6">
-                                <div className="flex gap-2">
+                            <div className="flex items-center justify-between mt-6">
+                                <div className="text-sm text-muted-foreground">
+                                    {(gifts.current_page - 1) * gifts.per_page + 1} - {Math.min(gifts.current_page * gifts.per_page, gifts.total)} / {gifts.total} 件
+                                </div>
+                                <div className="flex gap-2 flex-wrap">
                                     {Array.from({ length: gifts.last_page }, (_, i) => i + 1).map((page) => (
                                         <Button
                                             key={page}
                                             variant={page === gifts.current_page ? "default" : "outline"}
                                             size="sm"
+                                            disabled={page === gifts.current_page}
                                             onClick={() => {
                                                 const categoryParam = category === 'all' ? '' : category;
                                                 router.get('/admin/gifts', {
                                                     page,
                                                     search,
-                                                    category: categoryParam
+                                                    category: categoryParam,
+                                                    per_page: gifts.per_page || 10
                                                 }, { preserveState: true });
                                             }}
                                         >

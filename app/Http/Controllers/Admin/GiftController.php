@@ -31,7 +31,8 @@ class GiftController extends Controller
             $query->where('category', $request->get('category'));
         }
 
-        $gifts = $query->orderBy('created_at', 'desc')->paginate(20);
+        $perPage = (int) $request->input('per_page', 10);
+        $gifts = $query->orderBy('created_at', 'desc')->paginate($perPage);
 
         return Inertia::render('admin/gifts/index', [
             'gifts' => $gifts,

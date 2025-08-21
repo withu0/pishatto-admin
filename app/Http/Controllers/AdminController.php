@@ -283,9 +283,9 @@ class AdminController extends Controller
 
         $reservation = \App\Models\Reservation::findOrFail($validated['reservation_id']);
         
-        if ($reservation->type !== 'pishatto') {
+        if ($reservation->type !== 'Pishatto') {
             return response()->json([
-                'message' => 'Multiple cast selection is only allowed for pishatto reservations'
+                'message' => 'Multiple cast selection is only allowed for Pishatto reservations'
             ], 400);
         }
 
@@ -451,7 +451,8 @@ class AdminController extends Controller
         }
 
         // Get paginated results
-        $payments = $query->paginate(15);
+        $perPage = (int) $request->input('per_page', 10);
+        $payments = $query->paginate($perPage);
 
         // Transform data for frontend
         $transformedPayments = $payments->getCollection()->map(function($payment) {

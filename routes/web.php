@@ -17,6 +17,7 @@ use App\Http\Controllers\Admin\IdentityVerificationController;
 use App\Http\Controllers\Admin\ConciergeController;
 use App\Http\Controllers\Admin\ReceiptsController;
 use App\Http\Controllers\Admin\GradeController;
+use App\Http\Controllers\Admin\CastApplicationController;
 
 use App\Http\Controllers\AdminController;
 
@@ -96,6 +97,12 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::get('admin/identity-verifications/stats', [IdentityVerificationController::class, 'stats'])->name('admin.identity-verifications.stats');
     Route::get('admin/identity-verifications/debug', [IdentityVerificationController::class, 'debug'])->name('admin.identity-verifications.debug');
     Route::get('admin/identity-verifications/test-storage', [IdentityVerificationController::class, 'testStorage'])->name('admin.identity-verifications.test-storage');
+    
+    // Cast Applications Management
+    Route::get('admin/cast-applications', [CastApplicationController::class, 'index'])->name('admin.cast-applications');
+    Route::get('admin/cast-applications/{application}', [CastApplicationController::class, 'show'])->name('admin.cast-applications.show');
+    Route::post('admin/cast-applications/{application}/approve', [CastApplicationController::class, 'approve'])->name('admin.cast-applications.approve');
+    Route::post('admin/cast-applications/{application}/reject', [CastApplicationController::class, 'reject'])->name('admin.cast-applications.reject');
 });
 
 // CSRF token refresh route

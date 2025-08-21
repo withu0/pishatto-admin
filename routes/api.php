@@ -17,6 +17,7 @@ use App\Http\Controllers\ConciergeController;
 use App\Models\Feedback;
 use App\Http\Controllers\Admin\LocationController;
 use App\Http\Controllers\Api\GradeController;
+use App\Http\Controllers\CastApplicationController;
 use Illuminate\Support\Facades\DB;
 
 /*
@@ -265,6 +266,13 @@ Route::post('/admin/identity-verification/{guestId}/reject', [IdentityVerificati
 // Admin News API routes
 Route::get('/admin-news/{userType}/{userId}', [GuestAuthController::class, 'getAdminNews']);
 Route::get('/admin-news/{userType}', [GuestAuthController::class, 'getAdminNews']);
+
+// Cast Application routes
+Route::post('/cast-applications/submit', [CastApplicationController::class, 'submit']);
+Route::get('/cast-applications', [CastApplicationController::class, 'index']);
+Route::get('/cast-applications/{id}', [CastApplicationController::class, 'show']);
+Route::post('/cast-applications/{id}/approve', [CastApplicationController::class, 'approve']);
+Route::post('/cast-applications/{id}/reject', [CastApplicationController::class, 'reject']);
 
 // Public API routes for locations
 Route::get('/locations/active', [LocationController::class, 'getActiveLocations']);

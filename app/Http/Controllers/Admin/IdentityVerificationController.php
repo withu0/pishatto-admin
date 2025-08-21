@@ -7,6 +7,7 @@ use App\Models\Guest;
 use App\Helpers\StorageHelper;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\Log;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -30,7 +31,8 @@ class IdentityVerificationController extends Controller
             });
         }
 
-        $verifications = $query->orderBy('created_at', 'desc')->paginate(20);
+        $perPage = (int) $request->input('per_page', 10);
+        $verifications = $query->orderBy('created_at', 'desc')->paginate($perPage);
 
         // Add avatar_url to each guest
         $verifications->getCollection()->transform(function ($guest) {
@@ -41,7 +43,7 @@ class IdentityVerificationController extends Controller
             if ($guest->identity_verification) {
                 $guest->identity_verification_url = StorageHelper::publicUrl($guest->identity_verification);
                 // Log for debugging
-                \Log::info('Identity verification URL generated', [
+                Log::info('Identity verification URL generated', [
                     'guest_id' => $guest->id,
                     'file_path' => $guest->identity_verification,
                     'url' => $guest->identity_verification_url,

@@ -93,7 +93,7 @@ export default function AdminCasts({ casts, filters }: Props) {
                         </Link>
                     </CardHeader>
                     <CardContent>
-                        <div className="mb-4 flex items-center gap-2">
+                        <div className="mb-4 flex items-center gap-4">
                             <div className="relative flex-1 max-w-xs">
                                 <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
                                 <Input
@@ -102,6 +102,18 @@ export default function AdminCasts({ casts, filters }: Props) {
                                     onChange={e => setSearch(e.target.value)}
                                     className="pl-8"
                                 />
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <span className="text-sm text-muted-foreground">表示件数</span>
+                                <select
+                                    className="px-2 py-1 border rounded text-sm"
+                                    value={String(casts.per_page || 10)}
+                                    onChange={(e) => router.get('/admin/casts', { search: debouncedSearch, page: 1, per_page: Number(e.target.value) }, { preserveState: true })}
+                                >
+                                    <option value="10">10</option>
+                                    <option value="20">20</option>
+                                    <option value="50">50</option>
+                                </select>
                             </div>
                         </div>
                         <div className="overflow-x-auto">
@@ -191,37 +203,28 @@ export default function AdminCasts({ casts, filters }: Props) {
                             </table>
                         </div>
 
-                        {/* Pagination */}
+                        {/* Pagination (numbered) */}
                         {casts.last_page > 1 && (
                             <div className="mt-4 flex items-center justify-between">
                                 <div className="text-sm text-muted-foreground">
                                     {casts.per_page * (casts.current_page - 1) + 1} - {Math.min(casts.per_page * casts.current_page, casts.total)} / {casts.total}件
                                 </div>
-                                <div className="flex gap-2">
-                                    {casts.current_page > 1 && (
+                                <div className="flex flex-wrap gap-2">
+                                    {Array.from({ length: casts.last_page }, (_, i) => i + 1).map((pageNum) => (
                                         <Button
-                                            variant="outline"
+                                            key={pageNum}
                                             size="sm"
+                                            variant={pageNum === casts.current_page ? 'default' : 'outline'}
+                                            disabled={pageNum === casts.current_page}
                                             onClick={() => router.get('/admin/casts', {
                                                 ...filters,
-                                                page: casts.current_page - 1
-                                            })}
+                                                page: pageNum,
+                                                per_page: casts.per_page || 10
+                                            }, { preserveState: true })}
                                         >
-                                            前へ
+                                            {pageNum}
                                         </Button>
-                                    )}
-                                    {casts.current_page < casts.last_page && (
-                                        <Button
-                                            variant="outline"
-                                            size="sm"
-                                            onClick={() => router.get('/admin/casts', {
-                                                ...filters,
-                                                page: casts.current_page + 1
-                                            })}
-                                        >
-                                            次へ
-                                        </Button>
-                                    )}
+                                    ))}
                                 </div>
                             </div>
                         )}

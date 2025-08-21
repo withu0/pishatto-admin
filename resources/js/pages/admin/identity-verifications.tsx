@@ -191,7 +191,7 @@ export default function AdminIdentityVerifications({ verifications, filters }: P
                     </CardHeader>
                     <CardContent className="p-6">
                         <div className="mb-6">
-                            <div className="relative max-w-md">
+                            <div className="relative max-w-md flex items-center gap-4">
                                 <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
                                 <Input
                                     placeholder="名前・電話番号・LINE IDで検索..."
@@ -199,6 +199,18 @@ export default function AdminIdentityVerifications({ verifications, filters }: P
                                     onChange={e => setSearch(e.target.value)}
                                     className="pl-10 pr-4 py-2 border-gray-200 focus:border-blue-500 focus:ring-blue-500"
                                 />
+                                <div className="flex items-center gap-2 ml-4">
+                                    <span className="text-sm text-muted-foreground">表示件数</span>
+                                    <select
+                                        className="px-2 py-1 border rounded text-sm"
+                                        value={String(verifications.per_page || 10)}
+                                        onChange={(e) => router.get('/admin/identity-verifications', { search, page: 1, per_page: Number(e.target.value) }, { preserveState: true })}
+                                    >
+                                        <option value="10">10</option>
+                                        <option value="20">20</option>
+                                        <option value="50">50</option>
+                                    </select>
+                                </div>
                             </div>
                         </div>
                         <div className="overflow-x-auto">
@@ -335,37 +347,24 @@ export default function AdminIdentityVerifications({ verifications, filters }: P
                             </table>
                         </div>
 
-                        {/* Pagination */}
+                        {/* Pagination (numbered) */}
                         {verifications.last_page > 1 && (
                             <div className="mt-4 flex items-center justify-between">
                                 <div className="text-sm text-muted-foreground">
                                     {verifications.from} - {verifications.to} / {verifications.total} 件
                                 </div>
-                                <div className="flex gap-2">
-                                    {verifications.current_page > 1 && (
+                                <div className="flex gap-2 flex-wrap">
+                                    {Array.from({ length: verifications.last_page }, (_, i) => i + 1).map((page) => (
                                         <Button
-                                            variant="outline"
+                                            key={page}
+                                            variant={page === verifications.current_page ? 'default' : 'outline'}
                                             size="sm"
-                                            onClick={() => router.get('/admin/identity-verifications', {
-                                                page: verifications.current_page - 1,
-                                                search: debouncedSearch
-                                            })}
+                                            disabled={page === verifications.current_page}
+                                            onClick={() => router.get('/admin/identity-verifications', { page, search: debouncedSearch, per_page: verifications.per_page || 10 }, { preserveState: true })}
                                         >
-                                            前へ
+                                            {page}
                                         </Button>
-                                    )}
-                                    {verifications.current_page < verifications.last_page && (
-                                        <Button
-                                            variant="outline"
-                                            size="sm"
-                                            onClick={() => router.get('/admin/identity-verifications', {
-                                                page: verifications.current_page + 1,
-                                                search: debouncedSearch
-                                            })}
-                                        >
-                                            次へ
-                                        </Button>
-                                    )}
+                                    ))}
                                 </div>
                             </div>
                         )}

@@ -26,11 +26,12 @@ class BadgeController extends Controller
             });
         }
 
-        $badges = $query->orderBy('created_at', 'desc')->paginate(20);
+        $perPage = (int) $request->input('per_page', 10);
+        $badges = $query->orderBy('created_at', 'desc')->paginate($perPage);
 
         return Inertia::render('admin/badges', [
             'badges' => $badges,
-            'filters' => $request->only(['search'])
+            'filters' => $request->only(['search', 'per_page'])
         ]);
     }
 
