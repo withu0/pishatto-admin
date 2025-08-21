@@ -5,9 +5,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
-import { Edit, Trash2, Plus, Eye, MessageCircle, User, Crown } from 'lucide-react';
-import { useState, useEffect } from 'react';
-import { router } from '@inertiajs/react';
+import { Edit, Trash2, Eye, MessageCircle, User, Crown } from 'lucide-react';
+import { useState} from 'react';
 
 interface Message {
     id: number;
@@ -224,14 +223,14 @@ export default function AdminMatchingManage({ chats: initialChats }: Props) {
         if (message.sender_guest_id && message.guest) {
             return {
                 type: 'guest' as const,
-                name: message.guest.nickname,
-                avatar: getAvatarUrl(message.guest.avatar)
+                name: message.guest.nickname || 'Unknown Guest',
+                avatar: message.guest.avatar,
             };
         } else if (message.sender_cast_id && message.cast) {
             return {
                 type: 'cast' as const,
-                name: message.cast.nickname,
-                avatar: getAvatarUrl(getFirstAvatar(message.cast.avatar))
+                name: message.cast.nickname || 'Unknown Cast',
+                avatar: message.cast.avatar,
             };
         }
         return null;
@@ -299,7 +298,7 @@ export default function AdminMatchingManage({ chats: initialChats }: Props) {
                                                                 />
                                                             ) : null}
                                                             <span className={`text-xs text-gray-500 ${item.guest.avatar ? 'hidden' : ''}`}>
-                                                                {item.guest.nickname.charAt(0)}
+                                                                {(item.guest.nickname || 'G').charAt(0)}
                                                             </span>
                                                         </div>
                                                         {item.guest.nickname}
@@ -321,7 +320,7 @@ export default function AdminMatchingManage({ chats: initialChats }: Props) {
                                                                 />
                                                             ) : null}
                                                             <span className={`text-xs text-gray-500 ${item.cast.avatar ? 'hidden' : ''}`}>
-                                                                {item.cast.nickname.charAt(0)}
+                                                                {(item.cast.nickname || 'C').charAt(0)}
                                                             </span>
                                                         </div>
                                                         {item.cast.nickname}
@@ -423,7 +422,7 @@ export default function AdminMatchingManage({ chats: initialChats }: Props) {
                                             <div className="w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center overflow-hidden">
                                                 {sender.avatar ? (
                                                     <img 
-                                                        src={sender.avatar} 
+                                                        src={getAvatarUrl(sender.type === 'cast' ? getFirstAvatar(sender.avatar) : sender.avatar)} 
                                                         alt={sender.name}
                                                         className="w-10 h-10 rounded-full object-cover"
                                                         onError={(e) => {
@@ -434,7 +433,7 @@ export default function AdminMatchingManage({ chats: initialChats }: Props) {
                                                     />
                                                 ) : null}
                                                 <span className={`text-sm text-gray-500 ${sender.avatar ? 'hidden' : ''}`}>
-                                                    {sender.name.charAt(0)}
+                                                    {(sender.name || 'U').charAt(0)}
                                                 </span>
                                             </div>
                                         </div>
