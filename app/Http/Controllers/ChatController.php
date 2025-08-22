@@ -338,6 +338,8 @@ class ChatController extends Controller
             'guest_id' => $guestId,
             'reservation_id' => $reservationId,
         ]);
+        // Broadcast chat creation to both participants
+        event(new \App\Events\ChatCreated($chat));
         return response()->json(['chat' => $chat, 'created' => true]);
     }
 
@@ -408,6 +410,12 @@ class ChatController extends Controller
             }
 
             DB::commit();
+
+            // Broadcast group creation and individual chats so UIs can update in real-time
+            event(new \App\Events\ChatGroupCreated($chatGroup));
+            foreach ($chats as $c) {
+                event(new \App\Events\ChatCreated($c));
+            }
 
             return response()->json([
                 'chat_group' => $chatGroup,

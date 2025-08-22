@@ -503,8 +503,12 @@ class GuestAuthController extends Controller
 
             DB::commit();
 
-            // Broadcast reservation creation
+            // Broadcast reservation creation to casts and reservation-specific channel
+            event(new \App\Events\ReservationCreated($reservation));
             event(new \App\Events\ReservationUpdated($reservation));
+            // Broadcast chat group and initial guest-only chat so it appears in message screens
+            event(new \App\Events\ChatGroupCreated($chatGroup));
+            event(new \App\Events\ChatCreated($guestChat));
             
             return response()->json([
                 'reservation' => $reservation,
@@ -600,8 +604,11 @@ class GuestAuthController extends Controller
 
             DB::commit();
 
-            // Broadcast reservation creation
+            // Broadcast reservation creation to casts and reservation-specific channel
+            event(new \App\Events\ReservationCreated($reservation));
             event(new \App\Events\ReservationUpdated($reservation));
+            // Inform participants about the newly created group
+            event(new \App\Events\ChatGroupCreated($chatGroup));
             
             return response()->json([
                 'reservation' => $reservation,
