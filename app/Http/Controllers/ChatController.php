@@ -38,11 +38,19 @@ class ChatController extends Controller
             ->where('m.is_read', false)
             ->when($userType === 'guest', function($query) use ($userId) {
                 return $query->where('m.sender_cast_id', '!=', null)
-                           ->where('c.guest_id', $userId);
+                           ->where('c.guest_id', $userId)
+                           ->where(function($subQuery) {
+                               $subQuery->where('m.recipient_type', 'both')
+                                       ->orWhere('m.recipient_type', 'guest');
+                           });
             })
             ->when($userType === 'cast', function($query) use ($userId) {
                 return $query->where('m.sender_guest_id', '!=', null)
-                           ->where('c.cast_id', $userId);
+                           ->where('c.cast_id', $userId)
+                           ->where(function($subQuery) {
+                               $subQuery->where('m.recipient_type', 'both')
+                                       ->orWhere('m.recipient_type', 'cast');
+                           });
             })
             ->groupBy('m.chat_id')
             ->pluck('unread_count', 'chat_id')
@@ -242,10 +250,19 @@ class ChatController extends Controller
         $perPage = $request->query('per_page', 50); // Add pagination
         $page = $request->query('page', 1);
         
-        // Use more efficient query with pagination
-        $messages = Message::with(['guest:id,nickname,avatar', 'cast:id,nickname,avatar', 'gift:id,name,icon,points'])
-            ->where('chat_id', $chatId)
-            ->orderBy('created_at', 'desc') // Changed to desc for better UX
+        // Use more efficient query with pagination and recipient type filtering
+        $messagesQuery = Message::with(['guest:id,nickname,avatar', 'cast:id,nickname,avatar', 'gift:id,name,icon,points'])
+            ->where('chat_id', $chatId);
+        
+        // Filter messages based on recipient type
+        if ($userType) {
+            $messagesQuery->where(function($query) use ($userType) {
+                $query->where('recipient_type', 'both')
+                      ->orWhere('recipient_type', $userType);
+            });
+        }
+        
+        $messages = $messagesQuery->orderBy('created_at', 'desc') // Changed to desc for better UX
             ->paginate($perPage, ['*'], 'page', $page);
         
         // Mark messages as read in batch to reduce database calls
@@ -639,11 +656,19 @@ class ChatController extends Controller
         // Get all chats in this group
         $chats = \App\Models\Chat::where('group_id', $groupId)->pluck('id');
         
-        // Get all messages from all chats in this group
-        $messages = \App\Models\Message::whereIn('chat_id', $chats)
-            ->with(['guest', 'cast', 'gift'])
-            ->orderBy('created_at', 'asc')
-            ->get();
+        // Get all messages from all chats in this group with recipient type filtering
+        $messagesQuery = \App\Models\Message::whereIn('chat_id', $chats)
+            ->with(['guest', 'cast', 'gift']);
+        
+        // Filter messages based on recipient type
+        if ($userType) {
+            $messagesQuery->where(function($query) use ($userType) {
+                $query->where('recipient_type', 'both')
+                      ->orWhere('recipient_type', $userType);
+            });
+        }
+        
+        $messages = $messagesQuery->orderBy('created_at', 'asc')->get();
 
         // Load reservation information for the group
         $group->load('reservation');
@@ -752,11 +777,13 @@ class ChatController extends Controller
         $messages = \App\Models\Message::where('chat_id', $chatId)->get();
         
         foreach ($messages as $msg) {
-            if ($userType === 'guest' && $msg->sender_cast_id && $msg->is_read == false && $msg->chat->guest_id == $userId) {
+            if ($userType === 'guest' && $msg->sender_cast_id && $msg->is_read == false && $msg->chat->guest_id == $userId && 
+                ($msg->recipient_type === 'both' || $msg->recipient_type === 'guest')) {
                 $msg->is_read = true;
                 $msg->save();
                 $messagesMarkedAsRead = true;
-            } else if ($userType === 'cast' && $msg->sender_guest_id && $msg->is_read == false && $msg->chat->cast_id == $userId) {
+            } else if ($userType === 'cast' && $msg->sender_guest_id && $msg->is_read == false && $msg->chat->cast_id == $userId && 
+                       ($msg->recipient_type === 'both' || $msg->recipient_type === 'cast')) {
                 $msg->is_read = true;
                 $msg->save();
                 $messagesMarkedAsRead = true;

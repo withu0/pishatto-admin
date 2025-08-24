@@ -72,21 +72,6 @@ export default function Dashboard() {
         },
     ];
 
-    const recentUpdates = [
-        {
-            user: '予約応募管理',
-            type: '管理',
-            action: '保留中の応募を確認',
-            time: '今すぐ',
-        },
-        {
-            user: '統計情報',
-            type: 'データ',
-            action: '予約・キャスト・ゲスト数',
-            time: 'リアルタイム',
-        },
-    ];
-
     const reservationChartData = [
         { name: '総予約', 数: totalReservations },
         { name: 'アクティブ', 数: activeReservations },

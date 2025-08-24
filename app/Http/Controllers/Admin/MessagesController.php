@@ -48,7 +48,17 @@ class MessagesController extends Controller
 
             // Handle content - check for text, image, or gift
             if ($message->message) {
-                $content = substr($message->message, 0, 50) . (strlen($message->message) > 50 ? '...' : '');
+                // Clean UTF-8 encoding first
+                $cleanMessage = mb_convert_encoding($message->message, 'UTF-8', 'UTF-8');
+                
+                // Check if this is a proposal message (JSON with type: proposal)
+                if (str_starts_with($cleanMessage, '{"type":"proposal"')) {
+                    // For proposal messages, don't truncate - pass the full JSON
+                    $content = $cleanMessage;
+                } else {
+                    // For regular text messages, truncate as before
+                    $content = mb_substr($cleanMessage, 0, 50) . (mb_strlen($cleanMessage) > 50 ? '...' : '');
+                }
             } elseif ($message->image) {
                 $content = '[画像]';
                 $image = asset('storage/' . $message->image);
@@ -243,7 +253,17 @@ class MessagesController extends Controller
 
                 // Handle content - check for text, image, or gift
                 if ($message->message) {
-                    $content = substr($message->message, 0, 50) . (strlen($message->message) > 50 ? '...' : '');
+                    // Clean UTF-8 encoding first
+                    $cleanMessage = mb_convert_encoding($message->message, 'UTF-8', 'UTF-8');
+                    
+                    // Check if this is a proposal message (JSON with type: proposal)
+                    if (str_starts_with($cleanMessage, '{"type":"proposal"')) {
+                        // For proposal messages, don't truncate - pass the full JSON
+                        $content = $cleanMessage;
+                    } else {
+                        // For regular text messages, truncate as before
+                        $content = mb_substr($cleanMessage, 0, 50) . (mb_strlen($cleanMessage) > 50 ? '...' : '');
+                    }
                 } elseif ($message->image) {
                     $content = '[画像]';
                     $image = asset('storage/' . $message->image);

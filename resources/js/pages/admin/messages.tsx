@@ -8,7 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
 import { Label } from '@/components/ui/label';
-import { Edit, Trash2, Plus, Image as ImageIcon, Gift, X } from 'lucide-react';
+import { Edit, Trash2, Image as ImageIcon, Gift, X } from 'lucide-react';
 import { useState } from 'react';
 import { router } from '@inertiajs/react';
 import { toast } from 'sonner';
@@ -107,6 +107,66 @@ export default function AdminMessages({ messages, guests, casts, gifts, rawMessa
         (m) => m.guest.includes(search) || m.cast.includes(search) || m.content.includes(search)
     );
 
+        const renderTextContent = (content: string) => {
+        // Debug: Log what we're receiving
+        console.log('renderTextContent received:', content);
+        console.log('Content length:', content.length);
+        console.log('Starts with proposal?', content.startsWith('{"type":"proposal"'));
+        
+        try {
+            const parsed = JSON.parse(content);
+            console.log('Parsed successfully:', parsed);
+            
+            if (parsed && parsed.type === 'proposal') {
+                
+                const dateText = parsed.date ? new Date(parsed.date).toLocaleDateString('ja-JP') : '-';
+                const durationText = parsed.duration || '-';
+                const peopleText = parsed.people || '-';
+                const totalPointsText = parsed.totalPoints || '-';
+                const extensionPointsText = parsed.extensionPoints || '-';
+                const guestIdText = parsed.guestId ? `G-${parsed.guestId}` : '-';
+                
+                return (
+                    <div className="flex items-center gap-4 text-sm">
+                        <div className="flex items-center gap-1">
+                            <span className="text-orange-500">⭐</span>
+                            <span className="text-gray-600">P:</span>
+                            <span className="font-medium">{totalPointsText}</span>
+                        </div>
+                        <div className="flex items-center gap-1">
+                            <span className="text-gray-500">📅</span>
+                            <span className="text-gray-600">D:</span>
+                            <span className="font-medium">{dateText}</span>
+                        </div>
+                        <div className="flex items-center gap-1">
+                            <span className="text-gray-500">⏰</span>
+                            <span className="text-gray-600">T:</span>
+                            <span className="font-medium">{durationText}</span>
+                        </div>
+                        <div className="flex items-center gap-1">
+                            <span className="text-blue-500">👥</span>
+                            <span className="text-gray-600">G:</span>
+                            <span className="font-medium">{peopleText}</span>
+                        </div>
+                        <div className="flex items-center gap-1">
+                            <span className="text-gray-500">↩️</span>
+                            <span className="text-gray-600">E:</span>
+                            <span className="font-medium">+{extensionPointsText}</span>
+                        </div>
+                        <div className="flex items-center gap-1">
+                            <span className="text-blue-500 bg-blue-500 text-white px-1 py-0.5 rounded text-xs font-bold">GU</span>
+                            <span className="text-gray-600">ID:</span>
+                            <span className="font-medium">{guestIdText}</span>
+                        </div>
+                    </div>
+                );
+            }
+        } catch {
+            // not JSON, fall back to plain text
+        }
+        return content;
+    };
+
     const resetForm = () => {
         setFormData({
             chat_id: '',
@@ -149,6 +209,7 @@ export default function AdminMessages({ messages, guests, casts, gifts, rawMessa
                 toast.error('エラーが発生しました。');
             }
         } catch (error) {
+            console.error('Create error:', error);
             toast.error('エラーが発生しました。');
         } finally {
             setIsLoading(false);
@@ -237,6 +298,7 @@ export default function AdminMessages({ messages, guests, casts, gifts, rawMessa
                 toast.error('エラーが発生しました。');
             }
         } catch (error) {
+            console.error('Delete error:', error);
             toast.error('エラーが発生しました。');
         }
     };
@@ -384,7 +446,7 @@ export default function AdminMessages({ messages, guests, casts, gifts, rawMessa
                                         </div>
                                         {formData.image && (
                                             <p className="text-sm text-muted-foreground">
-                                                選択されたファイル: {formData.image.name}
+                                                選択されたファイル: {formData.image?.name}
                                             </p>
                                         )}
                                     </div>
@@ -474,11 +536,11 @@ export default function AdminMessages({ messages, guests, casts, gifts, rawMessa
                                                             </div>
                                                         </div>
                                                     ) : (
-                                                        item.content
+                                                        renderTextContent(item.content)
                                                     )}
                                                 </td>
                                                 <td className="px-3 py-2">{item.date}</td>
-                                                <td className="px-3 py-2 flex gap-2">
+                                                <td className="px-3 py-2 flex gap-2 justify-center">
                                                     <Dialog open={isEditModalOpen} onOpenChange={setIsEditModalOpen}>
                                                         <DialogTrigger asChild>
                                                             <Button 
@@ -587,7 +649,7 @@ export default function AdminMessages({ messages, guests, casts, gifts, rawMessa
                                                                     </div>
                                                                     {formData.image && (
                                                                         <p className="text-sm text-muted-foreground">
-                                                                            選択されたファイル: {formData.image.name}
+                                                                            選択されたファイル: {formData.image?.name}
                                                                         </p>
                                                                     )}
                                                                 </div>

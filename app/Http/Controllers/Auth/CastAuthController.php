@@ -572,6 +572,10 @@ class CastAuthController extends Controller
         }
         $reservation->started_at = now();
         $reservation->save();
+        
+        // Broadcast the reservation update event
+        event(new \App\Events\ReservationUpdated($reservation));
+        
         return response()->json(['reservation' => $reservation]);
     }
 
@@ -625,6 +629,9 @@ class CastAuthController extends Controller
 
         $refundAmount = $refundTransaction ? $refundTransaction->amount : 0;
         $reservedAmount = $pendingTransaction ? $pendingTransaction->amount : 0;
+        
+        // Broadcast the reservation update event
+        event(new \App\Events\ReservationUpdated($reservation));
         
         return response()->json([
             'reservation' => $reservation, 

@@ -15,6 +15,7 @@ class Message extends Model
         'chat_id',
         'sender_guest_id',
         'sender_cast_id',
+        'recipient_type',
         'message',
         'image',
         'gift_id',

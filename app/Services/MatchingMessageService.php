@@ -14,7 +14,7 @@ use Illuminate\Support\Facades\Log;
 class MatchingMessageService
 {
     /**
-     * Send automatic matching confirmation messages to guest and cast only (no group chat message)
+     * Send automatic matching confirmation messages to group chat instead of individual chats
      */
     public function sendMatchingMessage(Reservation $reservation, int $castId, ?int $chatId = null, ?int $groupId = null)
     {
@@ -36,14 +36,15 @@ class MatchingMessageService
             $reservationDate = Carbon::parse($reservation->scheduled_at);
             $meetingTime = $reservationDate->format('H:i');
             
-            // Send individual matching confirmation messages to guest and cast only
-            $this->sendIndividualMatchingMessages($reservation, $castId, $meetingTime);
+            // Send matching confirmation messages to group chat
+            $this->sendGroupMatchingMessages($reservation, $castId, $meetingTime, $groupId);
             
-            Log::info('Individual matching messages sent successfully', [
+            Log::info('Group matching messages sent successfully', [
                 'reservation_id' => $reservation->id,
                 'cast_id' => $castId,
                 'guest_id' => $reservation->guest_id,
-                'meeting_time' => $meetingTime
+                'meeting_time' => $meetingTime,
+                'group_id' => $groupId
             ]);
             
             return true;
@@ -60,33 +61,104 @@ class MatchingMessageService
     }
 
     /**
-     * Send individual matching confirmation messages to guest and cast
+     * Send matching confirmation messages to group chat
      */
-    private function sendIndividualMatchingMessages(Reservation $reservation, int $castId, string $meetingTime): void
+    private function sendGroupMatchingMessages(Reservation $reservation, int $castId, string $meetingTime, ?int $groupId = null): void
     {
         try {
-            // Find or create individual chats for guest and cast
-            $guestChat = $this->findOrCreateGuestChat($reservation->guest_id, $castId, $reservation->id);
-            $castChat = $this->findOrCreateCastChat($reservation->guest_id, $castId, $reservation->id);
-            
-            if ($guestChat) {
-                // Send message to guest
-                $guestMessage = "マッチングが成立しました。合流時間は{$meetingTime}となります。キャストの合流ボタン押下後、マッチング開始となります。";
-                $this->sendToChat($guestChat->id, $guestMessage);
+            // Find the chat group and a chat within it to send the message
+            $chat = null;
+            if ($groupId) {
+                $chat = Chat::where('group_id', $groupId)->first();
             }
             
-            if ($castChat) {
-                // Send message to cast
+            if (!$chat) {
+                // Fallback to finding a chat for this reservation
+                $chat = Chat::where('reservation_id', $reservation->id)->first();
+            }
+            
+            if ($chat && $chat->group_id) {
+                // Send message to guest only in group chat
+                $guestMessage = "マッチングが成立しました。合流時間は{$meetingTime}となります。キャストの合流ボタン押下後、マッチング開始となります。";
+                $this->sendToGroupChat($chat->group_id, $guestMessage, 'guest');
+                
+                // Send message to cast only in group chat
                 $castMessage = "マッチングが成立しました。合流時間は{$meetingTime}となります。ゲストと合流する直前に合流ボタンを必ず押下してください。また大幅な遅刻等はマナー違反です。合流時間に従って行動するようにしてください。";
-                $this->sendToChat($castChat->id, $castMessage);
+                $this->sendToGroupChat($chat->group_id, $castMessage, 'cast');
+            } else {
+                // Fallback to individual chat if no group found
+                $this->sendIndividualMatchingMessages($reservation, $castId, $meetingTime, null);
+            }
+            
+            Log::info('Group matching messages sent successfully', [
+                'reservation_id' => $reservation->id,
+                'cast_id' => $castId,
+                'guest_id' => $reservation->guest_id,
+                'group_id' => $chat?->group_id,
+                'meeting_time' => $meetingTime
+            ]);
+            
+        } catch (\Exception $e) {
+            Log::error('Failed to send group matching messages', [
+                'reservation_id' => $reservation->id,
+                'cast_id' => $castId,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+        }
+    }
+
+    /**
+     * Send message to group chat with recipient type
+     */
+    private function sendToGroupChat(int $groupId, string $message, string $recipientType = 'both'): void
+    {
+        // Find a chat within the group to use as the target chat
+        $targetChat = Chat::where('group_id', $groupId)->first();
+        
+        if ($targetChat) {
+            Message::create([
+                'chat_id' => $targetChat->id,
+                'message' => $message,
+                'recipient_type' => $recipientType,
+                'created_at' => now(),
+                'is_read' => false,
+            ]);
+        }
+    }
+
+    /**
+     * Send individual matching confirmation messages to guest and cast (fallback method)
+     */
+    private function sendIndividualMatchingMessages(Reservation $reservation, int $castId, string $meetingTime, ?int $chatId = null): void
+    {
+        try {
+            // Use provided chat ID or find/create chat
+            $chat = null;
+            if ($chatId) {
+                $chat = Chat::find($chatId);
+            }
+            
+            if (!$chat) {
+                // Find or create individual chats for guest and cast
+                $chat = $this->findOrCreateGuestChat($reservation->guest_id, $castId, $reservation->id);
+            }
+            
+            if ($chat) {
+                // Send message to guest only
+                $guestMessage = "マッチングが成立しました。合流時間は{$meetingTime}となります。キャストの合流ボタン押下後、マッチング開始となります。";
+                $this->sendToChat($chat->id, $guestMessage, 'guest');
+                
+                // Send message to cast only
+                $castMessage = "マッチングが成立しました。合流時間は{$meetingTime}となります。ゲストと合流する直前に合流ボタンを必ず押下してください。また大幅な遅刻等はマナー違反です。合流時間に従って行動するようにしてください。";
+                $this->sendToChat($chat->id, $castMessage, 'cast');
             }
             
             Log::info('Individual matching messages sent successfully', [
                 'reservation_id' => $reservation->id,
                 'cast_id' => $castId,
                 'guest_id' => $reservation->guest_id,
-                'guest_chat_id' => $guestChat?->id,
-                'cast_chat_id' => $castChat?->id,
+                'chat_id' => $chat?->id,
                 'meeting_time' => $meetingTime
             ]);
             
@@ -149,20 +221,21 @@ class MatchingMessageService
     }
 
     /**
-     * Send message to individual chat
+     * Send message to individual chat with recipient type
      */
-    private function sendToChat(int $chatId, string $message): void
+    private function sendToChat(int $chatId, string $message, string $recipientType = 'both'): void
     {
         Message::create([
             'chat_id' => $chatId,
             'message' => $message,
+            'recipient_type' => $recipientType,
             'created_at' => now(),
             'is_read' => false,
         ]);
     }
 
     /**
-     * Send matching message for multiple cast approvals (only individual messages, no group message)
+     * Send matching message for multiple cast approvals (to group chat)
      */
     public function sendMultipleMatchingMessage(Reservation $reservation, array $castIds, int $groupId)
     {
@@ -181,14 +254,15 @@ class MatchingMessageService
             $reservationDate = Carbon::parse($reservation->scheduled_at);
             $meetingTime = $reservationDate->format('H:i');
             
-            // Send individual messages to guest and each cast only (no group message)
-            $this->sendMultipleIndividualMatchingMessages($reservation, $castIds, $meetingTime);
+            // Send group messages to guest and each cast
+            $this->sendMultipleGroupMatchingMessages($reservation, $castIds, $meetingTime, $groupId);
             
-            Log::info('Multiple individual matching messages sent successfully', [
+            Log::info('Multiple group matching messages sent successfully', [
                 'reservation_id' => $reservation->id,
                 'cast_count' => count($castIds),
                 'guest_id' => $reservation->guest_id,
-                'meeting_time' => $meetingTime
+                'meeting_time' => $meetingTime,
+                'group_id' => $groupId
             ]);
             
             return true;
@@ -205,36 +279,31 @@ class MatchingMessageService
     }
 
     /**
-     * Send individual matching confirmation messages for multiple casts
+     * Send group matching confirmation messages for multiple casts
      */
-    private function sendMultipleIndividualMatchingMessages(Reservation $reservation, array $castIds, string $meetingTime): void
+    private function sendMultipleGroupMatchingMessages(Reservation $reservation, array $castIds, string $meetingTime, int $groupId): void
     {
         try {
-            // Send message to guest
-            $guestChat = $this->findOrCreateGuestChat($reservation->guest_id, $castIds[0], $reservation->id);
-            if ($guestChat) {
-                $guestMessage = "マッチングが成立しました。合流時間は{$meetingTime}となります。キャストの合流ボタン押下後、マッチング開始となります。";
-                $this->sendToChat($guestChat->id, $guestMessage);
-            }
+            // Send message to guest only in group chat
+            $guestMessage = "マッチングが成立しました。合流時間は{$meetingTime}となります。キャストの合流ボタン押下後、マッチング開始となります。";
+            $this->sendToGroupChat($groupId, $guestMessage, 'guest');
             
-            // Send message to each cast
+            // Send message to each cast only in group chat
             foreach ($castIds as $castId) {
-                $castChat = $this->findOrCreateCastChat($reservation->guest_id, $castId, $reservation->id);
-                if ($castChat) {
-                    $castMessage = "マッチングが成立しました。合流時間は{$meetingTime}となります。ゲストと合流する直前に合流ボタンを必ず押下してください。また大幅な遅刻等はマナー違反です。合流時間に従って行動するようにしてください。";
-                    $this->sendToChat($castChat->id, $castMessage);
-                }
+                $castMessage = "マッチングが成立しました。合流時間は{$meetingTime}となります。ゲストと合流する直前に合流ボタンを必ず押下してください。また大幅な遅刻等はマナー違反です。合流時間に従って行動するようにしてください。";
+                $this->sendToGroupChat($groupId, $castMessage, 'cast');
             }
             
-            Log::info('Multiple individual matching messages sent successfully', [
+            Log::info('Multiple group matching messages sent successfully', [
                 'reservation_id' => $reservation->id,
                 'cast_ids' => $castIds,
                 'guest_id' => $reservation->guest_id,
+                'group_id' => $groupId,
                 'meeting_time' => $meetingTime
             ]);
             
         } catch (\Exception $e) {
-            Log::error('Failed to send multiple individual matching messages', [
+            Log::error('Failed to send multiple group matching messages', [
                 'reservation_id' => $reservation->id,
                 'cast_ids' => $castIds,
                 'error' => $e->getMessage(),
@@ -244,7 +313,7 @@ class MatchingMessageService
     }
 
     /**
-     * Send matching message when additional cast joins existing group (only individual messages, no group message)
+     * Send matching message when additional cast joins existing group (to group chat)
      */
     public function sendAdditionalCastMatchingMessage(Reservation $reservation, int $castId, int $groupId)
     {
@@ -266,14 +335,15 @@ class MatchingMessageService
             $reservationDate = Carbon::parse($reservation->scheduled_at);
             $meetingTime = $reservationDate->format('H:i');
             
-            // Send individual matching confirmation messages to guest and cast only (no group message)
-            $this->sendIndividualMatchingMessages($reservation, $castId, $meetingTime);
+            // Send group matching confirmation messages to guest and cast
+            $this->sendGroupMatchingMessages($reservation, $castId, $meetingTime, $groupId);
             
-            Log::info('Additional cast individual matching messages sent successfully', [
+            Log::info('Additional cast group matching messages sent successfully', [
                 'reservation_id' => $reservation->id,
                 'cast_id' => $castId,
                 'guest_id' => $reservation->guest_id,
-                'meeting_time' => $meetingTime
+                'meeting_time' => $meetingTime,
+                'group_id' => $groupId
             ]);
             
             return true;

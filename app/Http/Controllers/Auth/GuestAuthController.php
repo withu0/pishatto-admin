@@ -739,7 +739,8 @@ class GuestAuthController extends Controller
                     // Count unread messages for this guest in this group
                     $unread = $allMessages->where('is_read', false)
                         ->filter(function($msg) {
-                            return $msg->sender_cast_id && !$msg->is_read;
+                            return $msg->sender_cast_id && !$msg->is_read && 
+                                   ($msg->recipient_type === 'both' || $msg->recipient_type === 'guest');
                         })->count();
                     
                     // Check if this is a guest-only group (no casts assigned yet)
@@ -824,7 +825,8 @@ class GuestAuthController extends Controller
                     // Count unread messages for this cast in this group
                     $unread = $allMessages->where('is_read', false)
                         ->filter(function($msg) {
-                            return $msg->sender_guest_id && !$msg->is_read;
+                            return $msg->sender_guest_id && !$msg->is_read && 
+                                   ($msg->recipient_type === 'both' || $msg->recipient_type === 'cast');
                         })->count();
                     
                     $guest = $guests->first();
@@ -1072,6 +1074,91 @@ class GuestAuthController extends Controller
             return response()->json(['reservation' => $reservation]);
         } catch (\Throwable $e) {
             return response()->json(['message' => 'Server error', 'error' => $e->getMessage(), 'trace' => $e->getTraceAsString()], 500);
+        }
+    }
+
+    /**
+     * Complete session and process point transactions
+     */
+    public function completeSession(Request $request)
+    {
+        try {
+            DB::beginTransaction();
+
+            $validator = Validator::make($request->all(), [
+                'chat_id' => 'required|integer',
+                'cast_id' => 'required|integer',
+                'guest_id' => 'required|integer',
+                'session_duration' => 'required|integer|min:1',
+                'total_points' => 'required|integer|min:1',
+                'cast_points' => 'required|integer|min:0',
+                'guest_points' => 'required|integer|min:0',
+                'session_key' => 'required|string',
+            ]);
+
+            if ($validator->fails()) {
+                return response()->json([
+                    'message' => 'Validation failed',
+                    'errors' => $validator->errors()
+                ], 422);
+            }
+
+            $data = $request->all();
+            
+            // Get the cast and guest
+            $cast = Cast::findOrFail($data['cast_id']);
+            $guest = Guest::findOrFail($data['guest_id']);
+
+            // Create point transaction for cast (transfer type)
+            $this->pointTransactionService->createTransaction([
+                'cast_id' => $cast->id,
+                'type' => 'transfer',
+                'amount' => $data['cast_points'],
+                'description' => "セッション完了 - {$data['session_key']} (キャスト獲得)",
+            ]);
+
+            // Create point transaction for guest (convert type for remaining points)
+            if ($data['guest_points'] > 0) {
+                $this->pointTransactionService->createTransaction([
+                    'guest_id' => $guest->id,
+                    'type' => 'convert',
+                    'amount' => $data['guest_points'],
+                    'description' => "セッション完了 - {$data['session_key']} (ゲスト獲得)",
+                ]);
+            }
+
+            // Update cast points
+            $cast->points += $data['cast_points'];
+            $cast->save();
+
+            // Update guest points and grade_points
+            $guest->points += $data['guest_points'];
+            $guest->grade_points += $data['total_points']; // Add total session points to grade_points
+            $guest->save();
+
+            // Update guest grade if needed
+            $this->gradeService->calculateAndUpdateGrade($guest);
+
+            DB::commit();
+
+            return response()->json([
+                'message' => 'Session completed successfully',
+                'cast_points_earned' => $data['cast_points'],
+                'guest_points_earned' => $data['guest_points'],
+                'total_session_points' => $data['total_points'],
+                'cast_total_points' => $cast->points,
+                'guest_total_points' => $guest->points,
+                'guest_grade_points' => $guest->grade_points,
+                'guest_grade' => $guest->grade,
+            ]);
+
+        } catch (\Exception $e) {
+            DB::rollBack();
+            Log::error('completeSession error: ' . $e->getMessage() . "\n" . $e->getTraceAsString());
+            return response()->json([
+                'message' => 'Failed to complete session',
+                'error' => $e->getMessage()
+            ], 500);
         }
     }
 

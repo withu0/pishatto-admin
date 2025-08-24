@@ -77,6 +77,7 @@ Route::put('/reservations/{id}', [GuestAuthController::class, 'updateReservation
 Route::post('/reservations/{id}/complete', [GuestAuthController::class, 'completeReservation']);
 Route::post('/reservations/{id}/cancel', [GuestAuthController::class, 'cancelReservation']);
 Route::post('/reservations/{id}/refund', [GuestAuthController::class, 'refundUnusedPoints']);
+Route::post('/sessions/complete', [GuestAuthController::class, 'completeSession']);
 Route::get('/reservations/{id}/point-breakdown', [GuestAuthController::class, 'getPointBreakdown']);
 Route::get('/guests/repeat', [GuestAuthController::class, 'repeatGuests']);
 Route::get('/guest/profile/id/{id}', [GuestAuthController::class, 'getProfileById']);

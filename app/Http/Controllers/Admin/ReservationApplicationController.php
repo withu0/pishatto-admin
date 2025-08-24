@@ -96,16 +96,25 @@ class ReservationApplicationController extends Controller
                     'rejection_reason' => 'Another cast was approved for this reservation',
                 ]);
 
-            // Create chat group
+            // Create chat group first
+            $chatGroup = \App\Models\ChatGroup::create([
+                'reservation_id' => $reservation->id,
+                'cast_ids' => [$application->cast_id],
+                'name' => '予約 - ' . $reservation->location,
+                'created_at' => now(),
+            ]);
+
+            // Create individual chat for backward compatibility
             $chat = Chat::create([
                 'guest_id' => $reservation->guest_id,
                 'cast_id' => $application->cast_id,
                 'reservation_id' => $reservation->id,
+                'group_id' => $chatGroup->id,
             ]);
 
             // Send automatic matching information message
             $matchingMessageService = app(MatchingMessageService::class);
-            $matchingMessageService->sendMatchingMessage($reservation, $application->cast_id, $chat->id);
+            $matchingMessageService->sendMatchingMessage($reservation, $application->cast_id, $chat->id, $chatGroup->id);
 
             // Notify guest
             $guestNotification = Notification::create([
@@ -132,9 +141,8 @@ class ReservationApplicationController extends Controller
             // Broadcast to approved cast
             event(new \App\Events\NotificationSent($castNotification));
 
-            $updateChatGroup=ChatGroup::where('reservation_id', $reservation->id)->update([
-                'cast_ids' => array_merge($chat->cast_ids, [$application->cast_id]),
-            ]);
+            // Update chat group with cast_ids (this is now handled by the creation above)
+            // $updateChatGroup = $chatGroup; // Already created with correct cast_ids
 
             // Notify rejected casts
             $rejectedApplications = ReservationApplication::where('reservation_id', $reservation->id)
