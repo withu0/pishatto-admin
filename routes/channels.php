@@ -26,7 +26,7 @@ Broadcast::channel('chat.{chatId}', function ($user, $chatId) {
     //     return true;
     // }
     // return false;
-    return true;
+    return true; // keep public for now if used publicly; tighten later if needed
 });
 
 Broadcast::channel('group.{groupId}', function ($user, $groupId) {
@@ -103,4 +103,14 @@ Broadcast::channel('admin-news.guest', function () {
 
 Broadcast::channel('admin-news.cast', function () {
     return true;
+});
+
+// Guest channel authorization (strict)
+Broadcast::channel('guest.{guestId}', function ($user, $guestId) {
+    return $user instanceof \App\Models\Guest && (int) $user->id === (int) $guestId;
+});
+
+// Cast channel authorization (strict)
+Broadcast::channel('cast.{castId}', function ($user, $castId) {
+    return $user instanceof \App\Models\Cast && (int) $user->id === (int) $castId;
 });

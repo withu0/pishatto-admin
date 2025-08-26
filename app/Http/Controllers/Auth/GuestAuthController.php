@@ -285,9 +285,7 @@ class GuestAuthController extends Controller
         });
         
         // Map location to favorite_area for backward compatibility
-        if (isset($data['favorite_area'])) {
-            $data['favorite_area'] = $data['favorite_area'];
-        } elseif (isset($data['location'])) {
+        if (!isset($data['favorite_area']) && isset($data['location'])) {
             $data['favorite_area'] = $data['location'];
         }
         
@@ -425,6 +423,8 @@ class GuestAuthController extends Controller
             'guest_id' => 'required|exists:guests,id',
             'scheduled_at' => 'required|date',
             'location' => 'nullable|string|max:255',
+            'address' => 'nullable|string|max:255',
+            'name' => 'nullable|string|max:255',
             'duration' => 'nullable|integer',
             'custom_duration_hours' => 'nullable|integer|min:4|max:24',
             'details' => 'nullable|string',
@@ -446,18 +446,26 @@ class GuestAuthController extends Controller
         try {
             DB::beginTransaction();
 
+            // Debug: Log the incoming request data
+            error_log('Free call request data: ' . json_encode($request->all()));
+
             // Create the reservation with type 'free'
             $reservation = Reservation::create([
                 'guest_id' => $request->guest_id,
                 'type' => 'free',
                 'scheduled_at' => \Carbon\Carbon::parse($request->scheduled_at),
                 'location' => $request->location,
+                'address' => $request->address,
+                'name' => $request->name,
                 'duration' => $request->duration,
                 'details' => $request->details,
                 'time' => $request->time,
                 'cast_ids' => [], // No casts initially selected
                 'custom_duration_hours' => $request->custom_duration_hours,
             ]);
+
+            // Debug: Log the created reservation
+            error_log('Created reservation: ' . json_encode($reservation->toArray()));
 
             // Get pre-calculated points from frontend
             $requiredPoints = $request->required_points;
@@ -535,9 +543,11 @@ class GuestAuthController extends Controller
             'guest_id' => 'required|exists:guests,id',
             'scheduled_at' => 'required|date',
             'location' => 'nullable|string|max:255',
+            'address' => 'nullable|string|max:255',
+            'name' => 'nullable|string|max:255',
             'duration' => 'nullable|integer',
             'custom_duration_hours' => 'nullable|integer|min:4|max:24',
-            'details' => 'nullable|string',
+            'details' => 'string',
             'time' => 'nullable|string|max:10',
             'cast_counts' => 'required|array',
             'cast_counts.royal_vip' => 'required|integer|min:0',
@@ -555,6 +565,10 @@ class GuestAuthController extends Controller
         try {
             DB::beginTransaction();
             error_log('scheduled_at: ' . $request->scheduled_at);
+            
+            // Debug: Log the incoming request data
+            error_log('Free call reservation request data: ' . json_encode($request->all()));
+            
             // Create the reservation with type 'free'
             $reservation = Reservation::create([
                 'guest_id' => $request->guest_id,
@@ -562,12 +576,19 @@ class GuestAuthController extends Controller
                 // 'scheduled_at' => \Carbon\Carbon::parse($request->scheduled_at),
                 'scheduled_at' => $request->scheduled_at,
                 'location' => $request->location,
+                'address' => $request->address,
+                'name' => $request->name,
+                'meeting_location' => $request->meeting_location,
+                'reservation_name' => $request->reservation_name,
                 'duration' => $request->duration,
                 'details' => $request->details,
                 'time' => $request->time,
                 'cast_ids' => [], // No casts initially selected
                 'custom_duration_hours' => $request->custom_duration_hours,
             ]);
+
+            // Debug: Log the created reservation
+            error_log('Created free call reservation: ' . json_encode($reservation->toArray()));
 
             // Get pre-calculated points from frontend
             $requiredPoints = $request->total_cost ?? 0;
@@ -876,6 +897,86 @@ class GuestAuthController extends Controller
             
             return response()->json(['chats' => $result]);
         }
+    }
+
+    public function getCastChats($castId)
+    {
+        // For cast, join reservation and guest to get guest avatar
+        $chats = Chat::where('cast_id', $castId)->with(['guest', 'reservation.guest', 'messages', 'group'])->get();
+        
+        // Group chats by group_id
+        $groupedChats = $chats->groupBy('group_id');
+        $result = [];
+        
+        foreach ($groupedChats as $groupId => $groupChats) {
+            if ($groupId) {
+                // This is a group chat - combine all guests into one chat entry
+                $firstChat = $groupChats->first();
+                $group = $firstChat->group;
+                
+                // Get all guests in this group
+                $guests = $groupChats->map(function($chat) {
+                    return $chat->guest;
+                })->filter();
+                
+                // Combine all messages from all chats in this group
+                $allMessages = $groupChats->flatMap(function($chat) {
+                    return $chat->messages;
+                })->sortBy('created_at');
+                
+                // Count unread messages for this cast in this group
+                $unread = $allMessages->where('is_read', false)
+                    ->filter(function($msg) {
+                        return $msg->sender_guest_id && !$msg->is_read && 
+                               ($msg->recipient_type === 'both' || $msg->recipient_type === 'cast');
+                    })->count();
+                
+                $result[] = [
+                    'id' => $firstChat->id, // Use first chat ID as group chat ID
+                    'group_id' => $groupId,
+                    'is_group_chat' => true,
+                    'group_name' => $group ? $group->name : 'Group Chat',
+                    'guests' => $guests->map(function($guest) {
+                        return [
+                            'id' => $guest->id,
+                            'nickname' => $guest->nickname,
+                            'avatar' => $guest->avatar
+                        ];
+                    })->toArray(),
+                    'avatar' => $guests->first() ? $guests->first()->avatar : null,
+                    'guest_id' => $guests->first() ? $guests->first()->id : null,
+                    'guest_nickname' => $guests->count() > 1 ? 
+                        ($group->name ?? 'Group Chat') : 
+                        ($guests->first() ? $guests->first()->nickname : 'Unknown Guest'),
+                    'last_message' => $allMessages->last() ? $allMessages->last()->message : '',
+                    'updated_at' => $allMessages->last() ? $allMessages->last()->created_at : $firstChat->created_at,
+                    'created_at' => $firstChat->created_at,
+                    'unread' => $unread,
+                ];
+            } else {
+                // Individual chats (not group chats)
+                foreach ($groupChats as $chat) {
+                    $unread = $chat->messages->where('is_read', false)
+                        ->filter(function($msg) {
+                            return $msg->sender_guest_id && !$msg->is_read;
+                        })->count();
+                    
+                    $result[] = [
+                        'id' => $chat->id,
+                        'is_group_chat' => false,
+                        'avatar' => $chat->guest ? $chat->guest->avatar : null,
+                        'guest_id' => $chat->guest ? $chat->guest->id : null,
+                        'guest_nickname' => $chat->guest ? $chat->guest->nickname : null,
+                        'last_message' => $chat->messages->last() ? $chat->messages->last()->message : '',
+                        'updated_at' => $chat->messages->last() ? $chat->messages->last()->created_at : $chat->created_at,
+                        'created_at' => $chat->created_at,
+                        'unread' => $unread,
+                    ];
+                }
+            }
+        }
+        
+        return response()->json(['chats' => $result]);
     }
 
     public function allChats()

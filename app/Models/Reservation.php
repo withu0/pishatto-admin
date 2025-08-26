@@ -18,8 +18,8 @@ class Reservation extends Model
         'type',
         'scheduled_at',
         'location',
-        'meeting_location',
-        'reservation_name',
+        'address',
+        'name',
         'duration',
         'details',
         'created_at',
@@ -28,6 +28,9 @@ class Reservation extends Model
         'started_at',
         'ended_at',
         'points_earned',
+        'meeting_location',
+        'reservation_name',
+        'points',
     ];
 
     protected $casts = [

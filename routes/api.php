@@ -69,6 +69,7 @@ Route::get('/reservation-applications/cast/{castId}/all', [ReservationApplicatio
 Route::get('/chats/{chatId}/messages', [ChatController::class, 'messages']);
 Route::post('/chats/{chatId}/mark-read', [ChatController::class, 'markChatRead']);
 Route::get('/chats/{userType}/{userId}', [GuestAuthController::class, 'getUserChats']);
+Route::get('/chats/cast/{castId}', [GuestAuthController::class, 'getCastChats']);
 Route::get('/chats/all', [GuestAuthController::class, 'allChats']);
 Route::get('/chats', [ChatController::class, 'index']);
 Route::post('/messages', [ChatController::class, 'store']);

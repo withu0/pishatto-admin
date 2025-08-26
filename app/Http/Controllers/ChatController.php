@@ -16,6 +16,10 @@ class ChatController extends Controller
         $userId = $request->query('user_id');
         $userType = $request->query('user_type'); // 'guest' or 'cast'
         
+        if (!$userId || !$userType) {
+            return response()->json(['error' => 'user_id and user_type are required'], 400);
+        }
+        
         // Use more efficient query with proper eager loading and subqueries
         $chats = Chat::with([
             'guest:id,nickname,avatar',
@@ -26,7 +30,11 @@ class ChatController extends Controller
                   ->orderBy('created_at', 'desc')
                   ->limit(1); // Only get the last message
             }
-        ])->get();
+        ])->when($userType === 'guest', function($query) use ($userId) {
+            return $query->where('guest_id', $userId);
+        })->when($userType === 'cast', function($query) use ($userId) {
+            return $query->where('cast_id', $userId);
+        })->get();
 
         // Get unread counts in a single query to avoid N+1
         $unreadCounts = DB::table('messages as m')
@@ -57,28 +65,51 @@ class ChatController extends Controller
             ->toArray();
 
         $result = $chats->map(function ($chat) use ($userId, $userType, $unreadCounts) {
-            $user = $chat->guest ?? $chat->cast;
-            $name = $user->nickname ?? 'Unknown';
-            $avatar = $user->avatar ?? '/assets/avatar/default.png';
             $lastMessage = $chat->messages->first();
-            
-            // Get unread count from pre-fetched array
             $unread = $unreadCounts[$chat->id] ?? 0;
             
-            $chatData = [
-                'id' => $chat->id,
-                'avatar' => $avatar,
-                'name' => $name,
-                'lastMessage' => $lastMessage ? $lastMessage->message : '',
-                'timestamp' => $lastMessage ? $lastMessage->created_at : now(),
-                'unread' => $unread,
-            ];
+            if ($userType === 'cast') {
+                // Format for cast side
+                $guest = $chat->guest;
+                $chatData = [
+                    'id' => $chat->id,
+                    'avatar' => $guest ? $guest->avatar : '/assets/avatar/default.png',
+                    'name' => $guest ? $guest->nickname : 'Unknown Guest',
+                    'guest_id' => $guest ? $guest->id : null,
+                    'guest_nickname' => $guest ? $guest->nickname : 'Unknown Guest',
+                    'last_message' => $lastMessage ? $lastMessage->message : '',
+                    'updated_at' => $lastMessage ? $lastMessage->created_at : $chat->created_at,
+                    'created_at' => $chat->created_at,
+                    'unread' => $unread,
+                    'is_group_chat' => !is_null($chat->group_id),
+                ];
 
-            // Add group information if this is a group chat
-            if ($chat->group_id) {
-                $chatData['group_id'] = $chat->group_id;
-                $chatData['group_name'] = $chat->group->name ?? 'Group Chat';
-                $chatData['is_group_chat'] = true;
+                // Add group information if this is a group chat
+                if ($chat->group_id) {
+                    $chatData['group_id'] = $chat->group_id;
+                    $chatData['group_name'] = $chat->group ? $chat->group->name : 'Group Chat';
+                }
+            } else {
+                // Format for guest side
+                $cast = $chat->cast;
+                $chatData = [
+                    'id' => $chat->id,
+                    'avatar' => $cast ? $cast->avatar : '/assets/avatar/default.png',
+                    'name' => $cast ? $cast->nickname : 'Unknown Cast',
+                    'cast_id' => $cast ? $cast->id : null,
+                    'cast_nickname' => $cast ? $cast->nickname : 'Unknown Cast',
+                    'last_message' => $lastMessage ? $lastMessage->message : '',
+                    'updated_at' => $lastMessage ? $lastMessage->created_at : $chat->created_at,
+                    'created_at' => $chat->created_at,
+                    'unread' => $unread,
+                    'is_group_chat' => !is_null($chat->group_id),
+                ];
+
+                // Add group information if this is a group chat
+                if ($chat->group_id) {
+                    $chatData['group_id'] = $chat->group_id;
+                    $chatData['group_name'] = $chat->group ? $chat->group->name : 'Group Chat';
+                }
             }
 
             return $chatData;
@@ -355,8 +386,21 @@ class ChatController extends Controller
             'guest_id' => $guestId,
             'reservation_id' => $reservationId,
         ]);
+        
+        // Load relationships for broadcasting
+        $chat->load(['guest', 'cast', 'group']);
+        
         // Broadcast chat creation to both participants
         event(new \App\Events\ChatCreated($chat));
+        
+        // Also broadcast chat list updates to both participants
+        if ($chat->guest_id) {
+            event(new \App\Events\ChatListUpdated($chat->guest_id, 'guest', $chat));
+        }
+        if ($chat->cast_id) {
+            event(new \App\Events\ChatListUpdated($chat->cast_id, 'cast', $chat));
+        }
+        
         return response()->json(['chat' => $chat, 'created' => true]);
     }
 
@@ -431,7 +475,17 @@ class ChatController extends Controller
             // Broadcast group creation and individual chats so UIs can update in real-time
             event(new \App\Events\ChatGroupCreated($chatGroup));
             foreach ($chats as $c) {
+                // Load relationships for broadcasting
+                $c->load(['guest', 'cast', 'group']);
                 event(new \App\Events\ChatCreated($c));
+                
+                // Also broadcast chat list updates to both participants
+                if ($c->guest_id) {
+                    event(new \App\Events\ChatListUpdated($c->guest_id, 'guest', $c));
+                }
+                if ($c->cast_id) {
+                    event(new \App\Events\ChatListUpdated($c->cast_id, 'cast', $c));
+                }
             }
 
             return response()->json([

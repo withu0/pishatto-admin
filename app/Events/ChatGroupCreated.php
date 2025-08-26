@@ -12,10 +12,27 @@ class ChatGroupCreated implements ShouldBroadcast
     use InteractsWithSockets;
 
     public $chatGroup;
+    public $groupData;
 
     public function __construct(ChatGroup $chatGroup)
     {
         $this->chatGroup = $chatGroup;
+        
+        // Prepare comprehensive group data for real-time updates
+        $this->groupData = [
+            'id' => $chatGroup->id,
+            'name' => $chatGroup->name,
+            'reservation_id' => $chatGroup->reservation_id,
+            'cast_ids' => $chatGroup->cast_ids,
+            'created_at' => $chatGroup->created_at,
+            'reservation' => $chatGroup->reservation ? [
+                'id' => $chatGroup->reservation->id,
+                'guest_id' => $chatGroup->reservation->guest_id,
+                'scheduled_at' => $chatGroup->reservation->scheduled_at,
+                'location' => $chatGroup->reservation->location,
+                'duration' => $chatGroup->reservation->duration,
+            ] : null,
+        ];
     }
 
     public function broadcastOn()
@@ -40,6 +57,13 @@ class ChatGroupCreated implements ShouldBroadcast
     public function broadcastAs()
     {
         return 'ChatGroupCreated';
+    }
+
+    public function broadcastWith()
+    {
+        return [
+            'chatGroup' => $this->groupData
+        ];
     }
 }
 
