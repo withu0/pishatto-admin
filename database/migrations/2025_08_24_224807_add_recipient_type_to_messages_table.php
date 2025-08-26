@@ -12,7 +12,9 @@ return new class extends Migration
     public function up(): void
     {
         Schema::table('messages', function (Blueprint $table) {
-            $table->enum('recipient_type', ['guest', 'cast', 'both'])->default('both')->after('sender_cast_id');
+            if (!Schema::hasColumn('messages', 'recipient_type')) {
+                $table->enum('recipient_type', ['guest', 'cast', 'both'])->default('both')->after('sender_cast_id');
+            }
         });
     }
 
@@ -22,7 +24,9 @@ return new class extends Migration
     public function down(): void
     {
         Schema::table('messages', function (Blueprint $table) {
-            $table->dropColumn('recipient_type');
+            if (Schema::hasColumn('messages', 'recipient_type')) {
+                $table->dropColumn('recipient_type');
+            }
         });
     }
 };
