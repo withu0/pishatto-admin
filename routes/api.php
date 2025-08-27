@@ -48,6 +48,7 @@ Route::get('/guest/profile/{phone}', [GuestAuthController::class, 'getProfile'])
 Route::get('/guest/profile/line/{line_id}', [GuestAuthController::class, 'getProfileByLineId']);
 Route::post('/guest/profile', [GuestAuthController::class, 'updateProfile']);
 Route::post('/cast/login', [CastAuthController::class, 'login']);
+Route::post('/cast/check-exists', [CastAuthController::class, 'checkCastExists']);
 Route::get('/cast/check-auth', [CastAuthController::class, 'checkAuth']);
 Route::post('/cast/profile', [CastAuthController::class, 'updateProfile']);
 Route::post('/cast/register', [CastAuthController::class, 'register']);

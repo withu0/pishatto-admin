@@ -13,26 +13,89 @@ use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Validator;
 use App\Models\Reservation;
+use App\Services\TwilioService;
 
 class CastAuthController extends Controller
 {
+    protected $twilioService;
+
+    public function __construct(TwilioService $twilioService)
+    {
+        $this->twilioService = $twilioService;
+    }
+
     public function login(Request $request)
     {
         $validator = Validator::make($request->all(), [
             'phone' => 'required|string',
+            // Accept code if provided, but do not require it because phone may already be verified
+            'verification_code' => 'nullable|string|size:6',
         ]);
+        
         if ($validator->fails()) {
             return response()->json(['message' => 'Invalid credentials'], 422);
         }
+
+        // Verify via cached verified state first. If not verified yet, attempt direct code verification when provided.
+        $phoneNumber = $request->phone;
+        $phoneNumber = $this->formatPhoneNumberForTwilio($phoneNumber);
+        
+        $isVerified = $this->twilioService->isPhoneVerified($phoneNumber);
+        $errorMessage = 'Phone number not verified. Please verify your number again.';
+        
+        if (!$isVerified && $request->filled('verification_code')) {
+            $verificationResult = $this->twilioService->verifyCode($phoneNumber, $request->verification_code);
+            $isVerified = $verificationResult['success'];
+            if (!$isVerified) {
+                $errorMessage = $verificationResult['message'] ?? $errorMessage;
+            }
+        }
+        
+        if (!$isVerified) {
+            return response()->json(['message' => $errorMessage], 422);
+        }
+
         $cast = Cast::where('phone', $request->phone)->first();
         if (!$cast) {
-            $cast = Cast::create(['phone' => $request->phone, 'status' => 'active', 'name' => 'New Cast ']);
+            return response()->json([
+                'message' => 'お客様の情報は存在しません。管理者までご連絡ください。',
+                'cast' => null
+            ], 404);
         }
+        
         // Log the cast in using Laravel session (cast guard)
         \Illuminate\Support\Facades\Auth::guard('cast')->login($cast);
         return response()->json([
             'cast' => $cast,
             'token' => base64_encode('cast|' . $cast->id . '|' . now()), // placeholder token
+        ]);
+    }
+
+    /**
+     * Check if cast exists by phone number
+     */
+    public function checkCastExists(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'phone' => 'required|string',
+        ]);
+        
+        if ($validator->fails()) {
+            return response()->json(['message' => 'Invalid phone number'], 422);
+        }
+
+        $cast = Cast::where('phone', $request->phone)->first();
+        
+        if (!$cast) {
+            return response()->json([
+                'exists' => false,
+                'message' => 'お客様の情報は存在しません。管理者までご連絡ください。'
+            ], 404);
+        }
+        
+        return response()->json([
+            'exists' => true,
+            'cast' => $cast
         ]);
     }
 
@@ -127,7 +190,7 @@ class CastAuthController extends Controller
                 
                 // Fallback to default calculation if no cast_ids or casts not found
                 if ($totalPoints === 0) {
-                    $defaultCategoryPoints = 9000; // Default to プレミアム
+                    $defaultCategoryPoints = 12000; // Default to プレミアム
                     $duration = $reservation->duration ?? 1;
                     $totalPoints = $defaultCategoryPoints * $duration * 60 / 30;
                 }
@@ -670,5 +733,25 @@ class CastAuthController extends Controller
     {
         $guest = \App\Models\Guest::with('favorites')->findOrFail($guestId);
         return response()->json(['casts' => $guest->favorites]);
+    }
+
+    /**
+     * Format phone number for Twilio
+     * Remove leading 0 and add 81 for Japanese phone numbers
+     */
+    private function formatPhoneNumberForTwilio($phoneNumber)
+    {
+        // Remove any non-digit characters
+        $phoneNumber = preg_replace('/[^0-9]/', '', $phoneNumber);
+        
+        // Ensure it starts with 0 (Japanese format)
+        if (!str_starts_with($phoneNumber, '0')) {
+            throw new \InvalidArgumentException('Phone number must start with 0');
+        }
+        
+        // Remove leading 0 and add +81
+        $formattedNumber = '+81' . ltrim($phoneNumber, '0');
+        
+        return $formattedNumber;
     }
 } 

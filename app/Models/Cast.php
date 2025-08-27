@@ -78,13 +78,13 @@ class Cast extends Authenticatable
     {
         switch ($this->category) {
             case 'プレミアム':
-                return 9000;
-            case 'VIP':
                 return 12000;
-            case 'ロイヤルVIP':
+            case 'VIP':
                 return 15000;
+            case 'ロイヤルVIP':
+                return 18000;
             default:
-                return 9000; // Default to プレミアム
+                return 12000; // Default to プレミアム
         }
     }
 

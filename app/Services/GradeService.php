@@ -464,12 +464,12 @@ class GradeService
     {
         switch ($category) {
             case 'ロイヤルVIP':
-                return 15000;
+                return 18000;
             case 'VIP':
-                return 12000;
+                return 15000;
             case 'プレミアム':
             default:
-                return 9000;
+                return 12000;
         }
     }
 
