@@ -61,11 +61,18 @@ class TweetsController extends Controller
     public function store(Request $request)
     {
         $validated = $request->validate([
-            'content' => 'required|string|max:280',
+            'content' => 'nullable|string|max:280',
             'guest_id' => 'nullable|exists:guests,id',
             'cast_id' => 'nullable|exists:casts,id',
             'image' => 'nullable|image|mimes:jpeg,png,jpg,gif,webp|max:4096',
         ]);
+        
+        // Ensure at least one of content or image is provided
+        if (empty($validated['content']) && !$request->hasFile('image')) {
+            return redirect()->back()->withErrors([
+                'content' => 'Either content or image must be provided.'
+            ])->withInput();
+        }
 
         // Handle image upload
         if ($request->hasFile('image')) {
@@ -144,11 +151,18 @@ class TweetsController extends Controller
     public function update(Request $request, Tweet $tweet)
     {
         $validated = $request->validate([
-            'content' => 'required|string|max:280',
+            'content' => 'nullable|string|max:280',
             'guest_id' => 'nullable|exists:guests,id',
             'cast_id' => 'nullable|exists:casts,id',
             'image' => 'nullable|image|mimes:jpeg,png,jpg,gif,webp|max:4096',
         ]);
+        
+        // Ensure at least one of content or image is provided
+        if (empty($validated['content']) && !$request->hasFile('image') && !$tweet->image) {
+            return redirect()->back()->withErrors([
+                'content' => 'Either content or image must be provided.'
+            ])->withInput();
+        }
 
         // Handle image upload
         if ($request->hasFile('image')) {

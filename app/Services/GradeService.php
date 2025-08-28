@@ -1094,4 +1094,81 @@ class GradeService
             'repeater_count' => $repeaterCount,
         ];
     }
+
+    /**
+     * Calculate cast payout in yen based on fpt and grade
+     * @param Cast $cast - The cast member
+     * @param int $fpt - Fan points to convert
+     * @return array - Payout details including yen amount and rate info
+     */
+    public function calculateCastPayout(Cast $cast, int $fpt): array
+    {
+        $grade = $this->normalizeCastGrade($cast->grade ?? 'beginner');
+        $redemptionRate = self::CAST_FPT_REDEMPTION_RATES[$grade] ?? 0.80;
+        $rewardRate = self::CAST_REWARD_RATES[$grade] ?? 80.0;
+        
+        $yenAmount = $fpt * $redemptionRate;
+        
+        return [
+            'cast_id' => $cast->id,
+            'cast_grade' => $grade,
+            'cast_grade_name' => self::CAST_GRADE_NAMES[$grade],
+            'fpt_amount' => $fpt,
+            'redemption_rate' => $redemptionRate,
+            'reward_rate' => $rewardRate,
+            'yen_amount' => $yenAmount,
+            'formatted_yen' => '¥' . number_format($yenAmount, 2),
+        ];
+    }
+
+    /**
+     * Get all fpt redemption rates for display purposes
+     * @return array - All grade rates
+     */
+    public function getAllFptRedemptionRates(): array
+    {
+        $rates = [];
+        foreach (self::CAST_FPT_REDEMPTION_RATES as $grade => $rate) {
+            $rates[$grade] = [
+                'grade_name' => self::CAST_GRADE_NAMES[$grade],
+                'redemption_rate' => $rate,
+                'reward_rate' => self::CAST_REWARD_RATES[$grade],
+                'formatted_rate' => '¥' . number_format($rate, 3),
+                'formatted_reward' => self::CAST_REWARD_RATES[$grade] . '%',
+            ];
+        }
+        return $rates;
+    }
+
+    /**
+     * Calculate monthly earnings for a cast member
+     * @param Cast $cast - The cast member
+     * @param string $month - Month in 'YYYY-MM' format
+     * @return array - Monthly earnings breakdown
+     */
+    public function calculateMonthlyEarnings(Cast $cast, string $month = null): array
+    {
+        if (!$month) {
+            $month = now()->format('Y-m');
+        }
+        
+        $startDate = Carbon::createFromFormat('Y-m', $month)->startOfMonth();
+        $endDate = Carbon::createFromFormat('Y-m', $month)->endOfMonth();
+        
+        // Get monthly fpt from transactions
+        $monthlyFpt = PointTransaction::where('cast_id', $cast->id)
+            ->whereIn('type', ['transfer', 'gift'])
+            ->whereBetween('created_at', [$startDate, $endDate])
+            ->sum('amount');
+        
+        // Calculate payout
+        $payout = $this->calculateCastPayout($cast, $monthlyFpt);
+        
+        return [
+            'month' => $month,
+            'monthly_fpt' => $monthlyFpt,
+            'payout' => $payout,
+            'grade_info' => $this->getCastGradeInfo($cast),
+        ];
+    }
 } 

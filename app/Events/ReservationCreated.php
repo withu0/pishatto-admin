@@ -27,6 +27,9 @@ class ReservationCreated implements ShouldBroadcast
             $channels[] = new Channel('guest.' . $this->reservation->guest_id);
         }
 
+        // Notify all casts so dashboards can reflect new free calls immediately
+        $channels[] = new Channel('casts');
+
         return $channels;
     }
 
