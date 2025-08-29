@@ -123,7 +123,7 @@ class ReservationApplicationController extends Controller
                 'type' => 'order_matched',
                 'reservation_id' => $reservation->id,
                 'cast_id' => $application->cast_id,
-                'message' => '予約がキャストにマッチされました',
+                'message' => 'キャストと合流しました。合流後は自動延長となります。解散する際はキャストに解散とお伝えし、ボタン押下して終了となります。それでは、キャストとの時間をごゆっくりとお楽しみください。',
                 'read' => false,
             ]);
             // Broadcast to guest

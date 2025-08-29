@@ -47,10 +47,11 @@ export default function AdminTweets() {
     const [isDeleting, setIsDeleting] = useState<number | null>(null);
     const [activeTab, setActiveTab] = useState<'ゲスト' | 'キャスト'>('ゲスト');
     
-    const filteredTweets = (tweets.data || []).filter(tweet => {
-        console.log("TWEET", tweet);
-        const matchesSearch = tweet.user.includes(search) || tweet.content.includes(search);
-        const matchesTab = tweet.userType === activeTab;
+    const filteredTweets = (Array.isArray(tweets?.data) ? tweets.data : []).filter((tweet: any) => {
+        const userText = String(tweet?.user || '');
+        const contentText = String(tweet?.content || '');
+        const matchesSearch = (!search || userText.includes(search) || contentText.includes(search));
+        const matchesTab = tweet?.userType === activeTab;
         return matchesSearch && matchesTab;
     });
 

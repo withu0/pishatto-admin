@@ -14,6 +14,7 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Validator;
 use App\Models\Reservation;
 use App\Services\TwilioService;
+use App\Events\NotificationSent;
 
 class CastAuthController extends Controller
 {
@@ -693,6 +694,102 @@ class CastAuthController extends Controller
         $refundAmount = $refundTransaction ? $refundTransaction->amount : 0;
         $reservedAmount = $pendingTransaction ? $pendingTransaction->amount : 0;
         
+        // Create receipt for the session
+        $receipt = null;
+        try {
+            $receiptService = app(\App\Http\Controllers\PaymentController::class);
+            $receiptResponse = $receiptService->createReceipt(new \Illuminate\Http\Request([
+                'user_type' => 'guest',
+                'user_id' => $reservation->guest_id,
+                'recipient_name' => $reservation->guest->nickname ?? 'ゲスト',
+                'amount' => abs($reservation->points_earned ?? 0),
+                'purpose' => 'Pishatto利用料',
+                'transaction_created_at' => $reservation->ended_at,
+            ]));
+            
+            // Extract receipt from the response
+            if ($receiptResponse && $receiptResponse->getData() && $receiptResponse->getData()->success) {
+                $receipt = $receiptResponse->getData()->receipt;
+            }
+        } catch (\Exception $e) {
+            Log::error('Failed to create receipt for reservation ' . $reservation->id . ': ' . $e->getMessage());
+        }
+        
+        // Send notification to guest about session completion
+        if ($receipt) {
+            try {
+                $notificationService = app(\App\Services\NotificationService::class);
+                
+                // Generate proper shareable receipt URL matching ReceiptConfirmationPage format
+                $frontendUrl = env('FRONTEND_URL', 'http://localhost:3000');
+                if (!preg_match('#^https?://#i', $frontendUrl)) {
+                    $frontendUrl = 'http://' . ltrim($frontendUrl, '/');
+                }
+                $frontendUrl = rtrim($frontendUrl, '/');
+                
+                // Generate random suffix like in ReceiptConfirmationPage for security
+                $randomSuffix1 = substr(str_shuffle('abcdefghijklmnopqrstuvwxyz0123456789'), 0, 8);
+                $randomSuffix2 = substr(str_shuffle('abcdefghijklmnopqrstuvwxyz0123456789'), 0, 8);
+                $receiptUrl = $frontendUrl . '/receipt/' . $receipt->receipt_number . '-' . $randomSuffix1 . '_' . $randomSuffix2;
+                
+                $message = "🎉 解散が完了いたしました！\n\n📄 領収書は以下の通りとなります：\n🔗 {$receiptUrl}\n\n⚠️ 内容に相違ございましたら3日以内に運営にご連絡くださいませ。\n\n🙏 またのご利用を心よりお待ちしております。";
+                
+                $notification = $notificationService->sendMeetupDissolutionNotification(
+                    $reservation->guest_id,
+                    $message,
+                    $reservation->id
+                );
+                
+                // Broadcast the notification event for real-time delivery
+                if ($notification) {
+                    event(new \App\Events\NotificationSent($notification));
+                }
+
+                // Also notify involved casts with the required message format using existing notification service
+                // Determine cast IDs (supports single cast_id and multiple cast_ids array/json)
+                $castIds = [];
+                if (!empty($reservation->cast_id)) {
+                    $castIds[] = (int)$reservation->cast_id;
+                }
+                if (!empty($reservation->cast_ids)) {
+                    $ids = $reservation->cast_ids;
+                    if (is_string($ids)) {
+                        // Attempt to decode JSON string to array
+                        $decoded = json_decode($ids, true);
+                        if (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) {
+                            $ids = $decoded;
+                        }
+                    }
+                    if (is_array($ids)) {
+                        foreach ($ids as $cid) {
+                            $castIds[] = (int)$cid;
+                        }
+                    }
+                }
+                $castIds = array_values(array_unique(array_filter($castIds)));
+
+                if (!empty($castIds)) {
+                    $castMessage = "解散が完了いたしました。\n今回の売上は以下の通りとなります。\nURL：{$receiptUrl}\n内容に相違ございましたら3日以内に運営にご連絡くださいませ。\n今後ともどうぞよろしくお願いいたします。";
+                    foreach ($castIds as $castIdForNotice) {
+                        $castNotification = \App\Services\NotificationService::sendNotificationIfEnabled(
+                            (int)$castIdForNotice,
+                            'cast',
+                            'meetup_dissolution',
+                            'meetup_dissolution',
+                            $castMessage,
+                            $reservation->id,
+                            null
+                        );
+                        if ($castNotification) {
+                            event(new \App\Events\NotificationSent($castNotification));
+                        }
+                    }
+                }
+            } catch (\Exception $e) {
+                Log::error('Failed to send dissolution notification for reservation ' . $reservation->id . ': ' . $e->getMessage());
+            }
+        }
+        
         // Broadcast the reservation update event
         event(new \App\Events\ReservationUpdated($reservation));
         
@@ -701,7 +798,8 @@ class CastAuthController extends Controller
             'message' => 'Reservation completed and points transferred successfully',
             'points_transferred' => $reservation->points_earned,
             'points_reserved' => $reservedAmount,
-            'points_refunded' => $refundAmount
+            'points_refunded' => $refundAmount,
+            'receipt' => $receipt
         ]);
     }
 
