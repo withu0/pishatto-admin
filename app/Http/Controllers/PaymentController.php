@@ -133,9 +133,9 @@ class PaymentController extends Controller
                     : \App\Models\Cast::find($request->user_id);
 
                 if ($model) {
-                    // Convert yen to points using config rate
-                    $yenPerPoint = (int) config('points.yen_per_point', 12);
-                    $pointsToCredit = (int) floor(((int) $request->amount) / max(1, $yenPerPoint));
+                    // Convert yen to points using config rate (1 point = 1.2 yen)
+                    $yenPerPoint = (float) config('points.yen_per_point', 1.2);
+                    $pointsToCredit = (int) floor(((float) $request->amount) / max(0.0001, $yenPerPoint));
 
                     $currentPoints = $model->points ?? 0;
                     $newPoints = $currentPoints + $pointsToCredit;
@@ -221,8 +221,8 @@ class PaymentController extends Controller
                 ], 404);
             }
 
-            $yenPerPoint = (int) config('points.yen_per_point', 12);
-            $intendedPoints = (int) floor(((int) $request->amount) / max(1, $yenPerPoint));
+            $yenPerPoint = (float) config('points.yen_per_point', 1.2);
+            $intendedPoints = (int) floor(((float) $request->amount) / max(0.0001, $yenPerPoint));
 
             $paymentData = [
                 'user_id' => $request->user_id,
@@ -284,9 +284,9 @@ class PaymentController extends Controller
                 ], 400);
             }
 
-            // Convert yen to points using config rate (1 point = X yen)
-            $yenPerPoint = (int) config('points.yen_per_point', 12);
-            $pointsToCredit = (int) floor(((int) $request->amount) / max(1, $yenPerPoint));
+            // Convert yen to points using config rate (1 point = 1.2 yen)
+            $yenPerPoint = (float) config('points.yen_per_point', 1.2);
+            $pointsToCredit = (int) floor(((float) $request->amount) / max(0.0001, $yenPerPoint));
 
             // Add points to user after successful payment
             $currentPoints = $model->points ?? 0;

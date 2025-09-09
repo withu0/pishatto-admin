@@ -21,7 +21,7 @@ class PointCalculationTest extends TestCase
 
     public function test_yen_to_points_conversion_uses_config_rate()
     {
-        Config::set('points.yen_per_point', 12);
+        Config::set('points.yen_per_point', 1.2);
 
         $controller = app(PaymentController::class);
 
@@ -49,8 +49,8 @@ class PointCalculationTest extends TestCase
 
         $guest->refresh();
         $this->assertTrue($data['success']);
-        $this->assertEquals(100, $data['points_added']);
-        $this->assertEquals(100, $guest->points);
+        $this->assertEquals(1000, $data['points_added']);
+        $this->assertEquals(1000, $guest->points);
     }
 
     public function test_night_time_bonus_calculation()
