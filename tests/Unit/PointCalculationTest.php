@@ -4,6 +4,9 @@ namespace Tests\Unit;
 
 use Tests\TestCase;
 use App\Services\PointTransactionService;
+use Illuminate\Support\Facades\Config;
+use App\Http\Controllers\PaymentController;
+use Illuminate\Http\Request;
 use Carbon\Carbon;
 
 class PointCalculationTest extends TestCase
@@ -14,6 +17,40 @@ class PointCalculationTest extends TestCase
     {
         parent::setUp();
         $this->pointService = app(PointTransactionService::class);
+    }
+
+    public function test_yen_to_points_conversion_uses_config_rate()
+    {
+        Config::set('points.yen_per_point', 12);
+
+        $controller = app(PaymentController::class);
+
+        $guest = \App\Models\Guest::factory()->create(['points' => 0]);
+
+        $request = Request::create('/payments/purchase', 'POST', [
+            'user_id' => $guest->id,
+            'user_type' => 'guest',
+            'amount' => 1200,
+            'token' => 'tok_dummy',
+            'payment_method' => 'card',
+        ]);
+
+        // Mock PayJP service to bypass external call
+        $this->partialMock(\App\Services\PayJPService::class, function ($mock) {
+            $mock->shouldReceive('processPayment')->andReturn([
+                'success' => true,
+                'payment' => (object) ['id' => 1],
+                'charge' => ['id' => 'ch_dummy']
+            ]);
+        });
+
+        $response = $controller->purchase($request);
+        $data = $response->getData(true);
+
+        $guest->refresh();
+        $this->assertTrue($data['success']);
+        $this->assertEquals(100, $data['points_added']);
+        $this->assertEquals(100, $guest->points);
     }
 
     public function test_night_time_bonus_calculation()

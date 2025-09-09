@@ -133,8 +133,12 @@ class PaymentController extends Controller
                     : \App\Models\Cast::find($request->user_id);
 
                 if ($model) {
+                    // Convert yen to points using config rate
+                    $yenPerPoint = (int) config('points.yen_per_point', 12);
+                    $pointsToCredit = (int) floor(((int) $request->amount) / max(1, $yenPerPoint));
+
                     $currentPoints = $model->points ?? 0;
-                    $newPoints = $currentPoints + $request->amount;
+                    $newPoints = $currentPoints + $pointsToCredit;
                     $model->points = $newPoints;
                     $model->save();
                     // Grade updates are handled via quarterly evaluation & admin approval
@@ -142,8 +146,8 @@ class PaymentController extends Controller
                     // Create point transaction record for the direct charge
                     $pointTransactionData = [
                         'type' => 'buy',
-                        'amount' => $request->amount,
-                        'description' => "Direct charge point purchase - {$request->amount} points",
+                        'amount' => $pointsToCredit,
+                        'description' => "Direct charge point purchase - {$pointsToCredit} points",
                     ];
 
                     // Set the appropriate user ID based on user type
@@ -157,14 +161,15 @@ class PaymentController extends Controller
 
                     PointTransaction::create($pointTransactionData);
 
-                    $response['points_added'] = $request->amount;
+                    $response['points_added'] = $pointsToCredit;
                     $response['total_points'] = $newPoints;
                     $response['user'] = $model->fresh();
 
                     Log::info('Points added to user after direct charge', [
                         'user_id' => $request->user_id,
                         'user_type' => $request->user_type,
-                        'amount' => $request->amount,
+                        'amount_yen' => $request->amount,
+                        'credited_points' => $pointsToCredit,
                         'previous_points' => $currentPoints,
                         'new_points' => $newPoints,
                         'point_transaction_created' => true
@@ -216,16 +221,20 @@ class PaymentController extends Controller
                 ], 404);
             }
 
+            $yenPerPoint = (int) config('points.yen_per_point', 12);
+            $intendedPoints = (int) floor(((int) $request->amount) / max(1, $yenPerPoint));
+
             $paymentData = [
                 'user_id' => $request->user_id,
                 'user_type' => $request->user_type,
-                'amount' => $request->amount,
+                'amount' => $request->amount, // yen
                 'payment_method' => $request->payment_method ?? 'card',
-                'description' => $request->description ?? "{$request->amount}ポイント購入",
+                'description' => $request->description ?? "{$intendedPoints}ポイント購入",
                 'metadata' => [
                     'user_id' => $request->user_id,
                     'user_type' => $request->user_type,
-                    'points' => $request->amount,
+                    'yen_per_point' => $yenPerPoint,
+                    'intended_points' => $intendedPoints,
                     'customer_id' => $model->payjp_customer_id,
                     'payment_type' => $request->token ? 'token' : 'customer',
                 ],
@@ -257,6 +266,8 @@ class PaymentController extends Controller
                 ], 404);
             }
 
+            $paymentData['amount'] = (int) $request->amount; // amount is in yen for PAY.JP
+
             $result = $this->payJPService->processPayment($paymentData);
 
             if (!$result['success']) {
@@ -273,9 +284,13 @@ class PaymentController extends Controller
                 ], 400);
             }
 
+            // Convert yen to points using config rate (1 point = X yen)
+            $yenPerPoint = (int) config('points.yen_per_point', 12);
+            $pointsToCredit = (int) floor(((int) $request->amount) / max(1, $yenPerPoint));
+
             // Add points to user after successful payment
             $currentPoints = $model->points ?? 0;
-            $newPoints = $currentPoints + $request->amount;
+            $newPoints = $currentPoints + $pointsToCredit;
             $model->points = $newPoints;
             $model->save();
 
@@ -298,8 +313,8 @@ class PaymentController extends Controller
             // Create point transaction record for the purchase
             $pointTransactionData = [
                 'type' => 'buy',
-                'amount' => $request->amount,
-                'description' => "ポイント購入 - {$request->amount} points",
+                'amount' => $pointsToCredit,
+                'description' => "ポイント購入 - {$pointsToCredit} points",
             ];
 
             // Set the appropriate user ID based on user type
@@ -317,7 +332,8 @@ class PaymentController extends Controller
             Log::info('Payment processed successfully and points added', [
                 'user_id' => $request->user_id,
                 'user_type' => $request->user_type,
-                'amount' => $request->amount,
+                'amount_yen' => $request->amount,
+                'credited_points' => $pointsToCredit,
                 'payment_id' => $result['payment']->id ?? 'unknown',
                 'charge_id' => $result['charge']['id'] ?? 'unknown',
                 'customer_id' => $model->payjp_customer_id,
@@ -330,7 +346,7 @@ class PaymentController extends Controller
                 'success' => true,
                 'payment' => $result['payment'],
                 'charge' => $result['charge'],
-                'points_added' => $request->amount,
+                'points_added' => $pointsToCredit,
                 'total_points' => $newPoints,
                 'user' => $model->fresh(),
             ]);
