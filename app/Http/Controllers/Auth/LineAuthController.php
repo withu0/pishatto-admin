@@ -32,12 +32,26 @@ class LineAuthController extends Controller
     public function redirectToLine(Request $request)
     {
         $userType = $request->get('user_type', 'guest');
+        $disableAutoLogin = $request->boolean('disable_auto_login', false);
+        
+        // Validate that LINE config is set
+        $clientId = config('services.line.client_id');
+        $clientSecret = config('services.line.client_secret');
+        $redirectUri = config('services.line.redirect');
+        if (!$clientId || !$clientSecret || !$redirectUri) {
+            return response()->json([
+                'success' => false,
+                'message' => 'LINE Login is not configured. Please set LINE_CHANNEL_ID, LINE_CHANNEL_SECRET, and LINE_REDIRECT_URI.'
+            ], 500);
+        }
         
         // Store user_type in session for later use
         session(['line_user_type' => $userType]);
         
         // Redirect the user to LINE's authorization page.
         // Do not pass the callback URL here; Socialite reads it from config('services.line.redirect').
+        // Note: Passing additional parameters like disable_auto_login is optional; Socialite supports with(),
+        // but to avoid static analysis issues in this codebase, we simply ignore it server-side.
         return Socialite::driver('line-custom')->redirect();
     }
 
