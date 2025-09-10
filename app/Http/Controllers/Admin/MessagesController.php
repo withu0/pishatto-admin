@@ -19,7 +19,7 @@ class MessagesController extends Controller
     {
         $perPage = (int) $request->input('per_page', 10);
 
-        $messagesPaginator = Message::with(['guest', 'cast', 'chat.guest', 'chat.cast', 'gift'])
+        $messagesPaginator = Message::with(['guest', 'cast', 'chat.guest', 'chat.cast', 'gift:id,name,icon,points,description'])
             ->latest('created_at')
             ->paginate($perPage);
 
@@ -105,7 +105,7 @@ class MessagesController extends Controller
         // Get additional data for forms
         $guests = Guest::select('id', 'nickname', 'phone')->get();
         $casts = Cast::select('id', 'nickname', 'phone')->get();
-        $gifts = Gift::select('id', 'name', 'icon', 'points')->get();
+        $gifts = Gift::select('id', 'name', 'icon', 'points', 'description')->get();
 
         return Inertia::render('admin/messages', [
             'messages' => $messagesPaginator,
@@ -146,7 +146,7 @@ class MessagesController extends Controller
 
     public function show($id)
     {
-        $message = Message::with(['guest', 'cast', 'chat.guest', 'chat.cast', 'gift'])->findOrFail($id);
+        $message = Message::with(['guest', 'cast', 'chat.guest', 'chat.cast', 'gift:id,name,icon,points,description'])->findOrFail($id);
         
         return response()->json([
             'success' => true,
@@ -227,7 +227,7 @@ class MessagesController extends Controller
 
     public function getMessagesData()
     {
-        $messages = Message::with(['guest', 'cast', 'chat.guest', 'chat.cast', 'gift'])
+        $messages = Message::with(['guest', 'cast', 'chat.guest', 'chat.cast', 'gift:id,name,icon,points,description'])
             ->latest('created_at')
             ->get()
             ->map(function ($message) {

@@ -71,6 +71,7 @@ class GiftController extends Controller
             'category' => 'required|in:standard,regional,grade,mygift',
             'points' => 'required|integer|min:0',
             'icon' => 'nullable|string|max:255',
+            'description' => 'nullable|string|max:1000',
         ]);
 
         Gift::create($validated);
@@ -121,6 +122,7 @@ class GiftController extends Controller
             'category' => 'required|in:standard,regional,grade,mygift',
             'points' => 'required|integer|min:0',
             'icon' => 'nullable|string|max:255',
+            'description' => 'nullable|string|max:1000',
         ]);
 
         $gift->update($validated);

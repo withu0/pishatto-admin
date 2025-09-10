@@ -14,6 +14,7 @@ interface Gift {
     category: string;
     points: number;
     icon: string | null;
+    description: string | null;
     created_at: string;
 }
 

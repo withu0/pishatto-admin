@@ -18,6 +18,7 @@ interface Gift {
     name: string;
     icon?: string;
     points: number;
+    description?: string;
 }
 
 interface Guest {

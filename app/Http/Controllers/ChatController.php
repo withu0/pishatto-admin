@@ -282,7 +282,7 @@ class ChatController extends Controller
         $page = $request->query('page', 1);
         
         // Use more efficient query with pagination and recipient type filtering
-        $messagesQuery = Message::with(['guest:id,nickname,avatar', 'cast:id,nickname,avatar', 'gift:id,name,icon,points'])
+        $messagesQuery = Message::with(['guest:id,nickname,avatar', 'cast:id,nickname,avatar', 'gift:id,name,icon,points,description'])
             ->where('chat_id', $chatId);
         
         // Filter messages based on recipient type
@@ -335,7 +335,7 @@ class ChatController extends Controller
     // Fetch all available gifts
     public function gifts()
     {
-        $gifts = Gift::all();
+        $gifts = Gift::select('id', 'name', 'icon', 'points', 'description')->get();
         return response()->json(['gifts' => $gifts]);
     }
 
@@ -354,7 +354,8 @@ class ChatController extends Controller
                 'guest_gifts.created_at as date',
                 'gifts.name as gift_name',
                 'gifts.points',
-                'gifts.icon as gift_icon'
+                'gifts.icon as gift_icon',
+                'gifts.description as gift_description'
             )
             ->get();
         return response()->json(['gifts' => $gifts]);
@@ -712,7 +713,7 @@ class ChatController extends Controller
         
         // Get all messages from all chats in this group with recipient type filtering
         $messagesQuery = \App\Models\Message::whereIn('chat_id', $chats)
-            ->with(['guest', 'cast', 'gift']);
+            ->with(['guest', 'cast', 'gift:id,name,icon,points,description']);
         
         // Filter messages based on recipient type
         if ($userType) {
