@@ -91,6 +91,11 @@ class LineAuthController extends Controller
             $guest = Guest::where('line_id', $lineId)->first();
             $cast = Cast::where('line_id', $lineId)->first();
 
+            Log::info('LineAuthController: Guest and Cast', [
+                'guest' => $guest,
+                'cast' => $cast
+            ]);
+            
             // Prefer user type based on the session intent
             if ($userType === 'cast') {
                 if ($cast) {
@@ -229,13 +234,6 @@ class LineAuthController extends Controller
                 }
             }
             
-            Log::info('LineAuthController: Line authentication failed', [
-                'error' => $e->getMessage(),
-                'line_id' => $lineId,
-                'line_email' => $lineEmail,
-                'line_name' => $lineName,
-                'line_avatar' => $lineAvatar
-            ]);
 
             return response()->json([
                 'success' => false,
