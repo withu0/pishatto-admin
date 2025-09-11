@@ -108,7 +108,12 @@ class LineAuthController extends Controller
                     ]);
                 }
 
-                // Cast not found for this LINE ID
+                // Cast not found for this LINE ID - redirect to cast login with error
+                $frontendUrl = $this->getFrontendUrl();
+                if (!($request->expectsJson() || $request->wantsJson())) {
+                    return redirect()->away($frontendUrl . '/cast/login?error=' . urlencode('このLINEアカウントに紐づくキャストアカウントが見つかりません。電話番号でログインしてください。'));
+                }
+
                 return response()->json([
                     'success' => false,
                     'message' => 'Cast account not found for this LINE ID. Please log in using phone.'
@@ -174,6 +179,17 @@ class LineAuthController extends Controller
                 'line_user_name',
                 'line_user_avatar'
             ]);
+            
+            // Get user type from session before clearing it
+            $userType = session('line_user_type', 'guest');
+            
+            // For cast users, redirect to cast login with error message
+            if ($userType === 'cast') {
+                $frontendUrl = $this->getFrontendUrl();
+                if (!($request->expectsJson() || $request->wantsJson())) {
+                    return redirect()->away($frontendUrl . '/cast/login?error=' . urlencode('LINE認証に失敗しました。電話番号でログインしてください。'));
+                }
+            }
             
             return response()->json([
                 'success' => false,
