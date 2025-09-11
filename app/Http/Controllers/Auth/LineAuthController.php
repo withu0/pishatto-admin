@@ -86,6 +86,14 @@ class LineAuthController extends Controller
                 'line_user_name' => $lineName,
                 'line_user_avatar' => $lineAvatar
             ]);
+
+            Log::info('LineAuthController: Session data', [
+                'line_user_id' => $lineId,
+                'line_user_type' => $userType,
+                'line_user_email' => $lineEmail,
+                'line_user_name' => $lineName,
+                'line_user_avatar' => $lineAvatar
+            ]);
             
             // Check if user exists by line_id
             $guest = Guest::where('line_id', $lineId)->first();
