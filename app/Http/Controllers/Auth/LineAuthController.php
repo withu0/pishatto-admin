@@ -8,6 +8,7 @@ use App\Models\Cast;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Log;
 use Laravel\Socialite\Facades\Socialite;
 use Illuminate\Support\Str;
 
@@ -70,6 +71,13 @@ class LineAuthController extends Controller
             $lineName = $lineUser->getName();
             $lineAvatar = $lineUser->getAvatar();
             
+            Log::info('LineAuthController: Line user information', [
+                'line_id' => $lineId,
+                'line_email' => $lineEmail,
+                'line_name' => $lineName,
+                'line_avatar' => $lineAvatar
+            ]);
+
             // Store Line authentication data in session for persistent auth
             session([
                 'line_user_id' => $lineId,
@@ -94,6 +102,14 @@ class LineAuthController extends Controller
                         return redirect()->away($frontendUrl . '/cast/dashboard');
                     }
 
+                    Log::info('LineAuthController: Cast logged in successfully', [
+                        'cast' => $cast,
+                        'line_id' => $lineId,
+                        'line_email' => $lineEmail,
+                        'line_name' => $lineName,
+                        'line_avatar' => $lineAvatar
+                    ]);
+
                     return response()->json([
                         'success' => true,
                         'user_type' => 'cast',
@@ -114,6 +130,13 @@ class LineAuthController extends Controller
                     return redirect()->away($frontendUrl . '/cast/login?error=' . urlencode('このLINEアカウントに紐づくキャストアカウントが見つかりません。電話番号でログインしてください。'));
                 }
 
+                Log::info('LineAuthController: Cast account not found for this LINE ID. Please log in using phone.', [
+                    'line_id' => $lineId,
+                    'line_email' => $lineEmail,
+                    'line_name' => $lineName,
+                    'line_avatar' => $lineAvatar
+                ]);
+
                 return response()->json([
                     'success' => false,
                     'message' => 'Cast account not found for this LINE ID. Please log in using phone.'
@@ -128,6 +151,14 @@ class LineAuthController extends Controller
                     if (!($request->expectsJson() || $request->wantsJson())) {
                         return redirect()->away($frontendUrl . '/dashboard');
                     }
+
+                    Log::info('LineAuthController: Guest logged in successfully', [
+                        'guest' => $guest,
+                        'line_id' => $lineId,
+                        'line_email' => $lineEmail,
+                        'line_name' => $lineName,
+                        'line_avatar' => $lineAvatar
+                    ]);
 
                     return response()->json([
                         'success' => true,
@@ -156,6 +187,13 @@ class LineAuthController extends Controller
                     ]);
                     return redirect()->away($frontendUrl . '/line-register?' . $query);
                 }
+
+                Log::info('LineAuthController: New guest with LINE. Continue registration.', [
+                    'line_id' => $lineId,
+                    'line_email' => $lineEmail,
+                    'line_name' => $lineName,
+                    'line_avatar' => $lineAvatar
+                ]);
 
                 return response()->json([
                     'success' => true,
@@ -191,6 +229,14 @@ class LineAuthController extends Controller
                 }
             }
             
+            Log::info('LineAuthController: Line authentication failed', [
+                'error' => $e->getMessage(),
+                'line_id' => $lineId,
+                'line_email' => $lineEmail,
+                'line_name' => $lineName,
+                'line_avatar' => $lineAvatar
+            ]);
+
             return response()->json([
                 'success' => false,
                 'message' => 'Line authentication failed: ' . $e->getMessage()
