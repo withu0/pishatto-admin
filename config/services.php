@@ -61,4 +61,10 @@ return [
         'verify_service_sid' => env('TWILIO_VERIFY_SERVICE_SID'),
     ],
 
+    'infobip' => [
+        'api_key' => env('INFOBIP_API_KEY'),
+        'base_url' => env('INFOBIP_BASE_URL', 'https://rpd4dm.ibapi.nttcpaas.com'),
+        'from_number' => env('INFOBIP_FROM_NUMBER', 'ServiceSMS'),
+    ],
+
 ];

@@ -18,8 +18,7 @@
         "laravel/tinker": "^2.10.1",
         "payjp/payjp-php": "^1.8",
         "socialiteproviders/line": "^4.1",
-        "tightenco/ziggy": "^2.4",
-        "twilio/sdk": "^8.7"
+        "tightenco/ziggy": "^2.4"
     },
     "require-dev": {
         "fakerphp/faker": "^1.23",

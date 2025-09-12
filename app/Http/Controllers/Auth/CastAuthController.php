@@ -13,16 +13,16 @@ use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Validator;
 use App\Models\Reservation;
-use App\Services\TwilioService;
+use App\Services\InfobipService;
 use App\Events\NotificationSent;
 
 class CastAuthController extends Controller
 {
-    protected $twilioService;
+    protected $infobipService;
 
-    public function __construct(TwilioService $twilioService)
+    public function __construct(InfobipService $infobipService)
     {
-        $this->twilioService = $twilioService;
+        $this->infobipService = $infobipService;
     }
 
     public function login(Request $request)
@@ -39,13 +39,13 @@ class CastAuthController extends Controller
 
         // Verify via cached verified state first. If not verified yet, attempt direct code verification when provided.
         $phoneNumber = $request->phone;
-        $phoneNumber = $this->formatPhoneNumberForTwilio($phoneNumber);
+        $phoneNumber = $this->formatPhoneNumberForInfobip($phoneNumber);
         
-        $isVerified = $this->twilioService->isPhoneVerified($phoneNumber);
+        $isVerified = $this->infobipService->isPhoneVerified($phoneNumber);
         $errorMessage = 'Phone number not verified. Please verify your number again.';
         
         if (!$isVerified && $request->filled('verification_code')) {
-            $verificationResult = $this->twilioService->verifyCode($phoneNumber, $request->verification_code);
+            $verificationResult = $this->infobipService->verifyCode($phoneNumber, $request->verification_code);
             $isVerified = $verificationResult['success'];
             if (!$isVerified) {
                 $errorMessage = $verificationResult['message'] ?? $errorMessage;
@@ -834,10 +834,10 @@ class CastAuthController extends Controller
     }
 
     /**
-     * Format phone number for Twilio
+     * Format phone number for Infobip
      * Remove leading 0 and add 81 for Japanese phone numbers
      */
-    private function formatPhoneNumberForTwilio($phoneNumber)
+    private function formatPhoneNumberForInfobip($phoneNumber)
     {
         // Remove any non-digit characters
         $phoneNumber = preg_replace('/[^0-9]/', '', $phoneNumber);

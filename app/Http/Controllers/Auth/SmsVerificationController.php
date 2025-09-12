@@ -3,17 +3,17 @@
 namespace App\Http\Controllers\Auth;
 
 use App\Http\Controllers\Controller;
-use App\Services\TwilioService;
+use App\Services\InfobipService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 
 class SmsVerificationController extends Controller
 {
-    protected $twilioService;
+    protected $infobipService;
 
-    public function __construct(TwilioService $twilioService)
+    public function __construct(InfobipService $infobipService)
     {
-        $this->twilioService = $twilioService;
+        $this->infobipService = $infobipService;
     }
 
     /**
@@ -35,10 +35,10 @@ class SmsVerificationController extends Controller
 
         $phoneNumber = $request->phone;
         
-        // Format phone number for Twilio - remove leading 0 and add 81
-        $phoneNumber = $this->formatPhoneNumberForTwilio($phoneNumber);
+        // Format phone number for Infobip - remove leading 0 and add 81
+        $phoneNumber = $this->formatPhoneNumberForInfobip($phoneNumber);
 
-        $result = $this->twilioService->sendVerificationCode($phoneNumber);
+        $result = $this->infobipService->sendVerificationCode($phoneNumber);
         if ($result['success']) {
             $response = [
                 'success' => true,
@@ -79,14 +79,14 @@ class SmsVerificationController extends Controller
 
         $phoneNumber = $request->phone;
         
-        // Format phone number for Twilio - remove leading 0 and add 81
-        $phoneNumber = $this->formatPhoneNumberForTwilio($phoneNumber);
+        // Format phone number for Infobip - remove leading 0 and add 81
+        $phoneNumber = $this->formatPhoneNumberForInfobip($phoneNumber);
 
-        $result = $this->twilioService->verifyCode($phoneNumber, $request->code);
+        $result = $this->infobipService->verifyCode($phoneNumber, $request->code);
 
         if ($result['success']) {
             // Mark phone as verified
-            $this->twilioService->markPhoneAsVerified($phoneNumber);
+            $this->infobipService->markPhoneAsVerified($phoneNumber);
             
             return response()->json([
                 'success' => true,
@@ -119,10 +119,10 @@ class SmsVerificationController extends Controller
 
         $phoneNumber = $request->phone;
         
-        // Format phone number for Twilio - remove leading 0 and add 81
-        $phoneNumber = $this->formatPhoneNumberForTwilio($phoneNumber);
+        // Format phone number for Infobip - remove leading 0 and add 81
+        $phoneNumber = $this->formatPhoneNumberForInfobip($phoneNumber);
 
-        $isVerified = $this->twilioService->isPhoneVerified($phoneNumber);
+        $isVerified = $this->infobipService->isPhoneVerified($phoneNumber);
 
         return response()->json([
             'success' => true,
@@ -131,10 +131,10 @@ class SmsVerificationController extends Controller
     }
 
     /**
-     * Format phone number for Twilio
+     * Format phone number for Infobip
      * Remove leading 0 and add 81 for Japanese phone numbers
      */
-    private function formatPhoneNumberForTwilio($phoneNumber)
+    private function formatPhoneNumberForInfobip($phoneNumber)
     {
         // Remove any non-digit characters
         $phoneNumber = preg_replace('/[^0-9]/', '', $phoneNumber);
@@ -161,7 +161,7 @@ class SmsVerificationController extends Controller
         
         foreach ($testNumbers as $number) {
             try {
-                $formatted = $this->formatPhoneNumberForTwilio($number);
+                $formatted = $this->formatPhoneNumberForInfobip($number);
                 $results[$number] = $formatted;
             } catch (\Exception $e) {
                 $results[$number] = 'Error: ' . $e->getMessage();

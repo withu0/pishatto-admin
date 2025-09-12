@@ -22,19 +22,19 @@ use App\Models\Reservation;
 use App\Models\Notification;
 use App\Models\Badge;
 use App\Services\PointTransactionService;
-use App\Services\TwilioService;
+use App\Services\InfobipService;
 use App\Services\GradeService;
 
 class GuestAuthController extends Controller
 {
     protected $pointTransactionService;
-    protected $twilioService;
+    protected $infobipService;
     protected $gradeService;
 
-    public function __construct(PointTransactionService $pointTransactionService, TwilioService $twilioService, GradeService $gradeService)
+    public function __construct(PointTransactionService $pointTransactionService, InfobipService $infobipService, GradeService $gradeService)
     {
     $this->pointTransactionService = $pointTransactionService;
-        $this->twilioService = $twilioService;
+        $this->infobipService = $infobipService;
         $this->gradeService = $gradeService;
     }
 
@@ -62,9 +62,9 @@ class GuestAuthController extends Controller
 
         // Check if verification code has been verified
         $phoneNumber = $request->phone;
-        $phoneNumber = $this->formatPhoneNumberForTwilio($phoneNumber);
+        $phoneNumber = $this->formatPhoneNumberForInfobip($phoneNumber);
         
-        $isVerified = $this->twilioService->isCodeVerified($phoneNumber, $request->verification_code);
+        $isVerified = $this->infobipService->isCodeVerified($phoneNumber, $request->verification_code);
         
         if (!$isVerified) {
             return response()->json(['message' => 'Verification code not found or already used'], 422);
@@ -127,13 +127,13 @@ class GuestAuthController extends Controller
 
 		// Verify via cached verified state first. If not verified yet, attempt direct code verification when provided.
 		$phoneNumber = $request->phone;
-		$phoneNumber = $this->formatPhoneNumberForTwilio($phoneNumber);
+		$phoneNumber = $this->formatPhoneNumberForInfobip($phoneNumber);
 		
-		$isVerified = $this->twilioService->isPhoneVerified($phoneNumber);
+		$isVerified = $this->infobipService->isPhoneVerified($phoneNumber);
 		$errorMessage = 'Phone number not verified. Please verify your number again.';
 		
 		if (!$isVerified && $request->filled('verification_code')) {
-			$verificationResult = $this->twilioService->verifyCode($phoneNumber, $request->verification_code);
+			$verificationResult = $this->infobipService->verifyCode($phoneNumber, $request->verification_code);
 			$isVerified = $verificationResult['success'];
 			if (!$isVerified) {
 				$errorMessage = $verificationResult['message'] ?? $errorMessage;
@@ -1817,10 +1817,10 @@ class GuestAuthController extends Controller
 
 
     /**
-     * Format phone number for Twilio
+     * Format phone number for Infobip
      * Remove leading 0 and add 81 for Japanese phone numbers
      */
-    private function formatPhoneNumberForTwilio($phoneNumber)
+    private function formatPhoneNumberForInfobip($phoneNumber)
     {
         // Remove any non-digit characters
         $phoneNumber = preg_replace('/[^0-9]/', '', $phoneNumber);
