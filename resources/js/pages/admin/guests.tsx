@@ -106,7 +106,7 @@ export default function AdminGuests({ guests, filters }: Props) {
 
         setIsApproving(guestId);
         try {
-            await router.post(`/api/admin/identity-verification/${guestId}/approve`, {}, {
+            await router.post(`/admin/identity-verifications/${guestId}/approve`, {}, {
                 onSuccess: () => {
                     toast.success('身分証明書が承認されました');
                 },
@@ -131,7 +131,7 @@ export default function AdminGuests({ guests, filters }: Props) {
 
         setIsRejecting(guestId);
         try {
-            await router.post(`/api/admin/identity-verification/${guestId}/reject`, {}, {
+            await router.post(`/admin/identity-verifications/${guestId}/reject`, {}, {
                 onSuccess: () => {
                     toast.success('身分証明書が却下されました');
                 },
