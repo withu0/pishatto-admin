@@ -118,6 +118,12 @@ class LineAuthController extends Controller
                     'line_user_avatar' => $lineAvatar
                 ]);
 
+                // Check if this is for cast registration first (priority over existing accounts)
+                $isCastRegistration = session('cast_registration', false);
+                if ($isCastRegistration) {
+                    return $this->handleCastRegistration($request, $lineId, $lineEmail, $lineName, $lineAvatar);
+                }
+
                 // Only query the relevant table based on user type to optimize performance
                 if ($userType === 'cast') {
                     return $this->handleCastAuthentication($request, $lineId, $lineEmail, $lineName, $lineAvatar);
@@ -145,6 +151,38 @@ class LineAuthController extends Controller
             // Handle errors consistently for both user types
             return $this->handleAuthenticationError($request, $userType, $e->getMessage());
         }
+    }
+
+    /**
+     * Handle cast registration (LINE auth for cast application)
+     */
+    private function handleCastRegistration(Request $request, string $lineId, ?string $lineEmail, ?string $lineName, ?string $lineAvatar)
+    {
+        Log::info('LineAuthController: Handling cast registration with LINE', [
+            'line_id' => substr($lineId, 0, 8) . '...',
+            'has_email' => !empty($lineEmail),
+            'has_name' => !empty($lineName),
+            'has_avatar' => !empty($lineAvatar)
+        ]);
+
+        $responseData = [
+            'success' => true,
+            'user_type' => 'cast_registration',
+            'line_data' => [
+                'line_id' => $lineId,
+                'line_email' => $lineEmail,
+                'line_name' => $lineName,
+                'line_avatar' => $lineAvatar
+            ],
+            'message' => 'LINE authentication successful for cast registration'
+        ];
+
+        if (!($request->expectsJson() || $request->wantsJson())) {
+            $frontendUrl = $this->getFrontendUrl();
+            return redirect()->away($frontendUrl . '/cast/register');
+        }
+
+        return response()->json($responseData);
     }
 
     /**
@@ -239,34 +277,6 @@ class LineAuthController extends Controller
             return response()->json($responseData);
         }
 
-        // Check if this is for cast registration
-        $isCastRegistration = session('cast_registration', false);
-        
-        if ($isCastRegistration) {
-            // For cast registration, return LINE data without requiring existing account
-            Log::info('LineAuthController: LINE auth for cast registration', [
-                'line_id' => substr($lineId, 0, 8) . '...'
-            ]);
-
-            $responseData = [
-                'success' => true,
-                'user_type' => 'cast_registration',
-                'line_data' => [
-                    'line_id' => $lineId,
-                    'line_email' => $lineEmail,
-                    'line_name' => $lineName,
-                    'line_avatar' => $lineAvatar
-                ],
-                'message' => 'LINE authentication successful for cast registration'
-            ];
-
-            if (!($request->expectsJson() || $request->wantsJson())) {
-                $frontendUrl = $this->getFrontendUrl();
-                return redirect()->away($frontendUrl . '/cast/register');
-            }
-
-            return response()->json($responseData);
-        }
 
         // No existing guest linked to this LINE account, redirect to registration
         Log::info('LineAuthController: New guest with LINE, redirecting to registration', [
