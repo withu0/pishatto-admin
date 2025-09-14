@@ -248,7 +248,35 @@ class LineAuthController extends Controller
         $guest = Guest::where('line_id', $lineId)->first();
 
         if ($guest) {
-            // Guest exists, log them in
+            // Check if this is for cast registration (even if LINE account is linked to guest)
+            $isCastRegistration = session('cast_registration', false);
+            if ($isCastRegistration) {
+                Log::info('LineAuthController: LINE account linked to guest but used for cast registration', [
+                    'guest_id' => $guest->id,
+                    'line_id' => substr($lineId, 0, 8) . '...'
+                ]);
+
+                $responseData = [
+                    'success' => true,
+                    'user_type' => 'cast_registration',
+                    'line_data' => [
+                        'line_id' => $lineId,
+                        'line_email' => $lineEmail,
+                        'line_name' => $lineName,
+                        'line_avatar' => $lineAvatar
+                    ],
+                    'message' => 'LINE authentication successful for cast registration (account linked to guest)'
+                ];
+
+                if (!($request->expectsJson() || $request->wantsJson())) {
+                    $frontendUrl = $this->getFrontendUrl();
+                    return redirect()->away($frontendUrl . '/cast/register');
+                }
+
+                return response()->json($responseData);
+            }
+
+            // Regular guest login
             Auth::guard('guest')->login($guest);
 
             Log::info('LineAuthController: Guest logged in successfully', [
@@ -278,7 +306,35 @@ class LineAuthController extends Controller
         }
 
 
-        // No existing guest linked to this LINE account, redirect to registration
+        // No existing guest linked to this LINE account
+        $isCastRegistration = session('cast_registration', false);
+        if ($isCastRegistration) {
+            // New LINE user for cast registration
+            Log::info('LineAuthController: New LINE user for cast registration', [
+                'line_id' => substr($lineId, 0, 8) . '...'
+            ]);
+
+            $responseData = [
+                'success' => true,
+                'user_type' => 'cast_registration',
+                'line_data' => [
+                    'line_id' => $lineId,
+                    'line_email' => $lineEmail,
+                    'line_name' => $lineName,
+                    'line_avatar' => $lineAvatar
+                ],
+                'message' => 'LINE authentication successful for cast registration (new user)'
+            ];
+
+            if (!($request->expectsJson() || $request->wantsJson())) {
+                $frontendUrl = $this->getFrontendUrl();
+                return redirect()->away($frontendUrl . '/cast/register');
+            }
+
+            return response()->json($responseData);
+        }
+
+        // Regular new guest registration
         Log::info('LineAuthController: New guest with LINE, redirecting to registration', [
             'line_id' => substr($lineId, 0, 8) . '...'
         ]);
