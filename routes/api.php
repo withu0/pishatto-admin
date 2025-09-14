@@ -277,6 +277,12 @@ Route::get('/cast-applications/{id}', [CastApplicationController::class, 'show']
 Route::post('/cast-applications/{id}/approve', [CastApplicationController::class, 'approve']);
 Route::post('/cast-applications/{id}/reject', [CastApplicationController::class, 'reject']);
 
+// Two-stage screening routes
+Route::post('/cast-applications/{id}/approve-preliminary', [CastApplicationController::class, 'approvePreliminary']);
+Route::post('/cast-applications/{id}/reject-preliminary', [CastApplicationController::class, 'rejectPreliminary']);
+Route::post('/cast-applications/{id}/approve-final', [CastApplicationController::class, 'approveFinal']);
+Route::post('/cast-applications/{id}/reject-final', [CastApplicationController::class, 'rejectFinal']);
+
 // Public API routes for locations
 Route::get('/locations/active', [LocationController::class, 'getActiveLocations']);
 Route::get('/locations/prefectures', [LocationController::class, 'getPrefecturesByLocation']);

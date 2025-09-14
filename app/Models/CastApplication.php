@@ -10,26 +10,47 @@ class CastApplication extends Model
     use HasFactory;
 
     protected $fillable = [
-        'line_url',
+        'line_id',
+        'phone_number',
         'front_image',
         'profile_image',
         'full_body_image',
         'status',
-        'admin_notes',
-        'reviewed_at',
-        'reviewed_by',
+        'preliminary_notes',
+        'preliminary_reviewed_at',
+        'preliminary_reviewed_by',
+        'final_notes',
+        'final_reviewed_at',
+        'final_reviewed_by',
     ];
 
     protected $casts = [
-        'reviewed_at' => 'datetime',
+        'preliminary_reviewed_at' => 'datetime',
+        'final_reviewed_at' => 'datetime',
     ];
 
     /**
-     * Get the admin who reviewed this application
+     * Get the admin who reviewed this application at preliminary stage
+     */
+    public function preliminaryReviewer()
+    {
+        return $this->belongsTo(User::class, 'preliminary_reviewed_by');
+    }
+
+    /**
+     * Get the admin who reviewed this application at final stage
+     */
+    public function finalReviewer()
+    {
+        return $this->belongsTo(User::class, 'final_reviewed_by');
+    }
+
+    /**
+     * Get the admin who reviewed this application (for backward compatibility)
      */
     public function reviewer()
     {
-        return $this->belongsTo(User::class, 'reviewed_by');
+        return $this->finalReviewer();
     }
 
     /**
@@ -77,6 +98,46 @@ class CastApplication extends Model
      */
     public function scopeRejected($query)
     {
-        return $query->where('status', 'rejected');
+        return $query->whereIn('status', ['preliminary_rejected', 'final_rejected']);
+    }
+
+    /**
+     * Scope for preliminary passed applications
+     */
+    public function scopePreliminaryPassed($query)
+    {
+        return $query->where('status', 'preliminary_passed');
+    }
+
+    /**
+     * Scope for preliminary rejected applications
+     */
+    public function scopePreliminaryRejected($query)
+    {
+        return $query->where('status', 'preliminary_rejected');
+    }
+
+    /**
+     * Scope for final passed applications
+     */
+    public function scopeFinalPassed($query)
+    {
+        return $query->where('status', 'final_passed');
+    }
+
+    /**
+     * Scope for final rejected applications
+     */
+    public function scopeFinalRejected($query)
+    {
+        return $query->where('status', 'final_rejected');
+    }
+
+    /**
+     * Scope for applications that need final screening
+     */
+    public function scopeNeedsFinalScreening($query)
+    {
+        return $query->where('status', 'preliminary_passed');
     }
 }

@@ -18,7 +18,8 @@ class CastApplicationController extends Controller
     public function submit(Request $request)
     {
         $validator = Validator::make($request->all(), [
-            'line_url' => 'required|string|max:500',
+            'phone_number' => 'required|string|max:20',
+            'line_id' => 'required|string|max:100',
             'front_image' => 'required|image|mimes:jpeg,png,jpg|max:5120', // 5MB max
             'profile_image' => 'required|image|mimes:jpeg,png,jpg|max:5120',
             'full_body_image' => 'required|image|mimes:jpeg,png,jpg|max:5120',
@@ -39,7 +40,8 @@ class CastApplicationController extends Controller
 
             // Create application
             $application = CastApplication::create([
-                'line_url' => $request->line_url,
+                'phone_number' => $request->phone_number,
+                'line_id' => $request->line_id,
                 'front_image' => $frontImagePath,
                 'profile_image' => $profileImagePath,
                 'full_body_image' => $fullBodyImagePath,
@@ -76,9 +78,9 @@ class CastApplicationController extends Controller
             $query->where('status', $request->status);
         }
 
-        // Search by LINE URL
+        // Search by LINE ID
         if ($request->has('search')) {
-            $query->where('line_url', 'like', '%' . $request->search . '%');
+            $query->where('line_id', 'like', '%' . $request->search . '%');
         }
 
         $applications = $query->orderBy('created_at', 'desc')->paginate(20);
@@ -170,6 +172,154 @@ class CastApplicationController extends Controller
 
         return response()->json([
             'message' => 'Application rejected successfully',
+            'application' => $application
+        ]);
+    }
+
+    /**
+     * Approve preliminary screening
+     */
+    public function approvePreliminary(Request $request, $id)
+    {
+        $validator = Validator::make($request->all(), [
+            'preliminary_notes' => 'nullable|string|max:1000',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'message' => 'Validation failed',
+                'errors' => $validator->errors()
+            ], 422);
+        }
+
+        $application = CastApplication::findOrFail($id);
+
+        if ($application->status !== 'pending') {
+            return response()->json([
+                'message' => 'Application has already been processed'
+            ], 400);
+        }
+
+        $application->update([
+            'status' => 'preliminary_passed',
+            'preliminary_notes' => $request->preliminary_notes,
+            'preliminary_reviewed_at' => now(),
+            'preliminary_reviewed_by' => Auth::id() ?? 1,
+        ]);
+
+        return response()->json([
+            'message' => 'Preliminary screening approved successfully',
+            'application' => $application
+        ]);
+    }
+
+    /**
+     * Reject preliminary screening
+     */
+    public function rejectPreliminary(Request $request, $id)
+    {
+        $validator = Validator::make($request->all(), [
+            'preliminary_notes' => 'required|string|max:1000',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'message' => 'Validation failed',
+                'errors' => $validator->errors()
+            ], 422);
+        }
+
+        $application = CastApplication::findOrFail($id);
+
+        if ($application->status !== 'pending') {
+            return response()->json([
+                'message' => 'Application has already been processed'
+            ], 400);
+        }
+
+        $application->update([
+            'status' => 'preliminary_rejected',
+            'preliminary_notes' => $request->preliminary_notes,
+            'preliminary_reviewed_at' => now(),
+            'preliminary_reviewed_by' => Auth::id() ?? 1,
+        ]);
+
+        return response()->json([
+            'message' => 'Preliminary screening rejected successfully',
+            'application' => $application
+        ]);
+    }
+
+    /**
+     * Approve final screening
+     */
+    public function approveFinal(Request $request, $id)
+    {
+        $validator = Validator::make($request->all(), [
+            'final_notes' => 'nullable|string|max:1000',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'message' => 'Validation failed',
+                'errors' => $validator->errors()
+            ], 422);
+        }
+
+        $application = CastApplication::findOrFail($id);
+
+        if ($application->status !== 'preliminary_passed') {
+            return response()->json([
+                'message' => 'Application must pass preliminary screening first'
+            ], 400);
+        }
+
+        $application->update([
+            'status' => 'final_passed',
+            'final_notes' => $request->final_notes,
+            'final_reviewed_at' => now(),
+            'final_reviewed_by' => Auth::id() ?? 1,
+        ]);
+
+        return response()->json([
+            'message' => 'Final screening approved successfully',
+            'application' => $application
+        ]);
+    }
+
+    /**
+     * Reject final screening
+     */
+    public function rejectFinal(Request $request, $id)
+    {
+        $validator = Validator::make($request->all(), [
+            'final_notes' => 'required|string|max:1000',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'message' => 'Validation failed',
+                'errors' => $validator->errors()
+            ], 422);
+        }
+
+        $application = CastApplication::findOrFail($id);
+
+        if ($application->status !== 'preliminary_passed') {
+            return response()->json([
+                'message' => 'Application must pass preliminary screening first'
+            ], 400);
+        }
+
+        $application->update([
+            'status' => 'final_rejected',
+            'final_notes' => $request->final_notes,
+            'final_reviewed_at' => now(),
+            'final_reviewed_by' => Auth::id() ?? 1,
+        ]);
+
+        return response()->json([
+            'message' => 'Final screening rejected successfully',
             'application' => $application
         ]);
     }

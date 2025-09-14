@@ -103,6 +103,12 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::get('admin/cast-applications/{application}', [CastApplicationController::class, 'show'])->name('admin.cast-applications.show');
     Route::post('admin/cast-applications/{application}/approve', [CastApplicationController::class, 'approve'])->name('admin.cast-applications.approve');
     Route::post('admin/cast-applications/{application}/reject', [CastApplicationController::class, 'reject'])->name('admin.cast-applications.reject');
+    
+    // Two-stage screening routes
+    Route::post('admin/cast-applications/{application}/approve-preliminary', [CastApplicationController::class, 'approvePreliminary'])->name('admin.cast-applications.approve-preliminary');
+    Route::post('admin/cast-applications/{application}/reject-preliminary', [CastApplicationController::class, 'rejectPreliminary'])->name('admin.cast-applications.reject-preliminary');
+    Route::post('admin/cast-applications/{application}/approve-final', [CastApplicationController::class, 'approveFinal'])->name('admin.cast-applications.approve-final');
+    Route::post('admin/cast-applications/{application}/reject-final', [CastApplicationController::class, 'rejectFinal'])->name('admin.cast-applications.reject-final');
 });
 
 // CSRF token refresh route

@@ -50,6 +50,12 @@ class LineAuthController extends Controller
         // Store user_type in session for later use
         session(['line_user_type' => $userType]);
         
+        // Check if this is for cast registration (from frontend sessionStorage)
+        $isCastRegistration = $request->has('cast_registration') && $request->boolean('cast_registration');
+        if ($isCastRegistration) {
+            session(['cast_registration' => true]);
+        }
+        
         // Redirect the user to LINE's authorization page.
         // Do not pass the callback URL here; Socialite reads it from config('services.line.redirect').
         // Note: Passing additional parameters like disable_auto_login is optional; Socialite supports with(),
@@ -228,6 +234,35 @@ class LineAuthController extends Controller
             if (!($request->expectsJson() || $request->wantsJson())) {
                 $frontendUrl = $this->getFrontendUrl();
                 return redirect()->away($frontendUrl . '/dashboard');
+            }
+
+            return response()->json($responseData);
+        }
+
+        // Check if this is for cast registration
+        $isCastRegistration = session('cast_registration', false);
+        
+        if ($isCastRegistration) {
+            // For cast registration, return LINE data without requiring existing account
+            Log::info('LineAuthController: LINE auth for cast registration', [
+                'line_id' => substr($lineId, 0, 8) . '...'
+            ]);
+
+            $responseData = [
+                'success' => true,
+                'user_type' => 'cast_registration',
+                'line_data' => [
+                    'line_id' => $lineId,
+                    'line_email' => $lineEmail,
+                    'line_name' => $lineName,
+                    'line_avatar' => $lineAvatar
+                ],
+                'message' => 'LINE authentication successful for cast registration'
+            ];
+
+            if (!($request->expectsJson() || $request->wantsJson())) {
+                $frontendUrl = $this->getFrontendUrl();
+                return redirect()->away($frontendUrl . '/cast/register');
             }
 
             return response()->json($responseData);

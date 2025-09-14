@@ -23,13 +23,13 @@ class CastApplicationController extends Controller
             $query->where('status', $request->status);
         }
 
-        // Search by LINE URL
+        // Search by LINE ID
         if ($request->has('search') && $request->search) {
-            $query->where('line_url', 'like', '%' . $request->search . '%');
+            $query->where('line_id', 'like', '%' . $request->search . '%');
         }
 
         $perPage = (int) $request->input('per_page', 10);
-        $applications = $query->with('reviewer')
+        $applications = $query->with(['preliminaryReviewer', 'finalReviewer'])
             ->orderBy('created_at', 'desc')
             ->paginate($perPage);
 
@@ -52,7 +52,7 @@ class CastApplicationController extends Controller
      */
     public function show(CastApplication $application): Response
     {
-        $application->load('reviewer');
+        $application->load(['preliminaryReviewer', 'finalReviewer']);
         
         // Add image URLs
         $application->front_image_url = $application->front_image_url;
@@ -108,5 +108,97 @@ class CastApplicationController extends Controller
         ]);
 
         return back()->with('success', 'Application rejected successfully');
+    }
+
+    /**
+     * Approve preliminary screening
+     */
+    public function approvePreliminary(Request $request, CastApplication $application)
+    {
+        $request->validate([
+            'preliminary_notes' => 'nullable|string|max:1000',
+        ]);
+
+        if ($application->status !== 'pending') {
+            return back()->with('error', 'Application has already been processed');
+        }
+
+        $application->update([
+            'status' => 'preliminary_passed',
+            'preliminary_notes' => $request->preliminary_notes,
+            'preliminary_reviewed_at' => now(),
+            'preliminary_reviewed_by' => Auth::id(),
+        ]);
+
+        return back()->with('success', 'Preliminary screening approved successfully');
+    }
+
+    /**
+     * Reject preliminary screening
+     */
+    public function rejectPreliminary(Request $request, CastApplication $application)
+    {
+        $request->validate([
+            'preliminary_notes' => 'required|string|max:1000',
+        ]);
+
+        if ($application->status !== 'pending') {
+            return back()->with('error', 'Application has already been processed');
+        }
+
+        $application->update([
+            'status' => 'preliminary_rejected',
+            'preliminary_notes' => $request->preliminary_notes,
+            'preliminary_reviewed_at' => now(),
+            'preliminary_reviewed_by' => Auth::id(),
+        ]);
+
+        return back()->with('success', 'Preliminary screening rejected successfully');
+    }
+
+    /**
+     * Approve final screening
+     */
+    public function approveFinal(Request $request, CastApplication $application)
+    {
+        $request->validate([
+            'final_notes' => 'nullable|string|max:1000',
+        ]);
+
+        if ($application->status !== 'preliminary_passed') {
+            return back()->with('error', 'Application must pass preliminary screening first');
+        }
+
+        $application->update([
+            'status' => 'final_passed',
+            'final_notes' => $request->final_notes,
+            'final_reviewed_at' => now(),
+            'final_reviewed_by' => Auth::id(),
+        ]);
+
+        return back()->with('success', 'Final screening approved successfully');
+    }
+
+    /**
+     * Reject final screening
+     */
+    public function rejectFinal(Request $request, CastApplication $application)
+    {
+        $request->validate([
+            'final_notes' => 'required|string|max:1000',
+        ]);
+
+        if ($application->status !== 'preliminary_passed') {
+            return back()->with('error', 'Application must pass preliminary screening first');
+        }
+
+        $application->update([
+            'status' => 'final_rejected',
+            'final_notes' => $request->final_notes,
+            'final_reviewed_at' => now(),
+            'final_reviewed_by' => Auth::id(),
+        ]);
+
+        return back()->with('success', 'Final screening rejected successfully');
     }
 }
