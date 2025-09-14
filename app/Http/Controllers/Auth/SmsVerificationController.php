@@ -6,7 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Services\InfobipService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
-
+use Illuminate\Support\Facades\Log;
 class SmsVerificationController extends Controller
 {
     protected $infobipService;
@@ -39,6 +39,7 @@ class SmsVerificationController extends Controller
         $phoneNumber = $this->formatPhoneNumberForInfobip($phoneNumber);
 
         $result = $this->infobipService->sendVerificationCode($phoneNumber);
+        Log::info("Result", $result);
         if ($result['success']) {
             $response = [
                 'success' => true,

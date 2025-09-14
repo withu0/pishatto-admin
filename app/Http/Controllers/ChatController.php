@@ -335,7 +335,7 @@ class ChatController extends Controller
     // Fetch all available gifts
     public function gifts()
     {
-        $gifts = Gift::select('id', 'name', 'icon', 'points', 'description')->get();
+        $gifts = Gift::select('id', 'name', 'icon', 'points', 'description', 'category')->get();
         return response()->json(['gifts' => $gifts]);
     }
 

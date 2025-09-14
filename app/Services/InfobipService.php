@@ -60,6 +60,7 @@ class InfobipService
                 return [
                     'success' => true,
                     'message' => 'Verification code sent successfully',
+                    'code' => $verificationCode,
                     'message_id' => $responseData['messages'][0]['messageId'] ?? null
                 ];
             } else {
