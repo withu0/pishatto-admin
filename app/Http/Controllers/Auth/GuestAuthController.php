@@ -1830,8 +1830,8 @@ class GuestAuthController extends Controller
             throw new \InvalidArgumentException('Phone number must start with 0');
         }
         
-        // Remove leading 0 and add +81
-        $formattedNumber = '+81' . ltrim($phoneNumber, '0');
+        // Remove leading 0 and add 81
+        $formattedNumber = '81' . ltrim($phoneNumber, '0');
         
         return $formattedNumber;
     }
