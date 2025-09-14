@@ -31,15 +31,7 @@ class InfobipService
         $cacheKey = "verification_code_{$phoneNumber}";
         Cache::put($cacheKey, $verificationCode, 600); // 10 minutes
         
-        // Development mode: bypass Infobip for testing
-        if (app()->environment('local') || app()->environment('development') || config('app.debug')) {
-            Log::info("Development mode: SMS verification code for {$phoneNumber}: {$verificationCode}");
-            return [
-                'success' => true,
-                'message' => 'Verification code sent successfully (development mode)',
-                'code' => $verificationCode // Always include code in development
-            ];
-        }
+        
         
         // Format phone number for Infobip (ensure it has country code)
         $formattedPhone = $this->formatPhoneNumberForInfobip($phoneNumber);
@@ -64,6 +56,7 @@ class InfobipService
 
             if ($response->successful()) {
                 $responseData = $response->json();
+                Log::info("Development mode: SMS verification code for {$phoneNumber}: {$verificationCode}");
                 return [
                     'success' => true,
                     'message' => 'Verification code sent successfully',
