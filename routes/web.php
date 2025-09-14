@@ -83,13 +83,13 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::get('admin/payments', [AdminController::class, 'payments'])->name('admin.payments');
     Route::resource('admin/payment-details', App\Http\Controllers\Admin\PaymentDetailController::class, ['as' => 'admin']);
     Route::get('admin/notifications', [App\Http\Controllers\Admin\AdminNewsController::class, 'index'])->name('admin.notifications');
-    
+
     // Reservation Applications Management
     Route::get('admin/reservation-applications', [AdminController::class, 'reservationApplications'])->name('admin.reservation-applications');
     Route::post('admin/reservation-applications/{applicationId}/approve', [AdminController::class, 'approveApplication'])->name('admin.reservation-applications.approve');
     Route::post('admin/reservation-applications/{applicationId}/reject', [AdminController::class, 'rejectApplication'])->name('admin.reservation-applications.reject');
     Route::post('admin/reservation-applications/multi-approve', [AdminController::class, 'approveMultipleApplications'])->name('admin.reservation-applications.multi-approve');
-    
+
     // Identity Verification Management
     Route::get('admin/identity-verifications', [IdentityVerificationController::class, 'index'])->name('admin.identity-verifications');
     Route::post('admin/identity-verifications/{guestId}/approve', [IdentityVerificationController::class, 'approve'])->name('admin.identity-verifications.approve');
@@ -97,13 +97,13 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::get('admin/identity-verifications/stats', [IdentityVerificationController::class, 'stats'])->name('admin.identity-verifications.stats');
     Route::get('admin/identity-verifications/debug', [IdentityVerificationController::class, 'debug'])->name('admin.identity-verifications.debug');
     Route::get('admin/identity-verifications/test-storage', [IdentityVerificationController::class, 'testStorage'])->name('admin.identity-verifications.test-storage');
-    
+
     // Cast Applications Management
     Route::get('admin/cast-applications', [CastApplicationController::class, 'index'])->name('admin.cast-applications');
     Route::get('admin/cast-applications/{application}', [CastApplicationController::class, 'show'])->name('admin.cast-applications.show');
     Route::post('admin/cast-applications/{application}/approve', [CastApplicationController::class, 'approve'])->name('admin.cast-applications.approve');
     Route::post('admin/cast-applications/{application}/reject', [CastApplicationController::class, 'reject'])->name('admin.cast-applications.reject');
-    
+
     // Two-stage screening routes
     Route::post('admin/cast-applications/{application}/approve-preliminary', [CastApplicationController::class, 'approvePreliminary'])->name('admin.cast-applications.approve-preliminary');
     Route::post('admin/cast-applications/{application}/reject-preliminary', [CastApplicationController::class, 'rejectPreliminary'])->name('admin.cast-applications.reject-preliminary');
@@ -124,12 +124,25 @@ Route::post('/test-csrf', function () {
 // Line authentication routes
 Route::get('/api/line/redirect', [App\Http\Controllers\Auth\LineAuthController::class, 'redirectToLine'])->name('line.redirect');
 Route::get('/api/line/callback', [App\Http\Controllers\Auth\LineAuthController::class, 'handleLineCallback'])->name('line.callback');
+Route::get('/api/line/callback-cast', [App\Http\Controllers\Auth\LineAuthController::class, 'handleLineCallbackCast'])->name('line.callback-cast');
 Route::get('/api/line/check-auth', [App\Http\Controllers\Auth\LineAuthController::class, 'checkLineAuth'])->name('line.check-auth');
 Route::get('/api/line/check-auth/guest', [App\Http\Controllers\Auth\LineAuthController::class, 'checkLineAuthGuest'])->name('line.check-auth.guest');
 Route::get('/api/line/check-auth/cast', [App\Http\Controllers\Auth\LineAuthController::class, 'checkLineAuthCast'])->name('line.check-auth.cast');
 Route::post('/api/line/logout', [App\Http\Controllers\Auth\LineAuthController::class, 'logout'])->name('line.logout');
 Route::post('/api/line/register', [App\Http\Controllers\Auth\LineAuthController::class, 'registerWithLine'])->name('line.register');
 Route::post('/api/line/link-account', [App\Http\Controllers\Auth\LineAuthController::class, 'linkAccount'])->name('line.link-account');
+
+// Cast application image upload routes
+Route::post('/api/cast/upload-images', [App\Http\Controllers\CastApplicationController::class, 'uploadImages'])->name('cast.upload-images');
+Route::post('/api/cast/upload-single-image', [App\Http\Controllers\CastApplicationController::class, 'uploadSingleImage'])->name('cast.upload-single-image');
+Route::get('/api/cast/images', [App\Http\Controllers\CastApplicationController::class, 'getImages'])->name('cast.get-images');
+Route::delete('/api/cast/images', [App\Http\Controllers\CastApplicationController::class, 'cleanupImages'])->name('cast.cleanup-images');
+
+// Test route for debugging cast callback
+Route::get('/test-cast-callback', function() {
+    $frontendUrl = env('FRONTEND_URL', 'http://localhost:3000');
+    return redirect()->away($frontendUrl . '/cast/register?line_id=test123&line_name=Test User&line_email=test@example.com&line_avatar=https://example.com/avatar.jpg&user_type=cast_registration');
+});
 
 
 require __DIR__.'/settings.php';
