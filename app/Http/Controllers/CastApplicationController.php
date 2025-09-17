@@ -206,41 +206,45 @@ class CastApplicationController extends Controller
             ], 400);
         }
 
-            // Create cast application record
+            // Create cast application record first to get ID
             $castApplication = new \App\Models\CastApplication();
             $castApplication->line_id = $request->line_id;
             $castApplication->phone_number = $request->phone_number;
             $castApplication->status = 'pending';
+            $castApplication->save(); // Save first to get the ID
+
+            // Create organized folder for this application
+            $applicationFolder = "cast-applications/{$castApplication->id}";
 
             // Handle images - prioritize uploaded files over URLs
             if ($request->hasFile('front_image')) {
-                $path = $request->file('front_image')->store('cast-applications', 'public');
+                $path = $request->file('front_image')->storeAs($applicationFolder, 'front.jpg', 'public');
                 $castApplication->front_image = $path;
             } elseif ($request->filled('front_image_url')) {
                 // Copy temporary image to permanent storage
-                $tempPath = $this->copyTemporaryImageToPermanent($request->front_image_url, 'front');
+                $tempPath = $this->copyTemporaryImageToPermanent($request->front_image_url, 'front', $applicationFolder);
                 $castApplication->front_image = $tempPath;
             }
 
             if ($request->hasFile('profile_image')) {
-                $path = $request->file('profile_image')->store('cast-applications', 'public');
+                $path = $request->file('profile_image')->storeAs($applicationFolder, 'profile.jpg', 'public');
                 $castApplication->profile_image = $path;
             } elseif ($request->filled('profile_image_url')) {
                 // Copy temporary image to permanent storage
-                $tempPath = $this->copyTemporaryImageToPermanent($request->profile_image_url, 'profile');
+                $tempPath = $this->copyTemporaryImageToPermanent($request->profile_image_url, 'profile', $applicationFolder);
                 $castApplication->profile_image = $tempPath;
             }
 
             if ($request->hasFile('full_body_image')) {
-                $path = $request->file('full_body_image')->store('cast-applications', 'public');
+                $path = $request->file('full_body_image')->storeAs($applicationFolder, 'full_body.jpg', 'public');
                 $castApplication->full_body_image = $path;
             } elseif ($request->filled('full_body_image_url')) {
                 // Copy temporary image to permanent storage
-                $tempPath = $this->copyTemporaryImageToPermanent($request->full_body_image_url, 'full_body');
+                $tempPath = $this->copyTemporaryImageToPermanent($request->full_body_image_url, 'full_body', $applicationFolder);
                 $castApplication->full_body_image = $tempPath;
             }
 
-            $castApplication->save();
+            $castApplication->save(); // Save again with image paths
 
             // Clean up temporary images if session ID provided
             if ($request->filled('upload_session_id')) {
@@ -272,7 +276,7 @@ class CastApplicationController extends Controller
     /**
      * Copy temporary image to permanent storage
      */
-    private function copyTemporaryImageToPermanent($imageUrl, $type)
+    private function copyTemporaryImageToPermanent($imageUrl, $type, $applicationFolder)
     {
         try {
             // Extract the file path from the URL
@@ -290,9 +294,10 @@ class CastApplicationController extends Controller
                 return null;
             }
             
-            // Generate new permanent path
+            // Generate new permanent path in organized folder
             $extension = pathinfo($path, PATHINFO_EXTENSION);
-            $newPath = "cast-applications/{$type}_" . uniqid() . ".{$extension}";
+            $fileName = $type . '.' . $extension;
+            $newPath = "{$applicationFolder}/{$fileName}";
             
             // Copy the file to permanent storage
             Storage::disk('public')->copy($path, $newPath);
@@ -300,7 +305,8 @@ class CastApplicationController extends Controller
             Log::info('Image copied to permanent storage', [
                 'from' => $path,
                 'to' => $newPath,
-                'type' => $type
+                'type' => $type,
+                'application_folder' => $applicationFolder
             ]);
             
             return $newPath;
@@ -310,6 +316,7 @@ class CastApplicationController extends Controller
                 'error' => $e->getMessage(),
                 'url' => $imageUrl,
                 'type' => $type,
+                'application_folder' => $applicationFolder,
                 'trace' => $e->getTraceAsString()
             ]);
             return null;

@@ -67,8 +67,8 @@ class CastApplication extends Model
             return $this->front_image;
         }
 
-        // If it's a file path, prepend storage path
-        return '/storage/' . $this->front_image;
+        // If it's a file path, generate absolute URL
+        return url('storage/' . $this->front_image);
     }
 
     /**
@@ -85,8 +85,8 @@ class CastApplication extends Model
             return $this->profile_image;
         }
 
-        // If it's a file path, prepend storage path
-        return '/storage/' . $this->profile_image;
+        // If it's a file path, generate absolute URL
+        return url('storage/' . $this->profile_image);
     }
 
     /**
@@ -103,8 +103,8 @@ class CastApplication extends Model
             return $this->full_body_image;
         }
 
-        // If it's a file path, prepend storage path
-        return '/storage/' . $this->full_body_image;
+        // If it's a file path, generate absolute URL
+        return url('storage/' . $this->full_body_image);
     }
 
     /**
