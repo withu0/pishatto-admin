@@ -217,31 +217,36 @@ class CastApplicationController extends Controller
                 $path = $request->file('front_image')->store('cast-applications', 'public');
                 $castApplication->front_image = $path;
             } elseif ($request->filled('front_image_url')) {
-                // Store the URL directly instead of downloading
-                $castApplication->front_image = $request->front_image_url;
+                // Copy temporary image to permanent storage
+                $tempPath = $this->copyTemporaryImageToPermanent($request->front_image_url, 'front');
+                $castApplication->front_image = $tempPath;
             }
 
             if ($request->hasFile('profile_image')) {
                 $path = $request->file('profile_image')->store('cast-applications', 'public');
                 $castApplication->profile_image = $path;
             } elseif ($request->filled('profile_image_url')) {
-                // Store the URL directly instead of downloading
-                $castApplication->profile_image = $request->profile_image_url;
+                // Copy temporary image to permanent storage
+                $tempPath = $this->copyTemporaryImageToPermanent($request->profile_image_url, 'profile');
+                $castApplication->profile_image = $tempPath;
             }
 
             if ($request->hasFile('full_body_image')) {
                 $path = $request->file('full_body_image')->store('cast-applications', 'public');
                 $castApplication->full_body_image = $path;
             } elseif ($request->filled('full_body_image_url')) {
-                // Store the URL directly instead of downloading
-                $castApplication->full_body_image = $request->full_body_image_url;
+                // Copy temporary image to permanent storage
+                $tempPath = $this->copyTemporaryImageToPermanent($request->full_body_image_url, 'full_body');
+                $castApplication->full_body_image = $tempPath;
             }
 
             $castApplication->save();
 
             // Clean up temporary images if session ID provided
             if ($request->filled('upload_session_id')) {
-                $this->cleanupImages(new Request(['session_id' => $request->upload_session_id]));
+                $cleanupRequest = new Request();
+                $cleanupRequest->merge(['session_id' => $request->upload_session_id]);
+                $this->cleanupImages($cleanupRequest);
             }
 
             return response()->json([
@@ -263,6 +268,53 @@ class CastApplicationController extends Controller
         }
     }
 
+
+    /**
+     * Copy temporary image to permanent storage
+     */
+    private function copyTemporaryImageToPermanent($imageUrl, $type)
+    {
+        try {
+            // Extract the file path from the URL
+            $parsedUrl = parse_url($imageUrl);
+            $path = $parsedUrl['path'] ?? '';
+            
+            // Remove '/storage/' prefix if present
+            if (strpos($path, '/storage/') === 0) {
+                $path = substr($path, 9); // Remove '/storage/' (9 characters)
+            }
+            
+            // Check if the temporary file exists
+            if (!Storage::disk('public')->exists($path)) {
+                Log::warning('Temporary image not found', ['path' => $path, 'url' => $imageUrl]);
+                return null;
+            }
+            
+            // Generate new permanent path
+            $extension = pathinfo($path, PATHINFO_EXTENSION);
+            $newPath = "cast-applications/{$type}_" . uniqid() . ".{$extension}";
+            
+            // Copy the file to permanent storage
+            Storage::disk('public')->copy($path, $newPath);
+            
+            Log::info('Image copied to permanent storage', [
+                'from' => $path,
+                'to' => $newPath,
+                'type' => $type
+            ]);
+            
+            return $newPath;
+            
+        } catch (\Exception $e) {
+            Log::error('Failed to copy temporary image to permanent storage', [
+                'error' => $e->getMessage(),
+                'url' => $imageUrl,
+                'type' => $type,
+                'trace' => $e->getTraceAsString()
+            ]);
+            return null;
+        }
+    }
 
     /**
      * Clean up temporary images
