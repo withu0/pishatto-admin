@@ -54,6 +54,22 @@ class CastApplication extends Model
     }
 
     /**
+     * Get the hash-based folder name for this application
+     */
+    public function getFolderHash()
+    {
+        return hash('sha256', $this->id . $this->line_id . $this->created_at);
+    }
+
+    /**
+     * Get the expected folder path for this application
+     */
+    public function getExpectedFolderPath()
+    {
+        return "cast-applications/{$this->getFolderHash()}";
+    }
+
+    /**
      * Get the full URL for front image
      */
     public function getFrontImageUrlAttribute()

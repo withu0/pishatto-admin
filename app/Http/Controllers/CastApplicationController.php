@@ -213,8 +213,9 @@ class CastApplicationController extends Controller
             $castApplication->status = 'pending';
             $castApplication->save(); // Save first to get the ID
 
-            // Create organized folder for this application
-            $applicationFolder = "cast-applications/{$castApplication->id}";
+            // Generate hash-based folder name for this application
+            $folderHash = hash('sha256', $castApplication->id . $castApplication->line_id . $castApplication->created_at);
+            $applicationFolder = "cast-applications/{$folderHash}";
 
             // Handle images - prioritize uploaded files over URLs
             if ($request->hasFile('front_image')) {
