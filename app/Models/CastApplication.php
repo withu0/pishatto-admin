@@ -58,7 +58,17 @@ class CastApplication extends Model
      */
     public function getFrontImageUrlAttribute()
     {
-        return $this->front_image ? '/storage/' . $this->front_image : null;
+        if (!$this->front_image) {
+            return null;
+        }
+
+        // If it's already a full URL, return as is
+        if (filter_var($this->front_image, FILTER_VALIDATE_URL)) {
+            return $this->front_image;
+        }
+
+        // If it's a file path, prepend storage path
+        return '/storage/' . $this->front_image;
     }
 
     /**
@@ -66,7 +76,17 @@ class CastApplication extends Model
      */
     public function getProfileImageUrlAttribute()
     {
-        return $this->profile_image ? '/storage/' . $this->profile_image : null;
+        if (!$this->profile_image) {
+            return null;
+        }
+
+        // If it's already a full URL, return as is
+        if (filter_var($this->profile_image, FILTER_VALIDATE_URL)) {
+            return $this->profile_image;
+        }
+
+        // If it's a file path, prepend storage path
+        return '/storage/' . $this->profile_image;
     }
 
     /**
@@ -74,7 +94,17 @@ class CastApplication extends Model
      */
     public function getFullBodyImageUrlAttribute()
     {
-        return $this->full_body_image ? '/storage/' . $this->full_body_image : null;
+        if (!$this->full_body_image) {
+            return null;
+        }
+
+        // If it's already a full URL, return as is
+        if (filter_var($this->full_body_image, FILTER_VALIDATE_URL)) {
+            return $this->full_body_image;
+        }
+
+        // If it's a file path, prepend storage path
+        return '/storage/' . $this->full_body_image;
     }
 
     /**

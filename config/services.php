@@ -37,6 +37,12 @@ return [
         'redirect' => env('LINE_REDIRECT_URI'),
     ],
 
+    'line-cast' => [
+        'client_id' => env('LINE_CHANNEL_ID'),
+        'client_secret' => env('LINE_CHANNEL_SECRET'),
+        'redirect' => env('LINE_REDIRECT_CAST_URI', 'http://localhost:8000/api/line/callback-cast'),
+    ],
+
     'payjp' => [
         'public_key' => env('PAYJP_PUBLIC_KEY'),
         'secret_key' => env('PAYJP_SECRET_KEY'),

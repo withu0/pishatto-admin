@@ -18,7 +18,7 @@ class LineAuthenticationTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-        
+
         // Mock Socialite to avoid actual LINE API calls during testing
         $this->mockSocialite();
     }
@@ -212,6 +212,57 @@ class LineAuthenticationTest extends TestCase
             'id' => $guest->id,
             'line_id' => 'line_123456'
         ]);
+    }
+
+    /** @test */
+    public function it_can_handle_line_callback_for_cast_registration()
+    {
+        $response = $this->get('/line/callback-cast?code=test_code');
+
+        $response->assertStatus(200);
+        $response->assertJson([
+            'success' => true,
+            'user_type' => 'cast_registration',
+            'line_data' => [
+                'line_id' => 'line_123456',
+                'line_email' => 'test@example.com',
+                'line_name' => 'Test User',
+                'line_avatar' => 'https://example.com/avatar.jpg'
+            ],
+            'message' => 'LINE authentication successful for cast registration'
+        ]);
+    }
+
+    /** @test */
+    public function it_redirects_to_cast_callback_when_use_cast_callback_flag_is_set()
+    {
+        // Set session flag for cast callback
+        session(['use_cast_callback' => true]);
+
+        $response = $this->get('/line/callback?code=test_code');
+
+        $response->assertStatus(200);
+        $response->assertJson([
+            'success' => true,
+            'user_type' => 'cast_registration',
+            'line_data' => [
+                'line_id' => 'line_123456',
+                'line_email' => 'test@example.com',
+                'line_name' => 'Test User',
+                'line_avatar' => 'https://example.com/avatar.jpg'
+            ],
+            'message' => 'LINE authentication successful for cast registration'
+        ]);
+    }
+
+    /** @test */
+    public function it_uses_cast_specific_driver_when_use_cast_callback_is_true()
+    {
+        $response = $this->get('/line/redirect?user_type=guest&use_cast_callback=true');
+
+        $response->assertStatus(302);
+        // Should redirect to LINE OAuth with cast-specific callback URI
+        $this->assertTrue($response->isRedirect());
     }
 
     protected function tearDown(): void

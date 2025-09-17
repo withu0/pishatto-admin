@@ -24,7 +24,19 @@ class LineServiceProvider extends ServiceProvider
         // Register a custom LINE driver to guarantee we use our provider implementation
         Socialite::extend('line-custom', function ($app) {
             $config = $app['config']['services.line'];
-            
+
+            return new LineProvider(
+                $app['request'],
+                $config['client_id'],
+                $config['client_secret'],
+                $config['redirect']
+            );
+        });
+
+        // Register a custom LINE driver for cast registration with separate callback URI
+        Socialite::extend('line-cast-custom', function ($app) {
+            $config = $app['config']['services.line-cast'];
+
             return new LineProvider(
                 $app['request'],
                 $config['client_id'],
