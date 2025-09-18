@@ -118,8 +118,10 @@ export default function AdminCastApplications({ applications, filters }: Props) 
                             >
                                 <option value="">すべてのステータス</option>
                                 <option value="pending">審査待ち</option>
-                                <option value="approved">承認済み</option>
-                                <option value="rejected">却下</option>
+                                <option value="preliminary_rejected">写真不合格</option>
+                                <option value="preliminary_passed">一次審査通過</option>
+                                <option value="final_rejected">面接不合格</option>
+                                <option value="final_passed">合格</option>
                             </select>
                             <div className="flex items-center gap-2">
                                 <span className="text-sm text-muted-foreground">表示件数</span>

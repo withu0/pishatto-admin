@@ -44,6 +44,7 @@ export default function AdminCastApplicationShow({ application }: Props) {
     const [preliminaryNotes, setPreliminaryNotes] = useState(application.preliminary_notes || '');
     const [finalNotes, setFinalNotes] = useState(application.final_notes || '');
     const [isProcessing, setIsProcessing] = useState(false);
+    const [status, setStatus] = useState<CastApplication['status']>(application.status);
 
     const getStatusBadge = (status: string) => {
         switch (status) {
@@ -74,7 +75,13 @@ export default function AdminCastApplicationShow({ application }: Props) {
             await router.post(
                 `/admin/cast-applications/${application.id}/approve-preliminary`,
                 { preliminary_notes: preliminaryNotes },
-                { preserveScroll: true, onSuccess: () => router.reload() }
+                {
+                    preserveScroll: true,
+                    onSuccess: () => {
+                        setStatus('preliminary_passed');
+                        router.visit(`/admin/cast-applications/${application.id}` , { preserveScroll: true, replace: true });
+                    }
+                }
             );
         } catch (error) {
             console.error('Error approving preliminary screening:', error);
@@ -96,7 +103,13 @@ export default function AdminCastApplicationShow({ application }: Props) {
             await router.post(
                 `/admin/cast-applications/${application.id}/reject-preliminary`,
                 { preliminary_notes: preliminaryNotes },
-                { preserveScroll: true, onSuccess: () => router.reload() }
+                {
+                    preserveScroll: true,
+                    onSuccess: () => {
+                        setStatus('preliminary_rejected');
+                        router.visit(`/admin/cast-applications/${application.id}` , { preserveScroll: true, replace: true });
+                    }
+                }
             );
         } catch (error) {
             console.error('Error rejecting preliminary screening:', error);
@@ -113,7 +126,13 @@ export default function AdminCastApplicationShow({ application }: Props) {
             await router.post(
                 `/admin/cast-applications/${application.id}/approve-final`,
                 { final_notes: finalNotes },
-                { preserveScroll: true, onSuccess: () => router.reload() }
+                {
+                    preserveScroll: true,
+                    onSuccess: () => {
+                        setStatus('final_passed');
+                        router.visit(`/admin/cast-applications/${application.id}` , { preserveScroll: true, replace: true });
+                    }
+                }
             );
         } catch (error) {
             console.error('Error approving final screening:', error);
@@ -135,7 +154,13 @@ export default function AdminCastApplicationShow({ application }: Props) {
             await router.post(
                 `/admin/cast-applications/${application.id}/reject-final`,
                 { final_notes: finalNotes },
-                { preserveScroll: true, onSuccess: () => router.reload() }
+                {
+                    preserveScroll: true,
+                    onSuccess: () => {
+                        setStatus('final_rejected');
+                        router.visit(`/admin/cast-applications/${application.id}` , { preserveScroll: true, replace: true });
+                    }
+                }
             );
         } catch (error) {
             console.error('Error rejecting final screening:', error);
@@ -153,7 +178,13 @@ export default function AdminCastApplicationShow({ application }: Props) {
             await router.post(
                 `/admin/cast-applications/${application.id}/approve-final`,
                 { final_notes: preliminaryNotes },
-                { preserveScroll: true, onSuccess: () => router.reload() }
+                {
+                    preserveScroll: true,
+                    onSuccess: () => {
+                        setStatus('final_passed');
+                        router.visit(`/admin/cast-applications/${application.id}` , { preserveScroll: true, replace: true });
+                    }
+                }
             );
         } catch (error) {
             console.error('Error directly approving final screening:', error);
@@ -179,7 +210,7 @@ export default function AdminCastApplicationShow({ application }: Props) {
                     <div>
                         <h1 className="text-2xl font-bold">キャスト申請 #{application.id}</h1>
                         <div className="flex items-center gap-2 mt-1">
-                            {getStatusBadge(application.status)}
+                            {getStatusBadge(status)}
                             <span className="text-sm text-muted-foreground">
                                 申請日: {formatDate(application.created_at)}
                             </span>
@@ -302,7 +333,7 @@ export default function AdminCastApplicationShow({ application }: Props) {
                 </div>
 
                 {/* Preliminary Screening Actions */}
-                {application.status === 'pending' && (
+                {status === 'pending' && (
                     <Card className="mt-6">
                         <CardHeader>
                             <CardTitle>一次審査</CardTitle>
@@ -357,7 +388,7 @@ export default function AdminCastApplicationShow({ application }: Props) {
                 )}
 
                 {/* Final Screening Actions */}
-                {application.status === 'preliminary_passed' && (
+                {status === 'preliminary_passed' && (
                     <Card className="mt-6">
                         <CardHeader>
                             <CardTitle>最終審査</CardTitle>
@@ -402,7 +433,7 @@ export default function AdminCastApplicationShow({ application }: Props) {
                 )}
 
                 {/* Review History */}
-                {application.status !== 'pending' && (
+                {status !== 'pending' && (
                     <Card className="mt-6">
                         <CardHeader>
                             <CardTitle>審査履歴</CardTitle>
@@ -411,7 +442,7 @@ export default function AdminCastApplicationShow({ application }: Props) {
                             <div className="space-y-4">
                                 <div className="flex items-center gap-2">
                                     <span className="text-sm font-medium">現在のステータス:</span>
-                                    {getStatusBadge(application.status)}
+                                    {getStatusBadge(status)}
                                 </div>
 
                                 {/* Preliminary Screening History */}

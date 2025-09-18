@@ -165,6 +165,22 @@ class CastApplicationController extends Controller
             'final_notes' => 'nullable|string|max:1000',
         ]);
 
+        // Allow skipping final directly from pending by marking preliminary as passed and final as passed
+        if ($application->status === 'pending') {
+            $application->update([
+                'status' => 'final_passed',
+                // If preliminary was not reviewed, mark it as passed at the same time
+                'preliminary_notes' => $application->preliminary_notes ?? $request->final_notes,
+                'preliminary_reviewed_at' => now(),
+                'preliminary_reviewed_by' => Auth::id(),
+                'final_notes' => $request->final_notes,
+                'final_reviewed_at' => now(),
+                'final_reviewed_by' => Auth::id(),
+            ]);
+
+            return back()->with('success', 'Final screening approved successfully');
+        }
+
         if ($application->status !== 'preliminary_passed') {
             return back()->with('error', 'Application must pass preliminary screening first');
         }
