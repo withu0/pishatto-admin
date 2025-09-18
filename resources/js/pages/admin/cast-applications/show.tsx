@@ -52,11 +52,11 @@ export default function AdminCastApplicationShow({ application }: Props) {
             case 'preliminary_passed':
                 return <Badge variant="secondary">一次審査通過</Badge>;
             case 'preliminary_rejected':
-                return <Badge variant="destructive">一次審査却下</Badge>;
+                return <Badge variant="destructive">写真不合格</Badge>;
             case 'final_passed':
-                return <Badge variant="secondary">最終審査通過</Badge>;
+                return <Badge variant="secondary">合格</Badge>;
             case 'final_rejected':
-                return <Badge variant="destructive">最終審査却下</Badge>;
+                return <Badge variant="destructive">面接不合格</Badge>;
             default:
                 return <Badge variant="outline">不明</Badge>;
         }
@@ -131,6 +131,22 @@ export default function AdminCastApplicationShow({ application }: Props) {
             });
         } catch (error) {
             console.error('Error rejecting final screening:', error);
+        } finally {
+            setIsProcessing(false);
+        }
+    };
+
+    // Allow hiring directly based on photo quality by skipping the final review
+    const handleApproveFinalDirect = async () => {
+        if (!confirm('最終審査をスキップして採用にしますか？')) return;
+        setIsProcessing(true);
+        try {
+            // Use the preliminary notes as the final notes when skipping directly to final pass
+            await router.post(`/admin/cast-applications/${application.id}/approve-final`, {
+                final_notes: preliminaryNotes
+            });
+        } catch (error) {
+            console.error('Error directly approving final screening:', error);
         } finally {
             setIsProcessing(false);
         }
@@ -305,6 +321,16 @@ export default function AdminCastApplicationShow({ application }: Props) {
                                 >
                                     <Check className="w-4 h-4" />
                                     一次審査通過
+                                </Button>
+                                <Button
+                                    onClick={handleApproveFinalDirect}
+                                    disabled={isProcessing}
+                                    variant="secondary"
+                                    className="flex items-center gap-2"
+                                    title="写真の品質が十分な場合、最終審査をスキップして採用します"
+                                >
+                                    <Check className="w-4 h-4" />
+                                    最終審査通過
                                 </Button>
                                 <Button
                                     onClick={handleRejectPreliminary}
