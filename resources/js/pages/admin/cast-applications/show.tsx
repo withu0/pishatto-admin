@@ -52,11 +52,11 @@ export default function AdminCastApplicationShow({ application }: Props) {
             case 'preliminary_passed':
                 return <Badge variant="secondary">一次審査通過</Badge>;
             case 'preliminary_rejected':
-                return <Badge variant="destructive">写真不合格</Badge>;
+                return <Badge variant="destructive">一次審査却下</Badge>;
             case 'final_passed':
-                return <Badge variant="secondary">合格</Badge>;
+                return <Badge variant="secondary">最終審査通過</Badge>;
             case 'final_rejected':
-                return <Badge variant="destructive">面接不合格</Badge>;
+                return <Badge variant="destructive">最終審査却下</Badge>;
             default:
                 return <Badge variant="outline">不明</Badge>;
         }
@@ -71,9 +71,11 @@ export default function AdminCastApplicationShow({ application }: Props) {
         
         setIsProcessing(true);
         try {
-            await router.post(`/admin/cast-applications/${application.id}/approve-preliminary`, {
-                preliminary_notes: preliminaryNotes
-            });
+            await router.post(
+                `/admin/cast-applications/${application.id}/approve-preliminary`,
+                { preliminary_notes: preliminaryNotes },
+                { preserveScroll: true, onSuccess: () => router.reload() }
+            );
         } catch (error) {
             console.error('Error approving preliminary screening:', error);
         } finally {
@@ -91,9 +93,11 @@ export default function AdminCastApplicationShow({ application }: Props) {
         
         setIsProcessing(true);
         try {
-            await router.post(`/admin/cast-applications/${application.id}/reject-preliminary`, {
-                preliminary_notes: preliminaryNotes
-            });
+            await router.post(
+                `/admin/cast-applications/${application.id}/reject-preliminary`,
+                { preliminary_notes: preliminaryNotes },
+                { preserveScroll: true, onSuccess: () => router.reload() }
+            );
         } catch (error) {
             console.error('Error rejecting preliminary screening:', error);
         } finally {
@@ -106,9 +110,11 @@ export default function AdminCastApplicationShow({ application }: Props) {
         
         setIsProcessing(true);
         try {
-            await router.post(`/admin/cast-applications/${application.id}/approve-final`, {
-                final_notes: finalNotes
-            });
+            await router.post(
+                `/admin/cast-applications/${application.id}/approve-final`,
+                { final_notes: finalNotes },
+                { preserveScroll: true, onSuccess: () => router.reload() }
+            );
         } catch (error) {
             console.error('Error approving final screening:', error);
         } finally {
@@ -126,9 +132,11 @@ export default function AdminCastApplicationShow({ application }: Props) {
         
         setIsProcessing(true);
         try {
-            await router.post(`/admin/cast-applications/${application.id}/reject-final`, {
-                final_notes: finalNotes
-            });
+            await router.post(
+                `/admin/cast-applications/${application.id}/reject-final`,
+                { final_notes: finalNotes },
+                { preserveScroll: true, onSuccess: () => router.reload() }
+            );
         } catch (error) {
             console.error('Error rejecting final screening:', error);
         } finally {
@@ -142,9 +150,11 @@ export default function AdminCastApplicationShow({ application }: Props) {
         setIsProcessing(true);
         try {
             // Use the preliminary notes as the final notes when skipping directly to final pass
-            await router.post(`/admin/cast-applications/${application.id}/approve-final`, {
-                final_notes: preliminaryNotes
-            });
+            await router.post(
+                `/admin/cast-applications/${application.id}/approve-final`,
+                { final_notes: preliminaryNotes },
+                { preserveScroll: true, onSuccess: () => router.reload() }
+            );
         } catch (error) {
             console.error('Error directly approving final screening:', error);
         } finally {
@@ -330,7 +340,7 @@ export default function AdminCastApplicationShow({ application }: Props) {
                                     title="写真の品質が十分な場合、最終審査をスキップして採用します"
                                 >
                                     <Check className="w-4 h-4" />
-                                    最終審査通過
+                                    最終審査通過（スキップ）
                                 </Button>
                                 <Button
                                     onClick={handleRejectPreliminary}

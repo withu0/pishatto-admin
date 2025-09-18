@@ -17,7 +17,7 @@ interface CastApplication {
     front_image_url: string;
     profile_image_url: string;
     full_body_image_url: string;
-    status: 'pending' | 'approved' | 'rejected';
+    status: 'pending' | 'preliminary_passed' | 'preliminary_rejected' | 'final_passed' | 'final_rejected';
     admin_notes?: string;
     reviewed_at?: string;
     reviewed_by?: number;
@@ -62,10 +62,14 @@ export default function AdminCastApplications({ applications, filters }: Props) 
         switch (status) {
             case 'pending':
                 return <Badge variant="default">審査待ち</Badge>;
-            case 'approved':
-                return <Badge variant="secondary">承認済み</Badge>;
-            case 'rejected':
-                return <Badge variant="destructive">却下</Badge>;
+            case 'preliminary_rejected':
+                return <Badge variant="destructive">写真不合格</Badge>;
+            case 'preliminary_passed':
+                return <Badge variant="secondary">一次審査通過</Badge>;
+            case 'final_rejected':
+                return <Badge variant="destructive">面接不合格</Badge>;
+            case 'final_passed':
+                return <Badge variant="secondary">合格</Badge>;
             default:
                 return <Badge variant="outline">不明</Badge>;
         }
