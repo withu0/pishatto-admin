@@ -22,7 +22,8 @@ interface Cast {
     residence?: string;
     birthplace?: string;
     profile_text?: string;
-    payjp_customer_id?: string;
+    stripe_customer_id?: string;
+    payjp_customer_id?: string; // Keep for backward compatibility
     payment_info?: string;
     points: number;
     created_at: string;
@@ -238,16 +239,24 @@ export default function CastShow({ cast }: Props) {
                         </Card>
 
                         {/* 支払い情報 */}
-                        {cast.payjp_customer_id && (
+                        {(cast.stripe_customer_id || cast.payjp_customer_id) && (
                             <Card>
                                 <CardHeader>
                                     <CardTitle>支払い情報</CardTitle>
                                 </CardHeader>
                                 <CardContent className="space-y-2 text-sm">
-                                    <div className="flex justify-between">
-                                        <span className="text-muted-foreground">PayJP顧客ID:</span>
-                                        <span className="font-mono text-xs">{cast.payjp_customer_id}</span>
-                                    </div>
+                                    {cast.stripe_customer_id && (
+                                        <div className="flex justify-between">
+                                            <span className="text-muted-foreground">Stripe顧客ID:</span>
+                                            <span className="font-mono text-xs">{cast.stripe_customer_id}</span>
+                                        </div>
+                                    )}
+                                    {cast.payjp_customer_id && (
+                                        <div className="flex justify-between">
+                                            <span className="text-muted-foreground">PayJP顧客ID:</span>
+                                            <span className="font-mono text-xs">{cast.payjp_customer_id}</span>
+                                        </div>
+                                    )}
                                 </CardContent>
                             </Card>
                         )}

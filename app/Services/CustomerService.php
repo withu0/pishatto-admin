@@ -26,10 +26,12 @@ class CustomerService
             $customerInfo = [
                 'user_id' => $userId,
                 'user_type' => $userType,
-                'payjp_customer_id' => $model->payjp_customer_id,
+                'stripe_customer_id' => $model->stripe_customer_id,
+                'payjp_customer_id' => $model->payjp_customer_id, // Keep for backward compatibility
                 'has_registered_cards' => false,
                 'cards' => [],
-                'payment_info' => null
+                'payment_info' => null,
+                'card_count' => 0
             ];
 
             // Parse payment_info if it exists
@@ -40,27 +42,27 @@ class CustomerService
                 }
             }
 
-            // If user has a customer ID, try to get card information from PAY.JP
-            if ($model->payjp_customer_id) {
+            // If user has a Stripe customer ID, try to get card information from Stripe
+            if ($model->stripe_customer_id) {
                 try {
-                    $payjpService = app(\App\Services\PayJPService::class);
-                    $customer = $payjpService->getCustomer($model->payjp_customer_id);
-                    $cards = $payjpService->getCustomerCards($model->payjp_customer_id);
+                    $stripeService = app(\App\Services\StripeService::class);
+                    $paymentMethods = $stripeService->getCustomerPaymentMethods($model->stripe_customer_id);
                     
-                    $customerInfo['cards'] = $cards['data'] ?? [];
+                    $customerInfo['cards'] = $paymentMethods['data'] ?? [];
                     $customerInfo['has_registered_cards'] = count($customerInfo['cards']) > 0;
+                    $customerInfo['card_count'] = count($customerInfo['cards']);
                     
-                    Log::info('Customer information retrieved successfully', [
+                    Log::info('Customer information retrieved successfully from Stripe', [
                         'user_id' => $userId,
                         'user_type' => $userType,
-                        'customer_id' => $model->payjp_customer_id,
-                        'card_count' => count($customerInfo['cards'])
+                        'stripe_customer_id' => $model->stripe_customer_id,
+                        'card_count' => $customerInfo['card_count']
                     ]);
                 } catch (\Exception $e) {
-                    Log::warning('Failed to retrieve customer cards from PAY.JP', [
+                    Log::warning('Failed to retrieve customer cards from Stripe', [
                         'user_id' => $userId,
                         'user_type' => $userType,
-                        'customer_id' => $model->payjp_customer_id,
+                        'stripe_customer_id' => $model->stripe_customer_id,
                         'error' => $e->getMessage()
                     ]);
                 }
@@ -190,8 +192,9 @@ class CustomerService
             $stats = [
                 'user_id' => $userId,
                 'user_type' => $userType,
-                'has_customer_id' => !empty($model->payjp_customer_id),
-                'customer_id' => $model->payjp_customer_id,
+                'has_customer_id' => !empty($model->stripe_customer_id),
+                'stripe_customer_id' => $model->stripe_customer_id,
+                'payjp_customer_id' => $model->payjp_customer_id, // Keep for backward compatibility
                 'card_count' => 0,
                 'last_payment_date' => null,
                 'total_payments' => 0,
@@ -212,18 +215,19 @@ class CustomerService
             }
 
             // Get card count if customer exists
-            if ($model->payjp_customer_id) {
+            if ($model->stripe_customer_id) {
                 try {
-                    $payjpService = app(\App\Services\PayJPService::class);
-                    $cardsResult = $payjpService->getCustomerCards($model->payjp_customer_id);
-                    if ($cardsResult && isset($cardsResult['data'])) {
-                        $stats['card_count'] = count($cardsResult['data']);
+                    $stripeService = app(\App\Services\StripeService::class);
+                    $paymentMethods = $stripeService->getCustomerPaymentMethods($model->stripe_customer_id);
+                    if ($paymentMethods && isset($paymentMethods['data'])) {
+                        $stats['card_count'] = count($paymentMethods['data']);
                     }
                 } catch (\Exception $e) {
-                    Log::warning('Failed to get card count from PAY.JP', [
+                    Log::warning('Failed to get card count from Stripe', [
                         'user_id' => $userId,
                         'user_type' => $userType,
-                        'customer_id' => $model->payjp_customer_id
+                        'stripe_customer_id' => $model->stripe_customer_id,
+                        'error' => $e->getMessage()
                     ]);
                 }
             }

@@ -31,7 +31,8 @@ interface Guest {
     pressure?: 'weak' | 'medium' | 'strong';
     favorite_area?: string;
     interests?: string[] | Array<{ category: string; tag: string }>;
-    payjp_customer_id?: string;
+    stripe_customer_id?: string;
+    payjp_customer_id?: string; // Keep for backward compatibility
     payment_info?: string;
     points: number;
     grade?: string;
@@ -395,7 +396,7 @@ export default function GuestShow({ guest }: Props) {
                             </CardContent>
                         </Card>
 
-                        {guest.payjp_customer_id && (
+                        {(guest.stripe_customer_id || guest.payjp_customer_id) && (
                             <Card>
                                 <CardHeader>
                                     <CardTitle className="flex items-center gap-2">
@@ -404,10 +405,18 @@ export default function GuestShow({ guest }: Props) {
                                     </CardTitle>
                                 </CardHeader>
                                 <CardContent className="space-y-2 text-sm">
-                                    <div className="flex justify-between">
-                                        <span className="text-muted-foreground">PayJP顧客ID:</span>
-                                        <span className="font-mono text-xs">{guest.payjp_customer_id}</span>
-                                    </div>
+                                    {guest.stripe_customer_id && (
+                                        <div className="flex justify-between">
+                                            <span className="text-muted-foreground">Stripe顧客ID:</span>
+                                            <span className="font-mono text-xs">{guest.stripe_customer_id}</span>
+                                        </div>
+                                    )}
+                                    {guest.payjp_customer_id && (
+                                        <div className="flex justify-between">
+                                            <span className="text-muted-foreground">PayJP顧客ID:</span>
+                                            <span className="font-mono text-xs">{guest.payjp_customer_id}</span>
+                                        </div>
+                                    )}
                                 </CardContent>
                             </Card>
                         )}

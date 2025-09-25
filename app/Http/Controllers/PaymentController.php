@@ -905,8 +905,10 @@ class PaymentController extends Controller
             return response()->json([
                 'success' => true,
                 'payment_info' => $customerInfo['payment_info'],
-                'payjp_customer_id' => $customerInfo['payjp_customer_id'],
+                'stripe_customer_id' => $customerInfo['stripe_customer_id'],
+                'payjp_customer_id' => $customerInfo['payjp_customer_id'], // Keep for backward compatibility
                 'has_registered_cards' => $customerInfo['has_registered_cards'],
+                'card_count' => $customerInfo['card_count'],
                 'cards' => $customerInfo['cards'],
             ]);
 
@@ -941,22 +943,22 @@ class PaymentController extends Controller
                 ], 404);
             }
 
-            // If user has a customer ID, try to delete the card from PAY.JP
-            if ($model->payjp_customer_id) {
+            // If user has a Stripe customer ID, try to delete the card from Stripe
+            if ($model->stripe_customer_id) {
                 try {
-                    $result = $this->payJPService->deleteCardFromCustomer($model->payjp_customer_id, $cardId);
+                    $result = $this->stripeService->deletePaymentMethod($cardId);
 
                     // Check if this was the last card by getting remaining cards
-                    $cardsResult = $this->payJPService->getCustomerCards($model->payjp_customer_id);
-                    if ($cardsResult && isset($cardsResult['data']) && count($cardsResult['data']) === 0) {
+                    $paymentMethods = $this->stripeService->getCustomerPaymentMethods($model->stripe_customer_id);
+                    if ($paymentMethods && isset($paymentMethods['data']) && count($paymentMethods['data']) === 0) {
                         // No more cards, clear the customer ID and payment info
-                        $model->payjp_customer_id = null;
+                        $model->stripe_customer_id = null;
                         $model->payment_info = null;
                         $model->save();
                     }
                 } catch (\Exception $e) {
-                    Log::warning('Failed to delete card from PAY.JP: ' . $e->getMessage());
-                    // Continue with local cleanup even if PAY.JP deletion fails
+                    Log::warning('Failed to delete card from Stripe: ' . $e->getMessage());
+                    // Continue with local cleanup even if Stripe deletion fails
                 }
             }
 

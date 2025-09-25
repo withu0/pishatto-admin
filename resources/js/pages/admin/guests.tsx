@@ -35,7 +35,8 @@ interface Guest {
     pressure?: 'weak' | 'medium' | 'strong';
     favorite_area?: string;
     interests?: (string | { category: string; tag: string })[];
-    payjp_customer_id?: string;
+    stripe_customer_id?: string;
+    payjp_customer_id?: string; // Keep for backward compatibility
     payment_info?: string;
     points: number;
     identity_verification_completed?: 'pending' | 'success' | 'failed';
