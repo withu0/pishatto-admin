@@ -18,6 +18,9 @@ class Payment extends Model
         'payjp_charge_id',
         'payjp_customer_id',
         'payjp_token',
+        'stripe_payment_intent_id',
+        'stripe_customer_id',
+        'stripe_payment_method_id',
         'description',
         'metadata',
         'paid_at',
@@ -67,4 +70,4 @@ class Payment extends Model
     {
         return $query->where('status', 'refunded');
     }
-} 
+}

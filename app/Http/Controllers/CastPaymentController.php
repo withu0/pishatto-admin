@@ -6,17 +6,17 @@ use Illuminate\Http\Request;
 use App\Models\Cast;
 use App\Models\PointTransaction;
 use App\Models\Payment;
-use App\Services\PayJPService;
+use App\Services\StripeService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
 class CastPaymentController extends Controller
 {
-    protected $payJPService;
+    protected $stripeService;
 
-    public function __construct(PayJPService $payJPService)
+    public function __construct(StripeService $stripeService)
     {
-        $this->payJPService = $payJPService;
+        $this->stripeService = $stripeService;
     }
 
     /**
@@ -26,7 +26,7 @@ class CastPaymentController extends Controller
     {
         try {
             $cast = Cast::findOrFail($castId);
-            
+
             // Calculate total points earned this month
             $currentMonth = now()->format('Y-m');
             $monthlyPoints = PointTransaction::where('cast_id', $castId)
@@ -37,11 +37,11 @@ class CastPaymentController extends Controller
 
             // Calculate immediate points (50% of monthly points)
             $immediatePoints = floor($monthlyPoints * 0.5);
-            
+
             // Calculate fee based on cast grade
             $feeRate = $this->getFeeRateByGrade($cast->grade ?? 'bronze');
             $fee = floor($immediatePoints * $feeRate);
-            
+
             // Calculate final amount
             $amount = $immediatePoints - $fee;
 
@@ -59,7 +59,7 @@ class CastPaymentController extends Controller
                 'cast_id' => $castId,
                 'error' => $e->getMessage()
             ]);
-            
+
             return response()->json([
                 'message' => 'Failed to get payment data',
                 'error' => $e->getMessage()
@@ -74,14 +74,14 @@ class CastPaymentController extends Controller
     {
         $validator = $request->validate([
             'amount' => 'required|integer|min:1',
-            'payjp_token' => 'required|string', // This can be either a token or customer_id
+            'payment_method' => 'required|string', // Stripe payment method ID
         ]);
 
         try {
             DB::beginTransaction();
 
             $cast = Cast::findOrFail($castId);
-            
+
             // Verify the cast has enough points
             $currentMonth = now()->format('Y-m');
             $monthlyPoints = PointTransaction::where('cast_id', $castId)
@@ -91,7 +91,7 @@ class CastPaymentController extends Controller
                 ->sum('amount');
 
             $immediatePoints = floor($monthlyPoints * 0.5);
-            
+
             if ($immediatePoints < $request->amount) {
                 return response()->json([
                     'message' => 'Insufficient points for immediate payment'
@@ -105,7 +105,7 @@ class CastPaymentController extends Controller
                 'amount' => $request->amount,
                 'status' => 'pending',
                 'payment_method' => 'card',
-                'payjp_token' => $request->payjp_token,
+                'stripe_payment_method_id' => $request->payment_method,
                 'description' => 'Immediate payment request',
                 'metadata' => [
                     'type' => 'immediate_payment',
@@ -115,35 +115,27 @@ class CastPaymentController extends Controller
                 ]
             ]);
 
-            // Process payment through PayJP
-            // Check if payjp_token is a customer_id (starts with 'cus_') or a card token
-            $isCustomerId = str_starts_with($request->payjp_token, 'cus_');
-            
-            $chargeParams = [
+            // Process payment through Stripe
+            $paymentIntentData = [
                 'amount' => $request->amount,
                 'currency' => 'jpy',
+                'payment_method' => $request->payment_method,
+                'confirmation_method' => 'manual',
+                'confirm' => true,
                 'description' => "Immediate payment for cast {$cast->nickname}",
                 'metadata' => [
                     'cast_id' => $castId,
                     'payment_id' => $payment->id
                 ]
             ];
-            
-            if ($isCustomerId) {
-                // Use customer_id for existing registered card
-                $chargeParams['customer'] = $request->payjp_token;
-            } else {
-                // Use card token for new card
-                $chargeParams['card'] = $request->payjp_token;
-            }
-            
-            $chargeResult = $this->payJPService->createCharge($chargeParams);
 
-            if ($chargeResult['success']) {
+            $paymentIntentResult = $this->stripeService->createPaymentIntent($paymentIntentData);
+
+            if ($paymentIntentResult['status'] === 'succeeded') {
                 // Update payment record
                 $payment->update([
                     'status' => 'paid',
-                    'payjp_charge_id' => $chargeResult['charge_id'],
+                    'stripe_payment_intent_id' => $paymentIntentResult['id'],
                     'paid_at' => now()
                 ]);
 
@@ -164,13 +156,13 @@ class CastPaymentController extends Controller
                 return response()->json([
                     'message' => 'Immediate payment processed successfully',
                     'payment' => $payment,
-                    'charge_id' => $chargeResult['charge_id']
+                    'payment_intent_id' => $paymentIntentResult['id']
                 ]);
             } else {
                 DB::rollBack();
                 return response()->json([
                     'message' => 'Payment processing failed',
-                    'error' => $chargeResult['error']
+                    'error' => $paymentIntentResult['last_payment_error']['message'] ?? 'Payment failed'
                 ], 500);
             }
 
@@ -180,7 +172,7 @@ class CastPaymentController extends Controller
                 'cast_id' => $castId,
                 'error' => $e->getMessage()
             ]);
-            
+
             return response()->json([
                 'message' => 'Failed to process payment',
                 'error' => $e->getMessage()
@@ -204,4 +196,4 @@ class CastPaymentController extends Controller
                 return 0.05; // 5% for bronze/default
         }
     }
-} 
+}

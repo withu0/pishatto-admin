@@ -43,10 +43,10 @@ return [
         'redirect' => env('LINE_REDIRECT_CAST_URI', 'http://localhost:8000/api/line/callback-cast'),
     ],
 
-    'payjp' => [
-        'public_key' => env('PAYJP_PUBLIC_KEY'),
-        'secret_key' => env('PAYJP_SECRET_KEY'),
-        'webhook_secret' => env('PAYJP_WEBHOOK_SECRET'),
+    'stripe' => [
+        'public_key' => env('STRIPE_PUBLIC_KEY'),
+        'secret_key' => env('STRIPE_SECRET_KEY'),
+        'webhook_secret' => env('STRIPE_WEBHOOK_SECRET'),
     ],
 
     'resend' => [

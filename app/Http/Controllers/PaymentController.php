@@ -7,7 +7,7 @@ use App\Models\Payment;
 use App\Models\Receipt;
 use App\Models\PointTransaction;
 use App\Models\Cast;
-use App\Services\PayJPService;
+use App\Services\StripeService;
 use App\Services\CustomerService;
 use App\Services\PointTransactionService;
 use Illuminate\Support\Facades\Log;
@@ -15,65 +15,40 @@ use Illuminate\Support\Facades\Validator;
 
 class PaymentController extends Controller
 {
-    protected $payJPService;
+    protected $stripeService;
     protected $customerService;
 
-    public function __construct(PayJPService $payJPService, CustomerService $customerService)
+    public function __construct(StripeService $stripeService, CustomerService $customerService)
     {
-        $this->payJPService = $payJPService;
+        $this->stripeService = $stripeService;
         $this->customerService = $customerService;
     }
 
     /**
-     * Debug PayJP SDK response structure
+     * Debug Stripe response structure
      */
-    public function debugPayJPResponse(Request $request)
+    public function debugStripeResponse(Request $request)
     {
         $request->validate([
-            'card' => 'required|string',
+            'payment_method' => 'required|string',
             'amount' => 'required|integer|min:100',
         ]);
 
         try {
-            $chargeData = [
-                'card' => $request->card,
+            $paymentIntentData = [
                 'amount' => $request->amount,
                 'currency' => 'jpy',
+                'payment_method' => $request->payment_method,
+                'confirmation_method' => 'manual',
+                'confirm' => true,
             ];
 
-            if (class_exists('\Payjp\Charge')) {
-                $charge = \Payjp\Charge::create($chargeData);
-                
-                // Debug the response structure
-                $debug = [
-                    'is_object' => is_object($charge),
-                    'class' => get_class($charge),
-                    'methods' => get_class_methods($charge),
-                    'properties' => get_object_vars($charge),
-                    'to_array_cast' => (array) $charge,
-                ];
-                
-                // Try different ways to access the data
-                if (is_object($charge)) {
-                    $debug['direct_access'] = [
-                        'id' => $charge->id ?? 'not_set',
-                        'amount' => $charge->amount ?? 'not_set',
-                        'currency' => $charge->currency ?? 'not_set',
-                        'paid' => $charge->paid ?? 'not_set',
-                    ];
-                }
+            $paymentIntent = $this->stripeService->createPaymentIntent($paymentIntentData);
 
-                return response()->json([
-                    'success' => true,
-                    'debug' => $debug,
-                    'charge' => $charge,
-                ]);
-            } else {
-                return response()->json([
-                    'success' => false,
-                    'error' => 'PayJP SDK is not available',
-                ], 500);
-            }
+            return response()->json([
+                'success' => true,
+                'payment_intent' => $paymentIntent,
+            ]);
 
         } catch (\Exception $e) {
             return response()->json([
@@ -85,50 +60,52 @@ class PaymentController extends Controller
     }
 
     /**
-     * Create a charge using direct PayJP SDK approach
+     * Create a payment intent using direct Stripe approach
      */
-    public function createChargeDirect(Request $request)
+    public function createPaymentIntentDirect(Request $request)
     {
         $request->validate([
-            'card' => 'required|string',
+            'payment_method' => 'required|string',
             'amount' => 'required|integer|min:100',
             'currency' => 'nullable|string|in:jpy',
-            'tenant' => 'nullable|string', // Required for PAY.JP Platform
             'user_id' => 'nullable|integer', // Optional: for adding points to user
             'user_type' => 'nullable|string|in:guest,cast', // Optional: for adding points to user
         ]);
 
         try {
-            $result = $this->payJPService->createChargeDirect(
-                $request->card,
-                $request->amount,
-                $request->currency ?? 'jpy',
-                $request->tenant
-            );
+            $paymentIntentData = [
+                'amount' => $request->amount,
+                'currency' => $request->currency ?? 'jpy',
+                'payment_method' => $request->payment_method,
+                'confirmation_method' => 'manual',
+                'confirm' => true,
+            ];
+
+            $result = $this->stripeService->createPaymentIntent($paymentIntentData);
 
             // Validate the result
             if (!is_array($result) || !isset($result['id'])) {
-                Log::error('Invalid charge result structure', [
+                Log::error('Invalid payment intent result structure', [
                     'result' => $result,
-                    'card' => $request->card,
+                    'payment_method' => $request->payment_method,
                     'amount' => $request->amount
                 ]);
-                
+
                 return response()->json([
                     'success' => false,
-                    'error' => 'Invalid charge result structure',
+                    'error' => 'Invalid payment intent result structure',
                     'debug' => $result
                 ], 500);
             }
 
             $response = [
                 'success' => true,
-                'charge' => $result,
+                'payment_intent' => $result,
             ];
 
             // Add points to user if user_id and user_type are provided
             if ($request->user_id && $request->user_type) {
-                $model = $request->user_type === 'guest' 
+                $model = $request->user_type === 'guest'
                     ? \App\Models\Guest::find($request->user_id)
                     : \App\Models\Cast::find($request->user_id);
 
@@ -147,7 +124,7 @@ class PaymentController extends Controller
                     $pointTransactionData = [
                         'type' => 'buy',
                         'amount' => $pointsToCredit,
-                        'description' => "Direct charge point purchase - {$pointsToCredit} points",
+                        'description' => "Direct payment intent point purchase - {$pointsToCredit} points",
                     ];
 
                     // Set the appropriate user ID based on user type
@@ -165,7 +142,7 @@ class PaymentController extends Controller
                     $response['total_points'] = $newPoints;
                     $response['user'] = $model->fresh();
 
-                    Log::info('Points added to user after direct charge', [
+                    Log::info('Points added to user after direct payment intent', [
                         'user_id' => $request->user_id,
                         'user_type' => $request->user_type,
                         'amount_yen' => $request->amount,
@@ -180,14 +157,13 @@ class PaymentController extends Controller
             return response()->json($response);
 
         } catch (\Exception $e) {
-            Log::error('Direct charge creation failed: ' . $e->getMessage(), [
-                'card' => $request->card,
+            Log::error('Direct payment intent creation failed: ' . $e->getMessage(), [
+                'payment_method' => $request->payment_method,
                 'amount' => $request->amount,
                 'currency' => $request->currency,
-                'tenant' => $request->tenant,
                 'trace' => $e->getTraceAsString()
             ]);
-            
+
             return response()->json([
                 'success' => false,
                 'error' => '決済処理中にエラーが発生しました: ' . $e->getMessage(),
@@ -196,7 +172,7 @@ class PaymentController extends Controller
     }
 
     /**
-     * Initiate a point purchase with PAY.JP
+     * Initiate a point purchase with Stripe
      */
     public function purchase(Request $request)
     {
@@ -204,13 +180,13 @@ class PaymentController extends Controller
             'user_id' => 'required|integer',
             'user_type' => 'required|string|in:guest,cast',
             'amount' => 'required|integer|min:100',
-            'token' => 'nullable|string', // Make token optional since we can use customer
-            'payment_method' => 'nullable|string|in:card,convenience_store,bank_transfer,linepay,other',
+            'payment_method' => 'nullable|string', // Stripe payment method ID
+            'payment_method_type' => 'nullable|string|in:card,convenience_store,bank_transfer,linepay,other',
         ]);
 
         try {
             // Get user model
-            $model = $request->user_type === 'guest' 
+            $model = $request->user_type === 'guest'
                 ? \App\Models\Guest::find($request->user_id)
                 : \App\Models\Cast::find($request->user_id);
 
@@ -227,34 +203,35 @@ class PaymentController extends Controller
             $paymentData = [
                 'user_id' => $request->user_id,
                 'user_type' => $request->user_type,
-                'amount' => $request->amount, // yen
-                'payment_method' => $request->payment_method ?? 'card',
+                'amount' => $request->amount, // amount in cents for Stripe
+                'payment_method' => $request->payment_method,
+                'payment_method_type' => $request->payment_method_type ?? 'card',
                 'description' => $request->description ?? "{$intendedPoints}ポイント購入",
                 'metadata' => [
                     'user_id' => $request->user_id,
                     'user_type' => $request->user_type,
                     'yen_per_point' => $yenPerPoint,
                     'intended_points' => $intendedPoints,
-                    'customer_id' => $model->payjp_customer_id,
-                    'payment_type' => $request->token ? 'token' : 'customer',
+                    'customer_id' => $model->stripe_customer_id,
+                    'payment_type' => $request->payment_method ? 'payment_method' : 'customer',
                 ],
             ];
 
             // If user has a customer ID, use it for payment
-            if ($model->payjp_customer_id) {
-                $paymentData['customer_id'] = $model->payjp_customer_id;
-                
+            if ($model->stripe_customer_id) {
+                $paymentData['customer_id'] = $model->stripe_customer_id;
+
                 Log::info('Processing payment with registered customer', [
                     'user_id' => $request->user_id,
                     'user_type' => $request->user_type,
-                    'customer_id' => $model->payjp_customer_id,
+                    'customer_id' => $model->stripe_customer_id,
                     'amount' => $request->amount
                 ]);
-            } else if ($request->token) {
-                // Fallback to token if no customer ID
-                $paymentData['token'] = $request->token;
-                
-                Log::info('Processing payment with token (no registered customer)', [
+            } else if ($request->payment_method) {
+                // Use payment method if no customer ID
+                $paymentData['payment_method'] = $request->payment_method;
+
+                Log::info('Processing payment with payment method (no registered customer)', [
                     'user_id' => $request->user_id,
                     'user_type' => $request->user_type,
                     'amount' => $request->amount
@@ -266,9 +243,7 @@ class PaymentController extends Controller
                 ], 404);
             }
 
-            $paymentData['amount'] = (int) $request->amount; // amount is in yen for PAY.JP
-
-            $result = $this->payJPService->processPayment($paymentData);
+            $result = $this->stripeService->processPayment($paymentData);
 
             if (!$result['success']) {
                 Log::error('Payment processing failed', [
@@ -277,7 +252,7 @@ class PaymentController extends Controller
                     'amount' => $request->amount,
                     'error' => $result['error']
                 ]);
-                
+
                 return response()->json([
                     'success' => false,
                     'error' => $result['error'],
@@ -335,8 +310,8 @@ class PaymentController extends Controller
                 'amount_yen' => $request->amount,
                 'credited_points' => $pointsToCredit,
                 'payment_id' => $result['payment']->id ?? 'unknown',
-                'charge_id' => $result['charge']['id'] ?? 'unknown',
-                'customer_id' => $model->payjp_customer_id,
+                'payment_intent_id' => $result['payment_intent']['id'] ?? 'unknown',
+                'customer_id' => $model->stripe_customer_id,
                 'previous_points' => $currentPoints,
                 'new_points' => $newPoints,
                 'point_transaction_created' => true
@@ -345,7 +320,7 @@ class PaymentController extends Controller
             return response()->json([
                 'success' => true,
                 'payment' => $result['payment'],
-                'charge' => $result['charge'],
+                'payment_intent' => $result['payment_intent'],
                 'points_added' => $pointsToCredit,
                 'total_points' => $newPoints,
                 'user' => $model->fresh(),
@@ -358,7 +333,7 @@ class PaymentController extends Controller
                 'amount' => $request->amount ?? 'unknown',
                 'trace' => $e->getTraceAsString()
             ]);
-            
+
             return response()->json([
                 'success' => false,
                 'error' => '決済処理中にエラーが発生しました',
@@ -438,7 +413,7 @@ class PaymentController extends Controller
         try {
             // Generate unique receipt number
             $receiptNumber = 'R' . date('Ymd') . str_pad(Receipt::whereDate('created_at', today())->count() + 1, 6, '0', STR_PAD_LEFT);
-            
+
             $taxRate = 10.00; // 10% tax rate
             $taxAmount = $request->amount * ($taxRate / 100);
             $totalAmount = $request->amount + $taxAmount;
@@ -490,7 +465,7 @@ class PaymentController extends Controller
     {
         try {
             $receipt = Receipt::findOrFail($receiptId);
-            
+
             return response()->json([
                 'success' => true,
                 'receipt' => $receipt
@@ -511,14 +486,14 @@ class PaymentController extends Controller
     {
         try {
             $receipt = Receipt::where('receipt_number', $receiptNumber)->first();
-            
+
             if (!$receipt) {
                 return response()->json([
                     'success' => false,
                     'error' => '領収書が見つかりません'
                 ], 404);
             }
-            
+
             return response()->json([
                 'success' => true,
                 'receipt' => $receipt
@@ -545,31 +520,31 @@ class PaymentController extends Controller
         return "
         <div style='font-family: Arial, sans-serif; max-width: 400px; margin: 0 auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1);'>
             <div style='text-align: center; font-size: 24px; font-weight: bold; margin-bottom: 20px;'>領収書</div>
-            
+
             <div style='text-align: right; font-size: 12px; margin-bottom: 20px;'>
                 <div>No. {$receiptNumber}</div>
                 <div>{$issuedDate}</div>
             </div>
-            
+
             <div style='margin-bottom: 20px;'>
                 <div style='font-size: 16px; margin-bottom: 10px;'>{$recipientName} 様</div>
                 <div style='border-bottom: 1px solid #ccc; height: 30px;'></div>
             </div>
-            
+
             <div style='text-align: center; margin: 30px 0;'>
                 <div style='border: 2px solid #000; padding: 20px; font-size: 28px; font-weight: bold;'>
                     ¥{$formattedTotalAmount}-
                 </div>
             </div>
-            
+
             <div style='text-align: center; margin-bottom: 30px;'>
                 <div style='font-size: 14px;'>但し {$purpose} として</div>
             </div>
-            
+
             <div style='text-align: center; margin-bottom: 30px;'>
                 <div style='font-size: 14px;'>上記正に、領収致しました。</div>
             </div>
-            
+
             <div style='display: flex; justify-content: space-between;'>
                 <div style='flex: 1;'>
                     <div style='border: 1px dashed #ccc; padding: 10px; margin-bottom: 10px; font-size: 10px; text-align: center;'>
@@ -582,7 +557,7 @@ class PaymentController extends Controller
                         <div>消費税率 10%</div>
                     </div>
                 </div>
-                
+
                 <div style='flex: 1; text-align: right;'>
                     <div style='font-size: 12px;'>
                         <div style='font-weight: bold; margin-bottom: 5px;'>株式会社キネカ</div>
@@ -603,7 +578,7 @@ class PaymentController extends Controller
     public function getPaymentStatus($paymentId)
     {
         $payment = Payment::findOrFail($paymentId);
-        
+
         return response()->json([
             'payment' => $payment,
             'status' => $payment->status,
@@ -629,17 +604,10 @@ class PaymentController extends Controller
         }
 
         try {
-            $result = $this->payJPService->refundCharge(
-                $payment->payjp_charge_id,
+            $result = $this->stripeService->createRefund(
+                $payment->stripe_payment_intent_id,
                 $request->amount
             );
-
-            if (!$result['success']) {
-                return response()->json([
-                    'success' => false,
-                    'error' => $result['error'],
-                ], 400);
-            }
 
             $payment->update([
                 'status' => 'refunded',
@@ -649,7 +617,7 @@ class PaymentController extends Controller
             return response()->json([
                 'success' => true,
                 'payment' => $payment,
-                'refund' => $result['refund'],
+                'refund' => $result,
             ]);
 
         } catch (\Exception $e) {
@@ -662,15 +630,15 @@ class PaymentController extends Controller
     }
 
     /**
-     * Handle PAY.JP webhook
+     * Handle Stripe webhook
      */
     public function webhook(Request $request)
     {
         try {
             $payload = $request->getContent();
-            $signature = $request->header('Payjp-Signature');
+            $signature = $request->header('Stripe-Signature');
 
-            $result = $this->payJPService->handleWebhook($payload, $signature);
+            $result = $this->stripeService->handleWebhook($payload, $signature);
 
             if ($result['success']) {
                 return response()->json(['status' => 'success'], 200);
@@ -731,13 +699,12 @@ class PaymentController extends Controller
         $request->validate([
             'user_id' => 'required|integer',
             'user_type' => 'required|string|in:guest,cast',
-            'token' => 'required|string',
+            'payment_method' => 'required|string', // Stripe payment method ID
         ]);
-
 
         try {
             // Get or create customer
-            $model = $request->user_type === 'guest' 
+            $model = $request->user_type === 'guest'
                 ? \App\Models\Guest::find($request->user_id)
                 : \App\Models\Cast::find($request->user_id);
 
@@ -748,10 +715,12 @@ class PaymentController extends Controller
                 ], 404);
             }
 
-            // If user doesn't have a PayJP customer ID, create one
-            if (!$model->payjp_customer_id) {
+            // If user doesn't have a Stripe customer ID, create one
+            if (!$model->stripe_customer_id) {
                 try {
-                    $customerResult = $this->payJPService->createCustomer([
+                    $customerResult = $this->stripeService->createCustomer([
+                        'email' => $model->email ?? null,
+                        'name' => $model->nickname ?? null,
                         'description' => "{$request->user_type}_{$request->user_id}",
                         'metadata' => [
                             'user_id' => $request->user_id,
@@ -766,7 +735,7 @@ class PaymentController extends Controller
                         'user_type' => $request->user_type,
                         'error' => $e->getMessage()
                     ]);
-                    
+
                     return response()->json([
                         'success' => false,
                         'error' => '顧客の作成に失敗しました: ' . $e->getMessage(),
@@ -774,8 +743,8 @@ class PaymentController extends Controller
                 }
 
                 // Save customer ID to user model
-                $model->payjp_customer_id = $customerResult['id'];
-                
+                $model->stripe_customer_id = $customerResult['id'];
+
                 // Store additional customer metadata
                 $customerMetadata = [
                     'customer_id' => $customerResult['id'],
@@ -783,22 +752,22 @@ class PaymentController extends Controller
                     'user_type' => $request->user_type,
                     'user_id' => $request->user_id,
                 ];
-                
+
                 $model->payment_info = json_encode($customerMetadata);
-                
+
                 if (!$model->save()) {
                     Log::error('Failed to save customer ID to database', [
                         'user_id' => $request->user_id,
                         'user_type' => $request->user_type,
                         'customer_id' => $customerResult['id']
                     ]);
-                    
+
                     return response()->json([
                         'success' => false,
                         'error' => 'データベースへの保存に失敗しました',
                     ], 500);
                 }
-                
+
                 Log::info('Customer created and saved to database', [
                     'user_id' => $request->user_id,
                     'user_type' => $request->user_type,
@@ -806,20 +775,20 @@ class PaymentController extends Controller
                 ]);
             }
 
-            // Add card to customer
+            // Attach payment method to customer
             try {
-                $cardResult = $this->payJPService->addCardToCustomer(
-                    $model->payjp_customer_id,
-                    $request->token
+                $paymentMethodResult = $this->stripeService->attachPaymentMethod(
+                    $request->payment_method,
+                    $model->stripe_customer_id
                 );
             } catch (\Exception $e) {
-                Log::error('Failed to add card to customer', [
+                Log::error('Failed to attach payment method to customer', [
                     'user_id' => $request->user_id,
                     'user_type' => $request->user_type,
-                    'customer_id' => $model->payjp_customer_id,
+                    'customer_id' => $model->stripe_customer_id,
                     'error' => $e->getMessage()
                 ]);
-                
+
                 return response()->json([
                     'success' => false,
                     'error' => 'カードの追加に失敗しました: ' . $e->getMessage(),
@@ -828,36 +797,36 @@ class PaymentController extends Controller
 
             // Update payment_info with card information
             $paymentInfo = json_decode($model->payment_info, true) ?: [];
-            $paymentInfo['last_card_token'] = $request->token;
+            $paymentInfo['last_payment_method'] = $request->payment_method;
             $paymentInfo['last_card_added'] = now()->toISOString();
             $paymentInfo['card_count'] = ($paymentInfo['card_count'] ?? 0) + 1;
-            
+
             $model->payment_info = json_encode($paymentInfo);
-            
+
             if (!$model->save()) {
                 Log::error('Failed to update payment info in database', [
                     'user_id' => $request->user_id,
                     'user_type' => $request->user_type,
-                    'customer_id' => $model->payjp_customer_id
+                    'customer_id' => $model->stripe_customer_id
                 ]);
-                
+
                 return response()->json([
                     'success' => false,
                     'error' => 'カード情報の保存に失敗しました',
                 ], 500);
             }
 
-            Log::info('Card successfully attached to customer', [
+            Log::info('Payment method successfully attached to customer', [
                 'user_id' => $request->user_id,
                 'user_type' => $request->user_type,
-                'customer_id' => $model->payjp_customer_id,
-                'card_id' => $cardResult['id'] ?? 'unknown'
+                'customer_id' => $model->stripe_customer_id,
+                'payment_method_id' => $request->payment_method
             ]);
 
             return response()->json([
                 'success' => true,
-                'customer_id' => $model->payjp_customer_id,
-                'card' => $cardResult,
+                'customer_id' => $model->stripe_customer_id,
+                'payment_method' => $paymentMethodResult,
                 'message' => 'カードが正常に登録されました',
             ]);
 
@@ -867,7 +836,7 @@ class PaymentController extends Controller
                 'user_type' => $request->user_type,
                 'trace' => $e->getTraceAsString()
             ]);
-            
+
             return response()->json([
                 'success' => false,
                 'error' => 'カード登録中にエラーが発生しました',
@@ -887,7 +856,7 @@ class PaymentController extends Controller
         ]);
 
         try {
-            $model = $request->user_type === 'guest' 
+            $model = $request->user_type === 'guest'
                 ? \App\Models\Guest::find($request->user_id)
                 : \App\Models\Cast::find($request->user_id);
 
@@ -923,7 +892,7 @@ class PaymentController extends Controller
     {
         try {
             $result = $this->customerService->getCustomerInfo($userType, $userId);
-            
+
             if (!$result['success']) {
                 return response()->json([
                     'success' => false,
@@ -947,7 +916,7 @@ class PaymentController extends Controller
                 'user_type' => $userType,
                 'trace' => $e->getTraceAsString()
             ]);
-            
+
             return response()->json([
                 'success' => false,
                 'error' => '支払い情報の取得中にエラーが発生しました',
@@ -961,7 +930,7 @@ class PaymentController extends Controller
     public function deletePaymentInfo($userType, $userId, $cardId)
     {
         try {
-            $model = $userType === 'guest' 
+            $model = $userType === 'guest'
                 ? \App\Models\Guest::find($userId)
                 : \App\Models\Cast::find($userId);
 
@@ -976,7 +945,7 @@ class PaymentController extends Controller
             if ($model->payjp_customer_id) {
                 try {
                     $result = $this->payJPService->deleteCardFromCustomer($model->payjp_customer_id, $cardId);
-                    
+
                     // Check if this was the last card by getting remaining cards
                     $cardsResult = $this->payJPService->getCustomerCards($model->payjp_customer_id);
                     if ($cardsResult && isset($cardsResult['data']) && count($cardsResult['data']) === 0) {
@@ -1016,7 +985,7 @@ class PaymentController extends Controller
     {
         try {
             $result = $this->customerService->getCustomerStats($userType, $userId);
-            
+
             if (!$result['success']) {
                 return response()->json([
                     'success' => false,
@@ -1035,7 +1004,7 @@ class PaymentController extends Controller
                 'user_type' => $userType,
                 'trace' => $e->getTraceAsString()
             ]);
-            
+
             return response()->json([
                 'success' => false,
                 'error' => '顧客統計の取得中にエラーが発生しました',
@@ -1051,7 +1020,7 @@ class PaymentController extends Controller
         try {
             $pointService = app(PointTransactionService::class);
             $transactions = $pointService->getTransactionHistory($userId, $userType);
-            
+
             return response()->json([
                 'success' => true,
                 'transactions' => $transactions,
@@ -1063,7 +1032,7 @@ class PaymentController extends Controller
                 'user_type' => $userType,
                 'trace' => $e->getTraceAsString()
             ]);
-            
+
             return response()->json([
                 'success' => false,
                 'error' => 'ポイント取引履歴の取得中にエラーが発生しました',
@@ -1115,7 +1084,7 @@ class PaymentController extends Controller
             // Use the PointTransactionService to create the transaction
             $pointService = app(PointTransactionService::class);
             $transaction = $pointService->createTransaction($transactionData);
-            
+
             return response()->json([
                 'success' => true,
                 'transaction' => $transaction,
@@ -1130,7 +1099,7 @@ class PaymentController extends Controller
                 'type' => $request->type,
                 'trace' => $e->getTraceAsString()
             ]);
-            
+
             return response()->json([
                 'success' => false,
                 'error' => 'ポイント取引の作成中にエラーが発生しました',
@@ -1261,7 +1230,7 @@ class PaymentController extends Controller
         ]);
 
         $payment = Payment::where('user_type', 'cast')->findOrFail($paymentId);
-        
+
         $oldStatus = $payment->status;
         $payment->status = $request->status;
         $payment->description = $request->description ?? $payment->description;
@@ -1300,7 +1269,7 @@ class PaymentController extends Controller
     public function deleteCastPayment($paymentId)
     {
         $payment = Payment::where('user_type', 'cast')->findOrFail($paymentId);
-        
+
         // Update cast points if payment was successful
         if ($payment->status === 'paid') {
             $cast = Cast::find($payment->user_id);
