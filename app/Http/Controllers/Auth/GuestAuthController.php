@@ -335,7 +335,8 @@ class GuestAuthController extends Controller
             'location' => 'nullable|string|max:255',
             'meeting_location' => 'nullable|string|max:255',
             'reservation_name' => 'nullable|string|max:255',
-            'duration' => 'nullable|integer',
+            // Allow non-integer durations (e.g., fractional hours or minute-based values)
+            'duration' => 'nullable',
             'details' => 'nullable|string',
             'time' => 'nullable|string|max:10',
         ]);
@@ -1121,7 +1122,8 @@ class GuestAuthController extends Controller
             }
             $validator = Validator::make($request->all(), [
                 'scheduled_at' => 'sometimes|date',
-                'duration' => 'sometimes|integer',
+                // Allow non-integer durations in updates as well
+                'duration' => 'sometimes',
                 'location' => 'sometimes|string|max:255',
                 'details' => 'sometimes|string',
                 'time' => 'sometimes|string|max:10',

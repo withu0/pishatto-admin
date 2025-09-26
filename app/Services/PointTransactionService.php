@@ -108,6 +108,15 @@ class PointTransactionService
     }
 
     /**
+     * Create an exceeded pending point transaction for exceeded time
+     */
+    public function createExceededPendingTransaction(array $data): PointTransaction
+    {
+        $data['type'] = 'exceeded_pending';
+        return $this->createTransaction($data);
+    }
+
+    /**
      * Process free call creation - deduct points and create pending transaction
      */
     public function processFreeCallCreation(Reservation $reservation, int $requiredPoints): bool
@@ -208,6 +217,19 @@ class PointTransactionService
                 // Buy transactions: points already added to user
                 // No additional point updates needed here
                 break;
+
+            case 'exceeded_pending':
+                // Exceeded pending transactions: deduct points from guest for exceeded time
+                if ($transaction->guest_id) {
+                    $guest = Guest::find($transaction->guest_id);
+                    if ($guest && $guest->points >= $transaction->amount) {
+                        $guest->points -= $transaction->amount;
+                        $guest->save();
+                    } else {
+                        throw new \InvalidArgumentException('Insufficient guest points for exceeded time');
+                    }
+                }
+                break;
         }
     }
 
@@ -272,6 +294,99 @@ class PointTransactionService
         }
 
         $exceededMinutes = $actualMinutes - $scheduledDurationMinutes;
+        return (int) floor($perMinute * $exceededMinutes * self::EXTENSION_MULTIPLIER);
+    }
+
+    /**
+     * Calculate exceeded time amount for pishatto calls and create pending transaction
+     * This is called when a pishatto call exceeds the scheduled duration
+     */
+    public function processExceededTime(Reservation $reservation): bool
+    {
+        try {
+            DB::beginTransaction();
+
+            if (!$reservation->cast_id || !$reservation->started_at || !$reservation->duration) {
+                DB::rollBack();
+                return false;
+            }
+
+            $cast = Cast::find($reservation->cast_id);
+            if (!$cast) {
+                DB::rollBack();
+                return false;
+            }
+
+            $guest = Guest::find($reservation->guest_id);
+            if (!$guest) {
+                DB::rollBack();
+                return false;
+            }
+
+            // Calculate exceeded time amount
+            $exceededAmount = $this->calculateExceededTimeAmount($reservation);
+            
+            if ($exceededAmount <= 0) {
+                DB::rollBack();
+                return false;
+            }
+
+            // Check if guest has sufficient points
+            if ($guest->points < $exceededAmount) {
+                DB::rollBack();
+                return false;
+            }
+
+            // Create exceeded pending transaction
+            $this->createExceededPendingTransaction([
+                'guest_id' => $guest->id,
+                'cast_id' => $cast->id,
+                'reservation_id' => $reservation->id,
+                'amount' => $exceededAmount,
+                'description' => "Pishatto call exceeded time - {$reservation->id}",
+            ]);
+
+            DB::commit();
+            return true;
+
+        } catch (\Exception $e) {
+            DB::rollBack();
+            Log::error('Failed to process exceeded time', [
+                'reservation_id' => $reservation->id,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+            return false;
+        }
+    }
+
+    /**
+     * Calculate exceeded time amount for pishatto calls
+     */
+    public function calculateExceededTimeAmount(Reservation $reservation): int
+    {
+        if (!$reservation->cast_id || !$reservation->started_at || !$reservation->duration) {
+            return 0;
+        }
+
+        $cast = Cast::find($reservation->cast_id);
+        if (!$cast) {
+            return 0;
+        }
+
+        // For pishatto calls, use grade_points per minute
+        $perMinute = (int) floor(($cast->grade_points ?? 0) / 30);
+
+        $startedAt = \Carbon\Carbon::parse($reservation->started_at);
+        $now = now();
+        $scheduledDurationMinutes = (int) ($reservation->duration * 60);
+        $elapsedMinutes = max(0, $now->diffInMinutes($startedAt));
+
+        if ($elapsedMinutes <= $scheduledDurationMinutes) {
+            return 0;
+        }
+
+        $exceededMinutes = $elapsedMinutes - $scheduledDurationMinutes;
         return (int) floor($perMinute * $exceededMinutes * self::EXTENSION_MULTIPLIER);
     }
 
@@ -653,6 +768,111 @@ class PointTransactionService
             ]);
             return false;
         }
+    }
+
+    /**
+     * Process 2-day auto-transfer for exceeded pending amounts
+     * This should be called by a scheduled command
+     */
+    public function processAutoTransferExceededPending(): int
+    {
+        $processedCount = 0;
+        
+        try {
+            DB::beginTransaction();
+
+            // Find exceeded_pending transactions older than 2 days
+            $exceededPendingTransactions = PointTransaction::where('type', 'exceeded_pending')
+                ->where('created_at', '<=', now()->subDays(2))
+                ->get();
+
+            foreach ($exceededPendingTransactions as $transaction) {
+                if ($this->transferExceededPendingToCast($transaction)) {
+                    $processedCount++;
+                }
+            }
+
+            DB::commit();
+            Log::info('Auto-transfer exceeded pending completed', [
+                'processed_count' => $processedCount,
+                'total_found' => $exceededPendingTransactions->count()
+            ]);
+
+        } catch (\Exception $e) {
+            DB::rollBack();
+            Log::error('Failed to process auto-transfer exceeded pending', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+        }
+
+        return $processedCount;
+    }
+
+    /**
+     * Transfer exceeded pending amount to cast and remove from guest
+     */
+    private function transferExceededPendingToCast(PointTransaction $transaction): bool
+    {
+        try {
+            if (!$transaction->cast_id || !$transaction->guest_id) {
+                return false;
+            }
+
+            $cast = Cast::find($transaction->cast_id);
+            $guest = Guest::find($transaction->guest_id);
+
+            if (!$cast || !$guest) {
+                return false;
+            }
+
+            // Add points to cast
+            $cast->points += $transaction->amount;
+            $cast->save();
+
+            // Create transfer transaction record
+            $this->createTransferTransaction([
+                'guest_id' => $guest->id,
+                'cast_id' => $cast->id,
+                'reservation_id' => $transaction->reservation_id,
+                'amount' => $transaction->amount,
+                'description' => "Auto-transfer exceeded pending amount after 2 days - {$transaction->id}",
+            ]);
+
+            // Update the exceeded_pending transaction to mark it as processed
+            $transaction->update([
+                'description' => $transaction->description . ' (Auto-transferred after 2 days)',
+                'type' => 'transfer' // Change type to indicate it's been processed
+            ]);
+
+            return true;
+
+        } catch (\Exception $e) {
+            Log::error('Failed to transfer exceeded pending to cast', [
+                'transaction_id' => $transaction->id,
+                'error' => $e->getMessage()
+            ]);
+            return false;
+        }
+    }
+
+    /**
+     * Get all exceeded pending transactions for admin view
+     */
+    public function getExceededPendingTransactions()
+    {
+        return PointTransaction::with(['guest', 'cast', 'reservation'])
+            ->where('type', 'exceeded_pending')
+            ->orderBy('created_at', 'desc')
+            ->get();
+    }
+
+    /**
+     * Get exceeded pending transactions count for admin dashboard
+     */
+    public function getExceededPendingCount(): int
+    {
+        return PointTransaction::where('type', 'exceeded_pending')->count();
     }
 
     /**

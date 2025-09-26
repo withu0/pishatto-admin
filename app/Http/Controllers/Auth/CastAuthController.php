@@ -637,10 +637,29 @@ class CastAuthController extends Controller
         $reservation->started_at = now();
         $reservation->save();
         
+        // For pishatto calls, start monitoring for exceeded time
+        if ($reservation->type === 'Pishatto') {
+            $this->startExceededTimeMonitoring($reservation);
+        }
+        
         // Broadcast the reservation update event
         event(new \App\Events\ReservationUpdated($reservation));
         
         return response()->json(['reservation' => $reservation]);
+    }
+
+    /**
+     * Start monitoring for exceeded time in pishatto calls
+     */
+    private function startExceededTimeMonitoring(Reservation $reservation)
+    {
+        // Schedule a job to check for exceeded time after the scheduled duration
+        $scheduledEndTime = \Carbon\Carbon::parse($reservation->started_at)
+            ->addHours($reservation->duration);
+        
+        // Dispatch a job to check exceeded time after scheduled duration
+        \App\Jobs\CheckExceededTime::dispatch($reservation->id)
+            ->delay($scheduledEndTime);
     }
 
     // Stop reservation (cast triggers this)

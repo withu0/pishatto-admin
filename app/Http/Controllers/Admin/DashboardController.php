@@ -38,6 +38,9 @@ class DashboardController extends Controller
         $totalSales = PointTransaction::where('type', 'purchase')
             ->sum('amount');
 
+        // Get exceeded pending transactions count
+        $exceededPendingCount = PointTransaction::where('type', 'exceeded_pending')->count();
+
         // Get gift distribution for pie chart
         $giftDistribution = Gift::select('gifts.name', DB::raw('COUNT(guest_gifts.id) as value'))
             ->leftJoin('guest_gifts', 'gifts.id', '=', 'guest_gifts.gift_id')
@@ -68,6 +71,7 @@ class DashboardController extends Controller
                 'pendingVerifications' => $pendingVerifications,
                 'approvedVerifications' => $approvedVerifications,
                 'rejectedVerifications' => $rejectedVerifications,
+                'exceededPendingCount' => $exceededPendingCount,
             ],
             'giftDistribution' => $giftDistribution,
             'recentUpdates' => $recentUpdates,

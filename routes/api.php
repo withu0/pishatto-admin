@@ -270,6 +270,29 @@ Route::post('/admin/identity-verification/{guestId}/reject', [IdentityVerificati
 Route::get('/admin-news/{userType}/{userId}', [GuestAuthController::class, 'getAdminNews']);
 Route::get('/admin-news/{userType}', [GuestAuthController::class, 'getAdminNews']);
 
+// Exceeded pending transactions admin routes
+Route::get('/admin/exceeded-pending', [App\Http\Controllers\Admin\ExceededPendingController::class, 'index']);
+Route::get('/admin/exceeded-pending/count', [App\Http\Controllers\Admin\ExceededPendingController::class, 'count']);
+Route::post('/admin/exceeded-pending/process-all', [App\Http\Controllers\Admin\ExceededPendingController::class, 'processAll']);
+
+// Test endpoint for exceeded time processing (for development/testing)
+Route::post('/test/exceeded-time/{reservationId}', function ($reservationId) {
+    $reservation = \App\Models\Reservation::find($reservationId);
+    if (!$reservation) {
+        return response()->json(['message' => 'Reservation not found'], 404);
+    }
+    
+    $pointService = app(\App\Services\PointTransactionService::class);
+    $exceededAmount = $pointService->calculateExceededTimeAmount($reservation);
+    $success = $pointService->processExceededTime($reservation);
+    
+    return response()->json([
+        'reservation_id' => $reservationId,
+        'exceeded_amount' => $exceededAmount,
+        'success' => $success
+    ]);
+});
+
 // Cast Application routes
 Route::post('/cast-applications/submit', [CastApplicationController::class, 'submit']);
 Route::get('/cast-applications', [CastApplicationController::class, 'index']);
