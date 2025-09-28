@@ -11,14 +11,9 @@ return new class extends Migration
      */
     public function up(): void
     {
-        // Drop the existing type column
         Schema::table('point_transactions', function (Blueprint $table) {
-            $table->dropColumn('type');
-        });
-
-        // Recreate the type column with the exceeded_pending type added
-        Schema::table('point_transactions', function (Blueprint $table) {
-            $table->enum('type', ['buy', 'transfer', 'convert', 'gift', 'pending', 'exceeded_pending'])->after('cast_id');
+            // Update the enum to include exceeded_pending type
+            $table->enum('type', ['buy', 'transfer', 'convert', 'gift', 'pending', 'exceeded_pending'])->change();
         });
     }
 
@@ -27,15 +22,9 @@ return new class extends Migration
      */
     public function down(): void
     {
-        // Drop the type column
         Schema::table('point_transactions', function (Blueprint $table) {
-            $table->dropColumn('type');
-        });
-
-        // Recreate with original enum values (without exceeded_pending)
-        Schema::table('point_transactions', function (Blueprint $table) {
-            $table->enum('type', ['buy', 'transfer', 'convert', 'gift', 'pending'])->after('cast_id');
+            // Revert to original enum without exceeded_pending
+            $table->enum('type', ['buy', 'transfer', 'convert', 'gift', 'pending'])->change();
         });
     }
 };
-

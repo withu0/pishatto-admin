@@ -19,21 +19,29 @@ class ProcessExceededPendingTransfers extends Command
      *
      * @var string
      */
-    protected $description = 'Process exceeded pending transactions after 2 days and transfer to cast points';
+    protected $description = 'Process exceeded pending transactions that are older than 2 days and transfer them to casts';
 
     /**
      * Execute the console command.
      */
-    public function handle()
+    public function handle(PointTransactionService $pointTransactionService)
     {
-        $this->info('Starting exceeded pending transactions processing...');
-
-        $pointService = app(PointTransactionService::class);
-        $processedCount = $pointService->processAutoTransferExceededPending();
-
-        $this->info("Processed {$processedCount} exceeded pending transactions.");
-
-        return Command::SUCCESS;
+        $this->info('Starting exceeded pending transfer process...');
+        
+        try {
+            $processedCount = $pointTransactionService->processAutoTransferExceededPending();
+            
+            if ($processedCount > 0) {
+                $this->info("Successfully processed {$processedCount} exceeded pending transactions.");
+            } else {
+                $this->info('No exceeded pending transactions found that are ready for transfer.');
+            }
+            
+            return Command::SUCCESS;
+            
+        } catch (\Exception $e) {
+            $this->error('Failed to process exceeded pending transfers: ' . $e->getMessage());
+            return Command::FAILURE;
+        }
     }
 }
-
