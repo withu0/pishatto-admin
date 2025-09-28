@@ -1,4 +1,6 @@
 import React, { useState, useEffect } from 'react';
+import AppLayout from '@/layouts/app-layout';
+import { Head } from '@inertiajs/react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -43,8 +45,16 @@ const ExceededPendingPage: React.FC = () => {
       setLoading(true);
       setError(null);
       
-      const response = await fetch('/api/admin/exceeded-pending');
+      const response = await fetch('/api/admin/exceeded-pending', {
+        headers: {
+          'Accept': 'application/json',
+          'Content-Type': 'application/json',
+        },
+      });
+      
+      console.log('API Response Status:', response.status);
       const data = await response.json();
+      console.log('API Response Data:', data);
       
       if (data.success) {
         setTransactions(data.data);
@@ -68,7 +78,9 @@ const ExceededPendingPage: React.FC = () => {
       const response = await fetch('/api/admin/exceeded-pending/process-all', {
         method: 'POST',
         headers: {
+          'Accept': 'application/json',
           'Content-Type': 'application/json',
+          'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '',
         },
       });
       
@@ -136,7 +148,9 @@ const ExceededPendingPage: React.FC = () => {
   }
 
   return (
-    <div className="container mx-auto p-6 space-y-6">
+    <AppLayout>
+      <Head title="超過時間管理" />
+      <div className="container mx-auto p-6 space-y-6">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold">Exceeded Pending Transactions</h1>
@@ -319,7 +333,8 @@ const ExceededPendingPage: React.FC = () => {
           ))}
         </div>
       )}
-    </div>
+      </div>
+    </AppLayout>
   );
 };
 
