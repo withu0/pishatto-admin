@@ -25,6 +25,73 @@ class PaymentController extends Controller
     }
 
     /**
+     * Create a payment method
+     */
+    public function createPaymentMethod(Request $request)
+    {
+        $request->validate([
+            'number' => 'required|string',
+            'exp_month' => 'required|integer|min:1|max:12',
+            'exp_year' => 'required|integer|min:' . date('Y'),
+            'cvc' => 'required|string|min:3|max:4',
+        ]);
+
+        try {
+            $paymentMethod = $this->stripeService->createPaymentMethod([
+                'number' => $request->number,
+                'exp_month' => $request->exp_month,
+                'exp_year' => $request->exp_year,
+                'cvc' => $request->cvc,
+            ]);
+
+            return response()->json([
+                'success' => true,
+                'payment_method_id' => $paymentMethod['id'],
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('Payment method creation failed: ' . $e->getMessage());
+            return response()->json([
+                'success' => false,
+                'error' => 'カード情報の処理中にエラーが発生しました: ' . $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
+     * Complete payment intent after 3DS authentication
+     */
+    public function completePaymentIntent(Request $request)
+    {
+        $request->validate([
+            'payment_intent_id' => 'required|string',
+        ]);
+
+        try {
+            $result = $this->stripeService->completePaymentIntent($request->payment_intent_id);
+            
+            $isPaymentSuccessful = $result['status'] === 'succeeded';
+            
+            return response()->json([
+                'success' => true,
+                'payment_intent' => $result,
+                'payment_successful' => $isPaymentSuccessful,
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('Payment intent completion failed: ' . $e->getMessage(), [
+                'payment_intent_id' => $request->payment_intent_id,
+                'trace' => $e->getTraceAsString()
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'error' => '決済完了処理中にエラーが発生しました: ' . $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
      * Debug Stripe response structure
      */
     public function debugStripeResponse(Request $request)
@@ -77,8 +144,14 @@ class PaymentController extends Controller
                 'amount' => $request->amount,
                 'currency' => $request->currency ?? 'jpy',
                 'payment_method' => $request->payment_method,
-                'confirmation_method' => 'manual',
                 'confirm' => true,
+                'capture_method' => 'automatic',
+                'off_session' => true, // Indicates this is an off-session payment
+                'return_url' => config('app.url') . '/payment/return', // Add return URL for redirect-based payments
+                'automatic_payment_methods' => [
+                    'enabled' => true,
+                    'allow_redirects' => 'never' // Disable redirect-based payment methods
+                ],
             ];
 
             $result = $this->stripeService->createPaymentIntent($paymentIntentData);
@@ -98,13 +171,25 @@ class PaymentController extends Controller
                 ], 500);
             }
 
+            // Check if payment was successful or requires action
+            $isPaymentSuccessful = $result['status'] === 'succeeded';
+            $requiresAction = $result['status'] === 'requires_action';
+            
             $response = [
                 'success' => true,
                 'payment_intent' => $result,
+                'payment_successful' => $isPaymentSuccessful,
+                'requires_action' => $requiresAction,
             ];
 
-            // Add points to user if user_id and user_type are provided
-            if ($request->user_id && $request->user_type) {
+            // If payment requires 3DS authentication, return the client_secret
+            if ($requiresAction && isset($result['client_secret'])) {
+                $response['client_secret'] = $result['client_secret'];
+                $response['next_action'] = $result['next_action'] ?? null;
+            }
+
+            // Add points to user if user_id and user_type are provided AND payment was successful
+            if ($request->user_id && $request->user_type && $isPaymentSuccessful) {
                 $model = $request->user_type === 'guest'
                     ? \App\Models\Guest::find($request->user_id)
                     : \App\Models\Cast::find($request->user_id);

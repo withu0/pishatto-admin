@@ -112,6 +112,8 @@ Route::delete('/users/avatar', [GuestAuthController::class, 'deleteAvatar']);
 
 // Payment routes
 Route::post('/payments/token', [PaymentController::class, 'createToken']);
+Route::post('/payments/create-payment-method', [PaymentController::class, 'createPaymentMethod']);
+Route::post('/payments/complete-payment-intent', [PaymentController::class, 'completePaymentIntent']);
 
 // Point transaction routes
 Route::get('/point-transactions/{userType}/{userId}', [PaymentController::class, 'getPointTransactions']);
