@@ -83,7 +83,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::get('admin/payments', [AdminController::class, 'payments'])->name('admin.payments');
     Route::resource('admin/payment-details', App\Http\Controllers\Admin\PaymentDetailController::class, ['as' => 'admin']);
     Route::get('admin/notifications', [App\Http\Controllers\Admin\AdminNewsController::class, 'index'])->name('admin.notifications');
-    Route::get('admin/exceeded-pending', fn() => Inertia::render('admin/exceeded-pending'))->name('admin.exceeded-pending');
+    Route::get('admin/point-transactions', fn() => Inertia::render('admin/exceeded-pending'))->name('admin.point-transactions');
 
     // Reservation Applications Management
     Route::get('admin/reservation-applications', [AdminController::class, 'reservationApplications'])->name('admin.reservation-applications');

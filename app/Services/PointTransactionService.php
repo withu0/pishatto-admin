@@ -968,6 +968,25 @@ class PointTransactionService
     }
 
     /**
+     * Get all point transactions except pending type for admin view
+     */
+    public function getAllPointTransactionsExceptPending()
+    {
+        return PointTransaction::with(['guest', 'cast', 'reservation'])
+            ->where('type', '!=', 'pending')
+            ->orderBy('created_at', 'desc')
+            ->get();
+    }
+
+    /**
+     * Get all point transactions except pending type count for admin dashboard
+     */
+    public function getAllPointTransactionsExceptPendingCount(): int
+    {
+        return PointTransaction::where('type', '!=', 'pending')->count();
+    }
+
+    /**
      * Reverse point changes when deleting a transaction
      */
     private function reversePointChanges(PointTransaction $transaction): void

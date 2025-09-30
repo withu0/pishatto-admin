@@ -270,7 +270,7 @@ Route::post('/admin/identity-verification/{guestId}/reject', [IdentityVerificati
 Route::get('/admin-news/{userType}/{userId}', [GuestAuthController::class, 'getAdminNews']);
 Route::get('/admin-news/{userType}', [GuestAuthController::class, 'getAdminNews']);
 
-// Exceeded pending transactions admin routes
+// Point transactions admin routes (all except pending type)
 Route::get('/admin/exceeded-pending', [App\Http\Controllers\Admin\ExceededPendingController::class, 'index']);
 Route::get('/admin/exceeded-pending/count', [App\Http\Controllers\Admin\ExceededPendingController::class, 'count']);
 Route::post('/admin/exceeded-pending/process-all', [App\Http\Controllers\Admin\ExceededPendingController::class, 'processAll']);

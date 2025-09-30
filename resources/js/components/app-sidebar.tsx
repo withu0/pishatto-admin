@@ -31,7 +31,7 @@ const mainNavItems: NavItem[] = [
     { title: '領収書管理', href: '/admin/receipts', icon: Receipt },
     { title: '支払管理', href: '/admin/payments', icon: CreditCard },
     { title: '支払明細管理', href: '/admin/payment-details', icon: FileSignature },
-    { title: '超過時間管理', href: '/admin/exceeded-pending', icon: Clock },
+    { title: 'ポイント取引管理', href: '/admin/point-transactions', icon: Clock },
     { title: 'お知らせ配信', href: '/admin/notifications', icon: Megaphone },
 ];
 
