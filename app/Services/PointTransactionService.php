@@ -202,22 +202,38 @@ class PointTransactionService
                 break;
 
             case 'exceeded_pending':
-                // Exceeded pending transactions: deduct points from guest for exceeded time (clamped to available points)
+                // Exceeded pending transactions: deduct points from guest for exceeded time
+                // This method is called when processing existing exceeded_pending transactions
                 if ($transaction->guest_id) {
                     $guest = Guest::find($transaction->guest_id);
                     if ($guest) {
-                        $deduction = min(max(0, (int) $guest->points), (int) $transaction->amount);
-                        if ($deduction < (int) $transaction->amount) {
-                            Log::warning('updateUserPoints: Guest had insufficient points; clamping exceeded_pending deduction', [
-                                'guest_id' => $guest->id,
-                                'available_points' => $guest->points,
-                                'required_amount' => $transaction->amount,
-                                'deducted' => $deduction
-                            ]);
-                        }
-                        if ($deduction > 0) {
-                            $guest->points -= $deduction;
+                        $requiredAmount = (int) $transaction->amount;
+                        $availablePoints = (int) $guest->points;
+                        
+                        if ($availablePoints >= $requiredAmount) {
+                            // Sufficient points - deduct normally
+                            $guest->points -= $requiredAmount;
                             $guest->save();
+                            
+                            Log::info('Exceeded pending: Sufficient points available', [
+                                'guest_id' => $guest->id,
+                                'required_amount' => $requiredAmount,
+                                'available_points' => $availablePoints,
+                                'remaining_points' => $guest->points
+                            ]);
+                        } else {
+                            // Insufficient points - deduct available points only
+                            // Note: Automatic payment should have been handled during transaction creation
+                            $guest->points = 0;
+                            $guest->save();
+                            
+                            Log::warning('Exceeded pending: Insufficient points, deducting available points only', [
+                                'guest_id' => $guest->id,
+                                'available_points' => $availablePoints,
+                                'required_amount' => $requiredAmount,
+                                'shortfall' => $requiredAmount - $availablePoints,
+                                'reservation_id' => $transaction->reservation_id
+                            ]);
                         }
                     }
                 }
@@ -665,13 +681,103 @@ class PointTransactionService
                     ->first();
                     
                 if (!$existingExceededPending) {
-                    $this->createExceededPendingTransaction([
-                        'guest_id' => $guest->id,
-                        'cast_id' => $cast->id,
-                        'reservation_id' => $reservation->id,
-                        'amount' => $exceededPendingPoints,
-                        'description' => "Pishatto call exceeded time - {$reservation->id}",
-                    ]);
+                    // Check if guest has sufficient points for exceeded time
+                    $availablePoints = (int) $guest->points;
+                    
+                    if ($availablePoints >= $exceededPendingPoints) {
+                        // Sufficient points - create exceeded_pending transaction normally
+                        $this->createExceededPendingTransaction([
+                            'guest_id' => $guest->id,
+                            'cast_id' => $cast->id,
+                            'reservation_id' => $reservation->id,
+                            'amount' => $exceededPendingPoints,
+                            'description' => "Pishatto call exceeded time - {$reservation->id}",
+                        ]);
+                        
+                        Log::info('Exceeded pending: Sufficient points available', [
+                            'guest_id' => $guest->id,
+                            'required_amount' => $exceededPendingPoints,
+                            'available_points' => $availablePoints,
+                            'reservation_id' => $reservation->id
+                        ]);
+                    } else {
+                        // Insufficient points - attempt automatic payment
+                        $shortfall = $exceededPendingPoints - $availablePoints;
+                        
+                        Log::info('Exceeded pending: Insufficient points, attempting automatic payment', [
+                            'guest_id' => $guest->id,
+                            'required_amount' => $exceededPendingPoints,
+                            'available_points' => $availablePoints,
+                            'shortfall' => $shortfall,
+                            'reservation_id' => $reservation->id
+                        ]);
+                        
+                        // Check if guest has registered payment method
+                        $automaticPaymentService = app(\App\Services\AutomaticPaymentService::class);
+                        
+                        if ($automaticPaymentService->hasRegisteredPaymentMethod($guest->id)) {
+                            // Process automatic payment for the shortfall
+                            $paymentResult = $automaticPaymentService->processAutomaticPaymentForInsufficientPoints(
+                                $guest->id,
+                                $shortfall,
+                                $reservation->id,
+                                "Automatic payment for exceeded time - reservation {$reservation->id}"
+                            );
+                            
+                            if ($paymentResult['success']) {
+                                // Payment successful - create exceeded_pending transaction for full amount
+                                $this->createExceededPendingTransaction([
+                                    'guest_id' => $guest->id,
+                                    'cast_id' => $cast->id,
+                                    'reservation_id' => $reservation->id,
+                                    'amount' => $exceededPendingPoints,
+                                    'description' => "Pishatto call exceeded time - {$reservation->id} (paid via automatic payment)",
+                                ]);
+                                
+                                Log::info('Exceeded pending: Automatic payment successful', [
+                                    'guest_id' => $guest->id,
+                                    'payment_id' => $paymentResult['payment_id'],
+                                    'amount_yen' => $paymentResult['amount_yen'],
+                                    'points_added' => $paymentResult['points_added'],
+                                    'reservation_id' => $reservation->id
+                                ]);
+                            } else {
+                                // Payment failed - create exceeded_pending transaction for available points only
+                                $this->createExceededPendingTransaction([
+                                    'guest_id' => $guest->id,
+                                    'cast_id' => $cast->id,
+                                    'reservation_id' => $reservation->id,
+                                    'amount' => $availablePoints,
+                                    'description' => "Pishatto call exceeded time - {$reservation->id} (partial payment due to insufficient funds)",
+                                ]);
+                                
+                                Log::warning('Exceeded pending: Automatic payment failed, using available points only', [
+                                    'guest_id' => $guest->id,
+                                    'available_points' => $availablePoints,
+                                    'required_amount' => $exceededPendingPoints,
+                                    'payment_error' => $paymentResult['error'],
+                                    'reservation_id' => $reservation->id
+                                ]);
+                            }
+                        } else {
+                            // No registered payment method - create exceeded_pending transaction for available points only
+                            $this->createExceededPendingTransaction([
+                                'guest_id' => $guest->id,
+                                'cast_id' => $cast->id,
+                                'reservation_id' => $reservation->id,
+                                'amount' => $availablePoints,
+                                'description' => "Pishatto call exceeded time - {$reservation->id} (partial payment - no registered card)",
+                            ]);
+                            
+                            Log::warning('Exceeded pending: No registered payment method, using available points only', [
+                                'guest_id' => $guest->id,
+                                'available_points' => $availablePoints,
+                                'required_amount' => $exceededPendingPoints,
+                                'shortfall' => $shortfall,
+                                'reservation_id' => $reservation->id
+                            ]);
+                        }
+                    }
                 }
             }
 

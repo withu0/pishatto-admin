@@ -10,6 +10,8 @@ use App\Models\Cast;
 use App\Services\StripeService;
 use App\Services\CustomerService;
 use App\Services\PointTransactionService;
+use App\Services\AutomaticPaymentService;
+use App\Services\AutomaticPaymentAuditService;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
 
@@ -1387,5 +1389,197 @@ class PaymentController extends Controller
             'success' => true,
             'message' => 'Cast payment deleted successfully'
         ]);
+    }
+
+    /**
+     * Process automatic payment for insufficient points during exceeded time
+     */
+    public function processAutomaticPayment(Request $request)
+    {
+        $request->validate([
+            'guest_id' => 'required|integer|exists:guests,id',
+            'required_points' => 'required|integer|min:1',
+            'reservation_id' => 'nullable|integer|exists:reservations,id',
+            'description' => 'nullable|string|max:255'
+        ]);
+
+        try {
+            $automaticPaymentService = app(AutomaticPaymentService::class);
+            
+            $result = $automaticPaymentService->processAutomaticPaymentForInsufficientPoints(
+                $request->guest_id,
+                $request->required_points,
+                $request->reservation_id ?? 0,
+                $request->description ?? 'Automatic payment for insufficient points'
+            );
+
+            if ($result['success']) {
+                return response()->json([
+                    'success' => true,
+                    'message' => 'Automatic payment processed successfully',
+                    'payment_id' => $result['payment_id'],
+                    'amount_yen' => $result['amount_yen'],
+                    'points_added' => $result['points_added'],
+                    'new_balance' => $result['new_balance']
+                ]);
+            } else {
+                return response()->json([
+                    'success' => false,
+                    'message' => $result['error'],
+                    'requires_card_registration' => $result['requires_card_registration'] ?? false
+                ], 400);
+            }
+
+        } catch (\Exception $e) {
+            Log::error('Automatic payment API error', [
+                'guest_id' => $request->guest_id,
+                'required_points' => $request->required_points,
+                'error' => $e->getMessage()
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to process automatic payment',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Check if guest has registered payment method for automatic payments
+     */
+    public function checkAutomaticPaymentEligibility(Request $request)
+    {
+        $request->validate([
+            'guest_id' => 'required|integer|exists:guests,id'
+        ]);
+
+        try {
+            $automaticPaymentService = app(AutomaticPaymentService::class);
+            
+            $hasPaymentMethod = $automaticPaymentService->hasRegisteredPaymentMethod($request->guest_id);
+            $paymentInfo = $automaticPaymentService->getGuestPaymentInfo($request->guest_id);
+
+            return response()->json([
+                'success' => true,
+                'has_payment_method' => $hasPaymentMethod,
+                'payment_info' => $paymentInfo,
+                'eligible_for_automatic_payment' => $hasPaymentMethod
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('Check automatic payment eligibility error', [
+                'guest_id' => $request->guest_id,
+                'error' => $e->getMessage()
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to check payment eligibility',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Get automatic payment history for a guest
+     */
+    public function getAutomaticPaymentHistory(Request $request)
+    {
+        $request->validate([
+            'guest_id' => 'required|integer|exists:guests,id'
+        ]);
+
+        try {
+            $auditService = app(AutomaticPaymentAuditService::class);
+            
+            $payments = $auditService->getGuestAutomaticPayments($request->guest_id);
+            $summary = $auditService->getGuestAutomaticPaymentSummary($request->guest_id);
+
+            return response()->json([
+                'success' => true,
+                'payments' => $payments,
+                'summary' => $summary
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('Get automatic payment history error', [
+                'guest_id' => $request->guest_id,
+                'error' => $e->getMessage()
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to get payment history',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Get automatic payment audit trail
+     */
+    public function getAutomaticPaymentAuditTrail(Request $request)
+    {
+        $request->validate([
+            'guest_id' => 'required|integer|exists:guests,id',
+            'reservation_id' => 'nullable|integer|exists:reservations,id'
+        ]);
+
+        try {
+            $auditService = app(AutomaticPaymentAuditService::class);
+            
+            $auditTrail = $auditService->getAuditTrail(
+                $request->guest_id,
+                $request->reservation_id
+            );
+
+            return response()->json([
+                'success' => true,
+                'audit_trail' => $auditTrail
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('Get automatic payment audit trail error', [
+                'guest_id' => $request->guest_id,
+                'reservation_id' => $request->reservation_id,
+                'error' => $e->getMessage()
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to get audit trail',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Get automatic payments for a reservation
+     */
+    public function getReservationAutomaticPayments(Request $request, $reservationId)
+    {
+        try {
+            $auditService = app(AutomaticPaymentAuditService::class);
+            
+            $payments = $auditService->getReservationAutomaticPayments($reservationId);
+
+            return response()->json([
+                'success' => true,
+                'payments' => $payments
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('Get reservation automatic payments error', [
+                'reservation_id' => $reservationId,
+                'error' => $e->getMessage()
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to get reservation payments',
+                'error' => $e->getMessage()
+            ], 500);
+        }
     }
 }

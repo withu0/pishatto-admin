@@ -17,6 +17,7 @@ class PointTransaction extends Model
         'reservation_id',
         'description',
         'gift_type',
+        'payment_id',
     ];
 
     public function guest()
@@ -32,5 +33,10 @@ class PointTransaction extends Model
     public function reservation()
     {
         return $this->belongsTo(Reservation::class);
+    }
+
+    public function payment()
+    {
+        return $this->belongsTo(Payment::class);
     }
 } 

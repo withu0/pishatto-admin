@@ -173,6 +173,13 @@ Route::post('/payments/{paymentId}/refund', [PaymentController::class, 'refund']
 Route::post('/payments/payout', [PaymentController::class, 'requestPayout']);
 Route::post('/payments/webhook', [PaymentController::class, 'webhook']);
 
+// Automatic payment routes for insufficient points
+Route::post('/payments/automatic', [PaymentController::class, 'processAutomaticPayment']);
+Route::get('/payments/automatic/eligibility/{guestId}', [PaymentController::class, 'checkAutomaticPaymentEligibility']);
+Route::get('/payments/automatic/history', [PaymentController::class, 'getAutomaticPaymentHistory']);
+Route::get('/payments/automatic/audit-trail', [PaymentController::class, 'getAutomaticPaymentAuditTrail']);
+Route::get('/payments/automatic/reservation/{reservationId}', [PaymentController::class, 'getReservationAutomaticPayments']);
+
 // Admin cast payment management routes
 Route::get('/admin/payments/cast', [PaymentController::class, 'getCastPayments']);
 Route::post('/admin/payments/cast', [PaymentController::class, 'createCastPayment']);
