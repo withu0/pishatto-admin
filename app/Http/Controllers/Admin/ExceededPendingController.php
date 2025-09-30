@@ -17,12 +17,12 @@ class ExceededPendingController extends Controller
     }
 
     /**
-     * Get all exceeded pending transactions
+     * Get all point transactions except pending type
      */
     public function index(): JsonResponse
     {
         try {
-            $transactions = $this->pointTransactionService->getExceededPendingTransactions();
+            $transactions = $this->pointTransactionService->getAllPointTransactionsExceptPending();
             
             return response()->json([
                 'success' => true,
@@ -32,19 +32,19 @@ class ExceededPendingController extends Controller
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
-                'message' => 'Failed to fetch exceeded pending transactions',
+                'message' => 'Failed to fetch point transactions',
                 'error' => $e->getMessage()
             ], 500);
         }
     }
 
     /**
-     * Get exceeded pending transactions count
+     * Get point transactions count (except pending type)
      */
     public function count(): JsonResponse
     {
         try {
-            $count = $this->pointTransactionService->getExceededPendingCount();
+            $count = $this->pointTransactionService->getAllPointTransactionsExceptPendingCount();
             
             return response()->json([
                 'success' => true,
@@ -53,7 +53,7 @@ class ExceededPendingController extends Controller
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
-                'message' => 'Failed to get exceeded pending count',
+                'message' => 'Failed to get point transactions count',
                 'error' => $e->getMessage()
             ], 500);
         }

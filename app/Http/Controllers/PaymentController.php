@@ -138,6 +138,18 @@ class PaymentController extends Controller
 
                     PointTransaction::create($pointTransactionData);
 
+                    // Create Payment record to track the payment status
+                    Payment::create([
+                        'user_id' => $request->user_id,
+                        'user_type' => $request->user_type,
+                        'amount' => $request->amount,
+                        'status' => 'paid', // Payment is successful
+                        'payment_method' => 'card',
+                        'stripe_payment_intent_id' => $result['id'],
+                        'description' => "Point purchase - {$pointsToCredit} points",
+                        'paid_at' => now(),
+                    ]);
+
                     $response['points_added'] = $pointsToCredit;
                     $response['total_points'] = $newPoints;
                     $response['user'] = $model->fresh();
@@ -149,7 +161,9 @@ class PaymentController extends Controller
                         'credited_points' => $pointsToCredit,
                         'previous_points' => $currentPoints,
                         'new_points' => $newPoints,
-                        'point_transaction_created' => true
+                        'point_transaction_created' => true,
+                        'payment_record_created' => true,
+                        'payment_status' => 'paid'
                     ]);
                 }
             }

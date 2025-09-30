@@ -7,8 +7,9 @@ import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Loader2, Clock, Users, DollarSign, RefreshCw } from 'lucide-react';
 
-interface ExceededPendingTransaction {
+interface PointTransaction {
   id: number;
+  type: string;
   amount: number;
   description: string;
   created_at: string;
@@ -16,21 +17,21 @@ interface ExceededPendingTransaction {
     id: number;
     nickname: string;
     phone: string;
-  };
+  } | null;
   cast: {
     id: number;
     nickname: string;
     grade: string;
-  };
+  } | null;
   reservation: {
     id: number;
     type: string;
     scheduled_at: string;
-  };
+  } | null;
 }
 
-const ExceededPendingPage: React.FC = () => {
-  const [transactions, setTransactions] = useState<ExceededPendingTransaction[]>([]);
+const PointTransactionPage: React.FC = () => {
+  const [transactions, setTransactions] = useState<PointTransaction[]>([]);
   const [loading, setLoading] = useState(true);
   const [processing, setProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -59,7 +60,7 @@ const ExceededPendingPage: React.FC = () => {
       if (data.success) {
         setTransactions(data.data);
       } else {
-        setError(data.message || '取引データの取得に失敗しました');
+        setError(data.message || 'ポイント取引データの取得に失敗しました');
       }
     } catch (err) {
       setError('ネットワークエラーが発生しました');
@@ -138,24 +139,46 @@ const ExceededPendingPage: React.FC = () => {
     return `${diffHours}時間後`;
   };
 
+  const getTypeLabel = (type: string) => {
+    const typeLabels: { [key: string]: string } = {
+      'buy': '購入',
+      'transfer': '転送',
+      'convert': '変換',
+      'gift': 'ギフト',
+      'exceeded_pending': '超過時間保留'
+    };
+    return typeLabels[type] || type;
+  };
+
+  const getTypeBadgeColor = (type: string) => {
+    const colorMap: { [key: string]: string } = {
+      'buy': 'bg-blue-100 text-blue-800',
+      'transfer': 'bg-green-100 text-green-800',
+      'convert': 'bg-purple-100 text-purple-800',
+      'gift': 'bg-pink-100 text-pink-800',
+      'exceeded_pending': 'bg-orange-100 text-orange-800'
+    };
+    return colorMap[type] || 'bg-gray-100 text-gray-800';
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <Loader2 className="h-8 w-8 animate-spin" />
-        <span className="ml-2">超過時間保留取引を読み込み中...</span>
+        <span className="ml-2">ポイント取引を読み込み中...</span>
       </div>
     );
   }
 
   return (
     <AppLayout>
-      <Head title="超過時間管理" />
+      <Head title="ポイント取引管理" />
       <div className="container mx-auto p-6 space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold">超過時間保留取引管理</h1>
+          <h1 className="text-3xl font-bold">ポイント取引管理</h1>
           <p className="text-gray-600 mt-2">
-            キャストへの転送待ちの超過時間料金を管理します
+            すべてのポイント取引を管理します（保留中を除く）
           </p>
         </div>
         <div className="flex space-x-2">
@@ -201,13 +224,13 @@ const ExceededPendingPage: React.FC = () => {
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">保留中総数</CardTitle>
+            <CardTitle className="text-sm font-medium">取引総数</CardTitle>
             <Clock className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{transactions.length}</div>
             <p className="text-xs text-muted-foreground">
-              超過時間取引
+              ポイント取引
             </p>
           </CardContent>
         </Card>
@@ -222,26 +245,22 @@ const ExceededPendingPage: React.FC = () => {
               {formatCurrency(transactions.reduce((sum, t) => sum + t.amount, 0))}
             </div>
             <p className="text-xs text-muted-foreground">
-              転送待ち金額
+              総取引金額
             </p>
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">自動転送</CardTitle>
+            <CardTitle className="text-sm font-medium">取引タイプ</CardTitle>
             <Users className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              {transactions.filter(t => {
-                const created = new Date(t.created_at);
-                const twoDaysLater = new Date(created.getTime() + 2 * 24 * 60 * 60 * 1000);
-                return new Date() >= twoDaysLater;
-              }).length}
+              {new Set(transactions.map(t => t.type)).size}
             </div>
             <p className="text-xs text-muted-foreground">
-              自動転送準備完了
+              異なる取引タイプ
             </p>
           </CardContent>
         </Card>
@@ -252,10 +271,10 @@ const ExceededPendingPage: React.FC = () => {
           <CardContent className="flex flex-col items-center justify-center py-12">
             <Clock className="h-12 w-12 text-gray-400 mb-4" />
             <h3 className="text-lg font-semibold text-gray-600 mb-2">
-              超過時間保留取引はありません
+              ポイント取引はありません
             </h3>
             <p className="text-gray-500 text-center">
-              現在、転送待ちの超過時間料金はありません。
+              現在、ポイント取引データはありません。
             </p>
           </CardContent>
         </Card>
@@ -267,8 +286,8 @@ const ExceededPendingPage: React.FC = () => {
                 <div className="flex items-start justify-between">
                   <div className="flex-1">
                     <div className="flex items-center space-x-3 mb-3">
-                      <Badge variant="outline" className="bg-orange-100 text-orange-800">
-                        超過時間保留
+                      <Badge variant="outline" className={`${getTypeBadgeColor(transaction.type)}`}>
+                        {getTypeLabel(transaction.type)}
                       </Badge>
                       <span className="text-sm text-gray-500">
                         ID: {transaction.id}
@@ -313,9 +332,9 @@ const ExceededPendingPage: React.FC = () => {
                       </div>
                       
                       <div>
-                        <h4 className="font-semibold text-gray-900 mb-1">自動転送</h4>
+                        <h4 className="font-semibold text-gray-900 mb-1">取引タイプ</h4>
                         <p className="text-sm text-gray-600">
-                          {getTimeUntilAutoTransfer(transaction.created_at)}
+                          {getTypeLabel(transaction.type)}
                         </p>
                       </div>
                     </div>
@@ -338,4 +357,4 @@ const ExceededPendingPage: React.FC = () => {
   );
 };
 
-export default ExceededPendingPage;
+export default PointTransactionPage;
