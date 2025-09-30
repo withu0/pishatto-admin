@@ -39,6 +39,7 @@ class Reservation extends Model
         'started_at' => 'datetime',
         'ended_at' => 'datetime',
         'cast_ids' => 'array',
+        'duration' => 'decimal:4', // Cast duration as decimal with 4 decimal places
     ];
 
     public function guest()

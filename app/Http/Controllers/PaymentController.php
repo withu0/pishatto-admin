@@ -1051,7 +1051,7 @@ class PaymentController extends Controller
             'user_type' => 'required|in:guest,cast',
             'user_id' => 'required|integer',
             'amount' => 'required|integer',
-            'type' => 'required|in:buy,transfer,convert,gift,pending',
+            'type' => 'required|in:buy,transfer,convert,gift,pending,exceeded_pending',
             'reservation_id' => 'nullable|integer|exists:reservations,id',
             'description' => 'nullable|string|max:255',
             'gift_type' => 'nullable|string',

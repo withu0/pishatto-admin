@@ -689,6 +689,7 @@ class CastAuthController extends Controller
         $reservation->save();
         
         // Calculate points and process transaction using the service
+        // Note: Exceeded time is now handled within processReservationCompletion
         $pointService = app(\App\Services\PointTransactionService::class);
         
         $success = $pointService->processReservationCompletion($reservation);

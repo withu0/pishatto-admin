@@ -286,10 +286,24 @@ Route::post('/test/exceeded-time/{reservationId}', function ($reservationId) {
     $exceededAmount = $pointService->calculateExceededTimeAmount($reservation);
     $success = $pointService->processExceededTime($reservation);
     
+    // Check if exceeded_pending transaction was created
+    $exceededPendingTransaction = \App\Models\PointTransaction::where('reservation_id', $reservationId)
+        ->where('type', 'exceeded_pending')
+        ->first();
+    
     return response()->json([
         'reservation_id' => $reservationId,
+        'reservation_type' => $reservation->type,
+        'started_at' => $reservation->started_at,
+        'ended_at' => $reservation->ended_at,
+        'duration' => $reservation->duration,
+        'duration_type' => gettype($reservation->duration),
+        'duration_value' => (float) $reservation->duration,
+        'cast_id' => $reservation->cast_id,
         'exceeded_amount' => $exceededAmount,
-        'success' => $success
+        'success' => $success,
+        'exceeded_pending_created' => $exceededPendingTransaction ? true : false,
+        'exceeded_pending_transaction' => $exceededPendingTransaction
     ]);
 });
 

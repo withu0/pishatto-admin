@@ -351,6 +351,13 @@ class GuestAuthController extends Controller
         try {
             DB::beginTransaction();
 
+            // Debug: Log the incoming request data
+            \Log::info('createReservation: Incoming request data', [
+                'duration' => $request->duration,
+                'duration_type' => gettype($request->duration),
+                'all_data' => $request->all()
+            ]);
+
             // Create the reservation
             $data = $request->only([
                 'guest_id', 'type', 'location', 'meeting_location', 'reservation_name', 'duration', 'details', 'time', 'cast_id'
@@ -358,7 +365,18 @@ class GuestAuthController extends Controller
             $data['scheduled_at'] = \Carbon\Carbon::parse($request->scheduled_at);
             $data['type'] = 'Pishatto';
             
+            \Log::info('createReservation: Data being saved', [
+                'duration' => $data['duration'],
+                'duration_type' => gettype($data['duration'])
+            ]);
+            
             $reservation = Reservation::create($data);
+            
+            \Log::info('createReservation: Reservation created', [
+                'reservation_id' => $reservation->id,
+                'duration' => $reservation->duration,
+                'duration_type' => gettype($reservation->duration)
+            ]);
 
             // Get pre-calculated points from frontend
             $requiredPoints = $request->points ?? 0;
@@ -1151,22 +1169,23 @@ class GuestAuthController extends Controller
             
             $reservation->fill($data);
 
-            // Points calculation logic
-            if ($reservation->started_at && $reservation->ended_at) {
-                $scheduled = $reservation->scheduled_at ? strtotime($reservation->scheduled_at) : null;
-                $start = strtotime($reservation->started_at);
-                $end = strtotime($reservation->ended_at);
-                $duration = $reservation->duration ?? 1;
-                $planned_end = $scheduled ? strtotime("+{$duration} hour", $scheduled) : ($start + $duration * 3600);
-                $base_points = $duration * 1000;
-                $overtime_points = 0;
-                $exceeded_seconds = 0;
-                if ($end > $planned_end) {
-                    $exceeded_seconds = $end - $planned_end;
-                    $exceeded_minutes = ceil($exceeded_seconds / 60);
-                    $overtime_points = $exceeded_minutes * 20;
-                }
-                $reservation->points_earned = $base_points + $overtime_points;
+            // For pishatto calls, check if time was exceeded and create exceeded_pending transaction
+            // This will be processed again during completeReservation, so we only handle exceeded time here
+            if ($reservation->type === 'Pishatto' && $reservation->started_at && $reservation->ended_at) {
+                \Log::info('updateReservation: Processing exceeded time for pishatto call', [
+                    'reservation_id' => $reservation->id,
+                    'reservation_type' => $reservation->type,
+                    'started_at' => $reservation->started_at,
+                    'ended_at' => $reservation->ended_at,
+                    'duration' => $reservation->duration
+                ]);
+                
+                $result = $this->pointTransactionService->processExceededTime($reservation);
+                
+                \Log::info('updateReservation: processExceededTime result', [
+                    'reservation_id' => $reservation->id,
+                    'result' => $result
+                ]);
             }
 
 
@@ -1290,6 +1309,11 @@ class GuestAuthController extends Controller
                 return response()->json([
                     'message' => 'Cast not found'
                 ], 404);
+            }
+
+            // For pishatto calls, check if time was exceeded and create exceeded_pending transaction
+            if ($reservation->type === 'Pishatto') {
+                $this->pointTransactionService->processExceededTime($reservation);
             }
 
             // Use the service to process the reservation completion

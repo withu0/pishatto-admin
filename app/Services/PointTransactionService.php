@@ -23,52 +23,35 @@ class PointTransactionService
      */
     public function createTransaction(array $data): PointTransaction
     {
-        try {
-            DB::beginTransaction();
-
-            // Validate required fields
-            if (!isset($data['type']) || !isset($data['amount'])) {
-                throw new \InvalidArgumentException('Type and amount are required');
-            }
-
-            // Create the transaction record
-            $transaction = PointTransaction::create([
-                'guest_id' => $data['guest_id'] ?? null,
-                'cast_id' => $data['cast_id'] ?? null,
-                'type' => $data['type'],
-                'amount' => $data['amount'],
-                'reservation_id' => $data['reservation_id'] ?? null,
-                'description' => $data['description'] ?? null,
-                'gift_type' => $data['gift_type'] ?? null,
-            ]);
-
-            // Update user points based on transaction type
-            $this->updateUserPoints($transaction, $data);
-
-            // Grades are primarily managed by quarterly evaluation; keep recalculation minimal
-
-            DB::commit();
-
-            Log::info('Point transaction created successfully', [
-                'transaction_id' => $transaction->id,
-                'type' => $transaction->type,
-                'amount' => $transaction->amount,
-                'guest_id' => $transaction->guest_id,
-                'cast_id' => $transaction->cast_id,
-                'reservation_id' => $transaction->reservation_id,
-            ]);
-
-            return $transaction;
-
-        } catch (\Exception $e) {
-            DB::rollBack();
-            Log::error('Failed to create point transaction', [
-                'data' => $data,
-                'error' => $e->getMessage(),
-                'trace' => $e->getTraceAsString()
-            ]);
-            throw $e;
+        // Validate required fields
+        if (!isset($data['type']) || !isset($data['amount'])) {
+            throw new \InvalidArgumentException('Type and amount are required');
         }
+
+        // Create the transaction record
+        $transaction = PointTransaction::create([
+            'guest_id' => $data['guest_id'] ?? null,
+            'cast_id' => $data['cast_id'] ?? null,
+            'type' => $data['type'],
+            'amount' => $data['amount'],
+            'reservation_id' => $data['reservation_id'] ?? null,
+            'description' => $data['description'] ?? null,
+            'gift_type' => $data['gift_type'] ?? null,
+        ]);
+
+        // Update user points based on transaction type
+        $this->updateUserPoints($transaction, $data);
+
+        Log::info('Point transaction created successfully', [
+            'transaction_id' => $transaction->id,
+            'type' => $transaction->type,
+            'amount' => $transaction->amount,
+            'guest_id' => $transaction->guest_id,
+            'cast_id' => $transaction->cast_id,
+            'reservation_id' => $transaction->reservation_id,
+        ]);
+
+        return $transaction;
     }
 
     /**
@@ -219,14 +202,23 @@ class PointTransactionService
                 break;
 
             case 'exceeded_pending':
-                // Exceeded pending transactions: deduct points from guest for exceeded time
+                // Exceeded pending transactions: deduct points from guest for exceeded time (clamped to available points)
                 if ($transaction->guest_id) {
                     $guest = Guest::find($transaction->guest_id);
-                    if ($guest && $guest->points >= $transaction->amount) {
-                        $guest->points -= $transaction->amount;
-                        $guest->save();
-                    } else {
-                        throw new \InvalidArgumentException('Insufficient guest points for exceeded time');
+                    if ($guest) {
+                        $deduction = min(max(0, (int) $guest->points), (int) $transaction->amount);
+                        if ($deduction < (int) $transaction->amount) {
+                            Log::warning('updateUserPoints: Guest had insufficient points; clamping exceeded_pending deduction', [
+                                'guest_id' => $guest->id,
+                                'available_points' => $guest->points,
+                                'required_amount' => $transaction->amount,
+                                'deducted' => $deduction
+                            ]);
+                        }
+                        if ($deduction > 0) {
+                            $guest->points -= $deduction;
+                            $guest->save();
+                        }
                     }
                 }
                 break;
@@ -256,8 +248,70 @@ class PointTransactionService
             $perMinute = (int) floor(($cast->grade_points ?? 0) / 30);
         }
 
-        $scheduledMinutes = (int) ($reservation->duration * 60);
+        $scheduledMinutes = $this->getScheduledDurationMinutes($reservation);
         return (int) ($perMinute * $scheduledMinutes);
+    }
+
+    /**
+     * Calculate total points based on actual elapsed time between started_at and ended_at
+     * This method calculates points for the actual time the session ran, not the scheduled duration
+     */
+    public function calculateTotalPointsBasedOnElapsedTime(Reservation $reservation): int
+    {
+        if (!$reservation->cast_id || !$reservation->started_at || !$reservation->ended_at) {
+            return 0;
+        }
+
+        $cast = Cast::find($reservation->cast_id);
+        if (!$cast) {
+            return 0;
+        }
+
+        // Per-minute base depends on reservation type
+        if ($reservation->type === 'free') {
+            $perMinute = (int) floor(($cast->category_points ?? 0) / 30);
+        } else { // Pishatto or default
+            $perMinute = (int) floor(($cast->grade_points ?? 0) / 30);
+        }
+
+        $startedAt = \Carbon\Carbon::parse($reservation->started_at)->setTimezone('UTC');
+        $endedAt = \Carbon\Carbon::parse($reservation->ended_at)->setTimezone('UTC');
+        
+        // Ensure we have valid dates and ended_at is after started_at
+        if ($endedAt->lessThanOrEqualTo($startedAt)) {
+            Log::warning('calculateTotalPointsBasedOnElapsedTime: Invalid time range', [
+                'reservation_id' => $reservation->id,
+                'started_at' => $startedAt->toDateTimeString(),
+                'ended_at' => $endedAt->toDateTimeString()
+            ]);
+            return 0;
+        }
+        
+        // Calculate elapsed minutes manually to avoid diffInMinutes() issues
+        $timeDifferenceSeconds = $endedAt->timestamp - $startedAt->timestamp;
+        $elapsedMinutes = max(0, (int) floor($timeDifferenceSeconds / 60));
+
+        // Calculate base points for elapsed time
+        $basePoints = (int) ($perMinute * $elapsedMinutes);
+
+        // Add night time bonus
+        $nightBonus = $this->calculateNightTimeBonus($reservation->started_at, $reservation->ended_at);
+
+        Log::info('calculateTotalPointsBasedOnElapsedTime: Calculation', [
+            'reservation_id' => $reservation->id,
+            'started_at' => $startedAt->toDateTimeString(),
+            'ended_at' => $endedAt->toDateTimeString(),
+            'started_at_timestamp' => $startedAt->timestamp,
+            'ended_at_timestamp' => $endedAt->timestamp,
+            'time_difference_seconds' => $endedAt->timestamp - $startedAt->timestamp,
+            'elapsed_minutes' => $elapsedMinutes,
+            'per_minute' => $perMinute,
+            'base_points' => $basePoints,
+            'night_bonus' => $nightBonus,
+            'total_points' => $basePoints + $nightBonus
+        ]);
+
+        return (int) ($basePoints + $nightBonus);
     }
 
 
@@ -286,7 +340,7 @@ class PointTransactionService
 
         $startedAt = \Carbon\Carbon::parse($reservation->started_at);
         $endedAt = \Carbon\Carbon::parse($reservation->ended_at);
-        $scheduledDurationMinutes = (int) ($reservation->duration * 60);
+        $scheduledDurationMinutes = $this->getScheduledDurationMinutes($reservation);
         $actualMinutes = max(0, $endedAt->diffInMinutes($startedAt));
 
         if ($actualMinutes <= $scheduledDurationMinutes) {
@@ -300,64 +354,16 @@ class PointTransactionService
     /**
      * Calculate exceeded time amount for pishatto calls and create pending transaction
      * This is called when a pishatto call exceeds the scheduled duration
+     * NOTE: This method is now deprecated - exceeded time is handled in processReservationCompletion
      */
     public function processExceededTime(Reservation $reservation): bool
     {
-        try {
-            DB::beginTransaction();
-
-            if (!$reservation->cast_id || !$reservation->started_at || !$reservation->duration) {
-                DB::rollBack();
-                return false;
-            }
-
-            $cast = Cast::find($reservation->cast_id);
-            if (!$cast) {
-                DB::rollBack();
-                return false;
-            }
-
-            $guest = Guest::find($reservation->guest_id);
-            if (!$guest) {
-                DB::rollBack();
-                return false;
-            }
-
-            // Calculate exceeded time amount
-            $exceededAmount = $this->calculateExceededTimeAmount($reservation);
-            
-            if ($exceededAmount <= 0) {
-                DB::rollBack();
-                return false;
-            }
-
-            // Check if guest has sufficient points
-            if ($guest->points < $exceededAmount) {
-                DB::rollBack();
-                return false;
-            }
-
-            // Create exceeded pending transaction
-            $this->createExceededPendingTransaction([
-                'guest_id' => $guest->id,
-                'cast_id' => $cast->id,
-                'reservation_id' => $reservation->id,
-                'amount' => $exceededAmount,
-                'description' => "Pishatto call exceeded time - {$reservation->id}",
-            ]);
-
-            DB::commit();
-            return true;
-
-        } catch (\Exception $e) {
-            DB::rollBack();
-            Log::error('Failed to process exceeded time', [
-                'reservation_id' => $reservation->id,
-                'error' => $e->getMessage(),
-                'trace' => $e->getTraceAsString()
-            ]);
-            return false;
-        }
+        // This method is now deprecated as exceeded time is handled in processReservationCompletion
+        // Return true to maintain backward compatibility
+        Log::info('processExceededTime: Method deprecated, exceeded time now handled in processReservationCompletion', [
+            'reservation_id' => $reservation->id
+        ]);
+        return true;
     }
 
     /**
@@ -366,6 +372,12 @@ class PointTransactionService
     public function calculateExceededTimeAmount(Reservation $reservation): int
     {
         if (!$reservation->cast_id || !$reservation->started_at || !$reservation->duration) {
+            Log::info('calculateExceededTimeAmount: Missing required fields', [
+                'reservation_id' => $reservation->id,
+                'cast_id' => $reservation->cast_id,
+                'started_at' => $reservation->started_at,
+                'duration' => $reservation->duration
+            ]);
             return 0;
         }
 
@@ -378,16 +390,74 @@ class PointTransactionService
         $perMinute = (int) floor(($cast->grade_points ?? 0) / 30);
 
         $startedAt = \Carbon\Carbon::parse($reservation->started_at);
-        $now = now();
-        $scheduledDurationMinutes = (int) ($reservation->duration * 60);
-        $elapsedMinutes = max(0, $now->diffInMinutes($startedAt));
+        $endedAt = $reservation->ended_at ? \Carbon\Carbon::parse($reservation->ended_at) : now();
+        $scheduledDurationMinutes = $this->getScheduledDurationMinutes($reservation);
+        $elapsedMinutes = max(0, $endedAt->diffInMinutes($startedAt));
+
+        Log::info('calculateExceededTimeAmount: Time calculation', [
+            'reservation_id' => $reservation->id,
+            'started_at' => $startedAt->toDateTimeString(),
+            'ended_at' => $endedAt->toDateTimeString(),
+            'duration_hours_or_minutes' => $reservation->duration,
+            'scheduled_duration_minutes' => $scheduledDurationMinutes,
+            'elapsed_minutes' => $elapsedMinutes,
+            'per_minute' => $perMinute,
+            'extension_multiplier' => self::EXTENSION_MULTIPLIER
+        ]);
 
         if ($elapsedMinutes <= $scheduledDurationMinutes) {
+            Log::info('calculateExceededTimeAmount: No exceeded time', [
+                'reservation_id' => $reservation->id,
+                'elapsed_minutes' => $elapsedMinutes,
+                'scheduled_duration_minutes' => $scheduledDurationMinutes
+            ]);
             return 0;
         }
 
         $exceededMinutes = $elapsedMinutes - $scheduledDurationMinutes;
-        return (int) floor($perMinute * $exceededMinutes * self::EXTENSION_MULTIPLIER);
+        $exceededAmount = (int) floor($perMinute * $exceededMinutes * self::EXTENSION_MULTIPLIER);
+        
+        Log::info('calculateExceededTimeAmount: Exceeded time calculated', [
+            'reservation_id' => $reservation->id,
+            'exceeded_minutes' => $exceededMinutes,
+            'exceeded_amount' => $exceededAmount
+        ]);
+        
+        return $exceededAmount;
+    }
+
+    /**
+     * Derive scheduled duration in minutes from reservation.duration which may be provided
+     * either in hours (decimal) or minutes (small integers from UI, e.g., 5 for 5 minutes).
+     * Heuristics:
+     * - If duration < 1: treat as hours decimal → minutes = duration * 60
+     * - If duration is an integer and <= 60: treat as minutes
+     * - If duration is >= 24: treat as minutes (unlikely to be hours)
+     * - Otherwise: treat as hours → minutes = duration * 60
+     */
+    private function getScheduledDurationMinutes(Reservation $reservation): int
+    {
+        $raw = $reservation->duration;
+        $numeric = is_numeric($raw) ? (float) $raw : 0.0;
+        if ($numeric <= 0) {
+            return 0;
+        }
+
+        // Detect if value has a fractional part
+        $hasFraction = fmod($numeric, 1.0) !== 0.0;
+
+        if ($numeric < 1.0 || $hasFraction) {
+            // Decimal hours
+            return (int) floor($numeric * 60.0);
+        }
+
+        // Integer values: likely minutes for small values (<=60) or very large values (>=24)
+        if ($numeric <= 60.0 || $numeric >= 24 * 60.0) {
+            return (int) $numeric;
+        }
+
+        // Default to hours
+        return (int) floor($numeric * 60.0);
     }
 
     /**
@@ -420,14 +490,33 @@ class PointTransactionService
             $overlapEnd = $end->lessThan($nightEnd) ? $end : $nightEnd;
 
             if ($overlapEnd->greaterThan($overlapStart)) {
-                $nightMinutes += $overlapEnd->diffInMinutes($overlapStart);
+                // Calculate overlap minutes manually to avoid diffInMinutes() issues
+                $overlapSeconds = $overlapEnd->timestamp - $overlapStart->timestamp;
+                $overlapMinutes = max(0, (int) floor($overlapSeconds / 60));
+                // Ensure we don't get negative values
+                if ($overlapMinutes > 0) {
+                    $nightMinutes += $overlapMinutes;
+                }
             }
 
             $cursor->addDay();
         }
 
         $nightHours = (int) floor($nightMinutes / 60);
-        return $nightHours * 4000;
+        $bonus = $nightHours * 4000;
+        
+        Log::info('calculateNightTimeBonus: Calculation', [
+            'started_at' => $start->toDateTimeString(),
+            'ended_at' => $end->toDateTimeString(),
+            'start_hour' => $start->hour,
+            'end_hour' => $end->hour,
+            'night_minutes' => $nightMinutes,
+            'night_hours' => $nightHours,
+            'bonus' => $bonus,
+            'is_night_time' => ($start->hour >= 0 && $start->hour < 6) || ($end->hour >= 0 && $end->hour < 6)
+        ]);
+        
+        return $bonus;
     }
 
     /**
@@ -477,7 +566,8 @@ class PointTransactionService
 
     /**
      * Process reservation completion:
-     * - Compute points (base + night bonus + extension)
+     * - Compute total points based on actual elapsed time (started_at to ended_at)
+     * - Calculate exceeded_pending as total_points - pending_points
      * - Transfer points to cast from pending; refund unused to guest
      * - If pending is insufficient, deduct shortfall from guest.points and ADD the same to guest.grade_points
      */
@@ -525,11 +615,17 @@ class PointTransactionService
                 return true;
             }
 
-            // For reservations with cast_id, calculate and transfer points
-            $basePoints = $this->calculateReservationPoints($reservation);
+            // Calculate total points based on actual elapsed time (started_at to ended_at)
+            $totalPoints = $this->calculateTotalPointsBasedOnElapsedTime($reservation);
             $nightBonus = $this->calculateNightTimeBonus($reservation->started_at, $reservation->ended_at);
-            $extensionFee = $this->calculateExtensionFee($reservation);
-            $totalPoints = (int) ($basePoints + $nightBonus + $extensionFee);
+            
+            // Sum all pending amounts for this reservation (reserved for scheduled duration)
+            $reservedPoints = (int) PointTransaction::where('reservation_id', $reservation->id)
+                ->where('type', 'pending')
+                ->sum('amount');
+
+            // Calculate exceeded_pending as total_points - pending_points
+            $exceededPendingPoints = max(0, $totalPoints - $reservedPoints);
 
             $reservation->points_earned = $totalPoints;
             $reservation->save();
@@ -539,53 +635,48 @@ class PointTransactionService
                 DB::rollBack();
                 return false;
             }
+            
+            Log::info('Reservation completion calculation', [
+                'reservation_id' => $reservation->id,
+                'reserved_points' => $reservedPoints,
+                'exceeded_pending_points' => $exceededPendingPoints,
+                'total_points' => $totalPoints,
+                'night_bonus' => $nightBonus,
+                'started_at' => $reservation->started_at,
+                'ended_at' => $reservation->ended_at
+            ]);
 
-            // Sum all pending amounts for this reservation
-            $reservedPoints = (int) PointTransaction::where('reservation_id', $reservation->id)
-                ->where('type', 'pending')
-                ->sum('amount');
-
-            // Decide how much to transfer from pending vs shortfall from guest points
-            $transferFromPending = min($reservedPoints, $totalPoints);
-            $transferFromGrade = max(0, $totalPoints - $transferFromPending);
-
-            if ($transferFromPending > 0) {
+            // 1. Transfer ALL pending points to cast (for scheduled duration)
+            if ($reservedPoints > 0) {
                 $this->createTransferTransaction([
                     'guest_id' => $guest->id,
                     'cast_id' => $cast->id,
                     'reservation_id' => $reservation->id,
-                    'amount' => $transferFromPending,
+                    'amount' => $reservedPoints,
                     'description' => "予約待ちから予約へ移行 - {$reservation->id}",
                 ]);
             }
 
-            if ($transferFromGrade > 0) {
-                // Ensure guest has enough points to cover shortfall
-                if ($guest->points < $transferFromGrade) {
-                    DB::rollBack();
-                    return false;
+            // 2. Create exceeded_pending transaction if total points exceed reserved points
+            if ($exceededPendingPoints > 0) {
+                // Check if exceeded_pending transaction already exists for this reservation
+                $existingExceededPending = PointTransaction::where('reservation_id', $reservation->id)
+                    ->where('type', 'exceeded_pending')
+                    ->first();
+                    
+                if (!$existingExceededPending) {
+                    $this->createExceededPendingTransaction([
+                        'guest_id' => $guest->id,
+                        'cast_id' => $cast->id,
+                        'reservation_id' => $reservation->id,
+                        'amount' => $exceededPendingPoints,
+                        'description' => "Pishatto call exceeded time - {$reservation->id}",
+                    ]);
                 }
-
-                // Create transfer for the shortfall amount as well
-                $this->createTransferTransaction([
-                    'guest_id' => $guest->id,
-                    'cast_id' => $cast->id,
-                    'reservation_id' => $reservation->id,
-                    'amount' => $transferFromGrade,
-                    'description' => "Shortfall covered from guest points for reservation - {$reservation->id}",
-                ]);
-
-                // Deduct from guest points and add to guest grade_points
-                $guest->points = max(0, (int) $guest->points - $transferFromGrade);
-                $guest->grade_points = (int) $guest->grade_points + $transferFromGrade;
-                $guest->save();
-
-                /** @var GradeService $gradeService */
-                $gradeService = app(GradeService::class);
-                $gradeService->calculateAndUpdateGrade($guest);
             }
 
-            // Handle refund when reserved exceeds total
+            // 3. Handle refund when reserved exceeds what was actually used
+            // Only refund if we used less than what was reserved
             if ($reservedPoints > $totalPoints) {
                 $refund = $reservedPoints - $totalPoints;
                 if ($refund > 0) {
@@ -781,9 +872,10 @@ class PointTransactionService
         try {
             DB::beginTransaction();
 
-            // Find exceeded_pending transactions older than 2 days
+            // Find exceeded_pending transactions older than 2 days that haven't been processed yet
             $exceededPendingTransactions = PointTransaction::where('type', 'exceeded_pending')
                 ->where('created_at', '<=', now()->subDays(2))
+                ->where('description', 'not like', '%(Auto-transferred after 2 days)%')
                 ->get();
 
             foreach ($exceededPendingTransactions as $transaction) {
@@ -830,7 +922,7 @@ class PointTransactionService
             $cast->points += $transaction->amount;
             $cast->save();
 
-            // Create transfer transaction record
+            // Create transfer transaction record (separate from exceeded_pending)
             $this->createTransferTransaction([
                 'guest_id' => $guest->id,
                 'cast_id' => $cast->id,
@@ -839,10 +931,10 @@ class PointTransactionService
                 'description' => "Auto-transfer exceeded pending amount after 2 days - {$transaction->id}",
             ]);
 
-            // Update the exceeded_pending transaction to mark it as processed
+            // Mark the exceeded_pending transaction as processed (but keep type as exceeded_pending)
             $transaction->update([
                 'description' => $transaction->description . ' (Auto-transferred after 2 days)',
-                'type' => 'transfer' // Change type to indicate it's been processed
+                // Keep type as 'exceeded_pending' to maintain audit trail
             ]);
 
             return true;
