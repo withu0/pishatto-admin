@@ -327,11 +327,12 @@ class StripeService
                 'user_type' => $paymentData['user_type'],
                 'amount' => $paymentData['amount'],
                 'payment_method' => $paymentData['payment_method_type'] ?? 'card',
-                'status' => $paymentIntent->status === 'succeeded' ? 'paid' : 'pending',
+                'status' => 'paid', // Payment was processed successfully, so it's paid
                 'description' => $paymentData['description'] ?? 'Payment',
                 'stripe_payment_intent_id' => $paymentIntent->id,
                 'stripe_customer_id' => $paymentData['customer_id'] ?? null,
                 'metadata' => $paymentData['metadata'] ?? [],
+                'paid_at' => now(), // Set the paid timestamp
             ]);
 
             return [
