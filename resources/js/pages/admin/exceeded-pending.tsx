@@ -59,10 +59,10 @@ const ExceededPendingPage: React.FC = () => {
       if (data.success) {
         setTransactions(data.data);
       } else {
-        setError(data.message || 'Failed to fetch transactions');
+        setError(data.message || '取引データの取得に失敗しました');
       }
     } catch (err) {
-      setError('Network error occurred');
+      setError('ネットワークエラーが発生しました');
       console.error('Error fetching transactions:', err);
     } finally {
       setLoading(false);
@@ -87,13 +87,13 @@ const ExceededPendingPage: React.FC = () => {
       const data = await response.json();
       
       if (data.success) {
-        setSuccess(`Successfully processed ${data.processed_count} transactions`);
+        setSuccess(`${data.processed_count}件の取引を正常に処理しました`);
         await fetchTransactions(); // Refresh the list
       } else {
-        setError(data.message || 'Failed to process transactions');
+        setError(data.message || '取引の処理に失敗しました');
       }
     } catch (err) {
-      setError('Network error occurred');
+      setError('ネットワークエラーが発生しました');
       console.error('Error processing transactions:', err);
     } finally {
       setProcessing(false);
@@ -123,7 +123,7 @@ const ExceededPendingPage: React.FC = () => {
     const now = new Date();
     
     if (now >= twoDaysLater) {
-      return 'Ready for auto-transfer';
+      return '自動転送準備完了';
     }
     
     const diffMs = twoDaysLater.getTime() - now.getTime();
@@ -142,7 +142,7 @@ const ExceededPendingPage: React.FC = () => {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <Loader2 className="h-8 w-8 animate-spin" />
-        <span className="ml-2">Loading exceeded pending transactions...</span>
+        <span className="ml-2">超過時間保留取引を読み込み中...</span>
       </div>
     );
   }
@@ -153,9 +153,9 @@ const ExceededPendingPage: React.FC = () => {
       <div className="container mx-auto p-6 space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold">Exceeded Pending Transactions</h1>
+          <h1 className="text-3xl font-bold">超過時間保留取引管理</h1>
           <p className="text-gray-600 mt-2">
-            Manage exceeded time charges that are pending transfer to casts
+            キャストへの転送待ちの超過時間料金を管理します
           </p>
         </div>
         <div className="flex space-x-2">
@@ -165,7 +165,7 @@ const ExceededPendingPage: React.FC = () => {
             disabled={loading}
           >
             <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
-            Refresh
+            更新
           </Button>
           <Button
             onClick={processAllTransactions}
@@ -177,7 +177,7 @@ const ExceededPendingPage: React.FC = () => {
             ) : (
               <DollarSign className="h-4 w-4 mr-2" />
             )}
-            Process All ({transactions.length})
+            一括処理 ({transactions.length})
           </Button>
         </div>
       </div>
@@ -201,20 +201,20 @@ const ExceededPendingPage: React.FC = () => {
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Total Pending</CardTitle>
+            <CardTitle className="text-sm font-medium">保留中総数</CardTitle>
             <Clock className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{transactions.length}</div>
             <p className="text-xs text-muted-foreground">
-              Exceeded time transactions
+              超過時間取引
             </p>
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Total Amount</CardTitle>
+            <CardTitle className="text-sm font-medium">総金額</CardTitle>
             <DollarSign className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
@@ -222,14 +222,14 @@ const ExceededPendingPage: React.FC = () => {
               {formatCurrency(transactions.reduce((sum, t) => sum + t.amount, 0))}
             </div>
             <p className="text-xs text-muted-foreground">
-              Pending transfer amount
+              転送待ち金額
             </p>
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Auto-Transfer</CardTitle>
+            <CardTitle className="text-sm font-medium">自動転送</CardTitle>
             <Users className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
@@ -241,7 +241,7 @@ const ExceededPendingPage: React.FC = () => {
               }).length}
             </div>
             <p className="text-xs text-muted-foreground">
-              Ready for auto-transfer
+              自動転送準備完了
             </p>
           </CardContent>
         </Card>
@@ -252,10 +252,10 @@ const ExceededPendingPage: React.FC = () => {
           <CardContent className="flex flex-col items-center justify-center py-12">
             <Clock className="h-12 w-12 text-gray-400 mb-4" />
             <h3 className="text-lg font-semibold text-gray-600 mb-2">
-              No Exceeded Pending Transactions
+              超過時間保留取引はありません
             </h3>
             <p className="text-gray-500 text-center">
-              There are currently no exceeded time charges pending transfer.
+              現在、転送待ちの超過時間料金はありません。
             </p>
           </CardContent>
         </Card>
@@ -268,7 +268,7 @@ const ExceededPendingPage: React.FC = () => {
                   <div className="flex-1">
                     <div className="flex items-center space-x-3 mb-3">
                       <Badge variant="outline" className="bg-orange-100 text-orange-800">
-                        Exceeded Pending
+                        超過時間保留
                       </Badge>
                       <span className="text-sm text-gray-500">
                         ID: {transaction.id}
@@ -277,43 +277,43 @@ const ExceededPendingPage: React.FC = () => {
                     
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                       <div>
-                        <h4 className="font-semibold text-gray-900 mb-2">Guest Information</h4>
+                        <h4 className="font-semibold text-gray-900 mb-2">ゲスト情報</h4>
                         <p className="text-sm text-gray-600">
-                          <strong>Name:</strong> {transaction.guest?.nickname || 'N/A'}
+                          <strong>名前:</strong> {transaction.guest?.nickname || 'N/A'}
                         </p>
                         <p className="text-sm text-gray-600">
-                          <strong>Phone:</strong> {transaction.guest?.phone || 'N/A'}
+                          <strong>電話:</strong> {transaction.guest?.phone || 'N/A'}
                         </p>
                       </div>
                       
                       <div>
-                        <h4 className="font-semibold text-gray-900 mb-2">Cast Information</h4>
+                        <h4 className="font-semibold text-gray-900 mb-2">キャスト情報</h4>
                         <p className="text-sm text-gray-600">
-                          <strong>Name:</strong> {transaction.cast?.nickname || 'N/A'}
+                          <strong>名前:</strong> {transaction.cast?.nickname || 'N/A'}
                         </p>
                         <p className="text-sm text-gray-600">
-                          <strong>Grade:</strong> {transaction.cast?.grade || 'N/A'}
+                          <strong>グレード:</strong> {transaction.cast?.grade || 'N/A'}
                         </p>
                       </div>
                     </div>
                     
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                       <div>
-                        <h4 className="font-semibold text-gray-900 mb-1">Amount</h4>
+                        <h4 className="font-semibold text-gray-900 mb-1">金額</h4>
                         <p className="text-lg font-bold text-orange-600">
                           {formatCurrency(transaction.amount)}
                         </p>
                       </div>
                       
                       <div>
-                        <h4 className="font-semibold text-gray-900 mb-1">Created</h4>
+                        <h4 className="font-semibold text-gray-900 mb-1">作成日時</h4>
                         <p className="text-sm text-gray-600">
                           {formatDate(transaction.created_at)}
                         </p>
                       </div>
                       
                       <div>
-                        <h4 className="font-semibold text-gray-900 mb-1">Auto-Transfer</h4>
+                        <h4 className="font-semibold text-gray-900 mb-1">自動転送</h4>
                         <p className="text-sm text-gray-600">
                           {getTimeUntilAutoTransfer(transaction.created_at)}
                         </p>
@@ -322,7 +322,7 @@ const ExceededPendingPage: React.FC = () => {
                     
                     {transaction.description && (
                       <div className="mt-4">
-                        <h4 className="font-semibold text-gray-900 mb-1">Description</h4>
+                        <h4 className="font-semibold text-gray-900 mb-1">説明</h4>
                         <p className="text-sm text-gray-600">{transaction.description}</p>
                       </div>
                     )}
