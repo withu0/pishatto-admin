@@ -10,7 +10,7 @@ export default function Welcome() {
             <div className="flex min-h-screen flex-col items-center justify-center bg-[#FDFDFC] p-6 text-[#1b1b18] dark:bg-[#0a0a0a]">
                 <div className="w-full max-w-md rounded-lg bg-white p-8 shadow-md dark:bg-[#161615] dark:text-[#EDEDEC]">
                     <div className="mb-6 flex flex-col items-center">
-                        <span className="mb-2 text-2xl font-bold">{name || 'Pishatto Admin'}</span>
+                        <span className="mb-2 text-2xl font-bold">Pishatto Admin</span>
                         <span className="text-lg text-[#706f6c] dark:text-[#A1A09A]">管理者ページへようこそ</span>
                     </div>
                     <div className="flex justify-center gap-4 mt-6">

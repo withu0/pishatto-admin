@@ -20,7 +20,7 @@ class AutomaticPaymentService
 
     /**
      * Process automatic payment for insufficient points during exceeded time
-     * 
+     *
      * @param int $guestId
      * @param int $requiredAmountInPoints
      * @param int $reservationId
@@ -28,16 +28,16 @@ class AutomaticPaymentService
      * @return array
      */
     public function processAutomaticPaymentForInsufficientPoints(
-        int $guestId, 
-        int $requiredAmountInPoints, 
-        ?int $reservationId, 
+        int $guestId,
+        int $requiredAmountInPoints,
+        ?int $reservationId,
         string $description = 'Automatic payment for exceeded time'
     ): array {
         try {
             DB::beginTransaction();
 
             $guest = Guest::findOrFail($guestId);
-            
+
             // Check if guest has a registered payment method
             if (!$guest->stripe_customer_id) {
                 return [
@@ -83,7 +83,7 @@ class AutomaticPaymentService
                 ]
             ]);
 
-            // Process payment using Stripe
+            // Process payment using Stripe with manual capture (pending for 2 days)
             $paymentData = [
                 'customer_id' => $guest->stripe_customer_id,
                 'amount' => $amountInYen,
@@ -91,10 +91,19 @@ class AutomaticPaymentService
                 'user_id' => $guestId,
                 'user_type' => 'guest',
                 'description' => $description,
-                'payment_method_type' => 'card'
+                'payment_method_type' => 'card',
+                'capture_method' => 'manual', // Use manual capture for delayed processing
+                'metadata' => [
+                    'automatic_payment' => true,
+                    'required_points' => $requiredAmountInPoints,
+                    'conversion_rate' => $yenPerPoint,
+                    'original_points_requested' => $requiredAmountInPoints,
+                    'deduction_type' => 'exceeded_time_shortfall',
+                    'scheduled_capture_at' => now()->addDays(2)->toISOString()
+                ]
             ];
 
-            $result = $this->stripeService->processPayment($paymentData);
+            $result = $this->stripeService->processPaymentWithManualCapture($paymentData);
 
             if (!$result['success']) {
                 Log::error('Automatic payment failed', [
@@ -120,22 +129,24 @@ class AutomaticPaymentService
                 ];
             }
 
-            // Update payment record with success
+            // Update payment record with pending status (will be captured after 2 days)
             $paymentIntentId = $result['payment_intent']['id'] ?? null;
             $payment->update([
-                'status' => 'paid',
+                'status' => 'pending', // Payment is pending until captured
                 'stripe_payment_intent_id' => $paymentIntentId,
-                'paid_at' => now(),
+                'paid_at' => null, // Will be set when payment is captured
                 'metadata' => array_merge($payment->metadata ?? [], [
-                    'payment_successful' => true,
+                    'payment_authorized' => true,
                     'stripe_payment_intent_id' => $paymentIntentId,
-                    'processed_at' => now()->toISOString(),
+                    'authorized_at' => now()->toISOString(),
+                    'scheduled_capture_at' => now()->addDays(2)->toISOString(),
                     'deduction_amount_yen' => $amountInYen,
-                    'deduction_amount_points' => $requiredAmountInPoints
+                    'deduction_amount_points' => $requiredAmountInPoints,
+                    'capture_method' => 'manual'
                 ])
             ]);
 
-            // Add points to guest account
+            // Add points to guest account immediately (authorization successful)
             $currentPoints = $guest->points ?? 0;
             $newPoints = $currentPoints + $requiredAmountInPoints;
             $guest->points = $newPoints;
@@ -188,12 +199,14 @@ class AutomaticPaymentService
                 'amount_yen' => $amountInYen,
                 'points_added' => $requiredAmountInPoints,
                 'new_balance' => $newPoints,
-                'stripe_payment_intent_id' => $paymentIntentId
+                'stripe_payment_intent_id' => $paymentIntentId,
+                'status' => 'pending',
+                'scheduled_capture_at' => now()->addDays(2)->toISOString()
             ];
 
         } catch (\Exception $e) {
             DB::rollBack();
-            
+
             Log::error('Automatic payment processing failed', [
                 'guest_id' => $guestId,
                 'required_points' => $requiredAmountInPoints,
@@ -212,7 +225,7 @@ class AutomaticPaymentService
 
     /**
      * Check if guest has registered payment method
-     * 
+     *
      * @param int $guestId
      * @return bool
      */
@@ -224,7 +237,7 @@ class AutomaticPaymentService
 
     /**
      * Get guest's payment method info
-     * 
+     *
      * @param int $guestId
      * @return array|null
      */
@@ -238,7 +251,7 @@ class AutomaticPaymentService
 
             // Get payment methods from Stripe
             $paymentMethods = $this->stripeService->getCustomerPaymentMethods($guest->stripe_customer_id);
-            
+
             return [
                 'has_payment_method' => !empty($paymentMethods),
                 'customer_id' => $guest->stripe_customer_id,

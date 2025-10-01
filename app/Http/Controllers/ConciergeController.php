@@ -112,7 +112,7 @@ class ConciergeController extends Controller
 
         // Create automatic concierge response with metadata
         $conciergeResponse = $this->generateConciergeResponse($messageText);
-        
+
         $conciergeMessage = ConciergeMessage::create([
             'user_id' => $userId,
             'user_type' => $userType,
@@ -144,6 +144,70 @@ class ConciergeController extends Controller
                     'timestamp' => $userMessage->created_at->format('H:i'),
                     'created_at' => $userMessage->created_at->toISOString(),
                 ],
+                'concierge_message' => [
+                    'id' => $conciergeMessage->id,
+                    'text' => $conciergeMessage->message,
+                    'is_concierge' => true,
+                    'message_type' => $conciergeMessage->message_type,
+                    'category' => $conciergeMessage->category,
+                    'status' => $conciergeMessage->status,
+                    'timestamp' => $conciergeMessage->created_at->format('H:i'),
+                    'created_at' => $conciergeMessage->created_at->toISOString(),
+                ],
+            ]
+        ]);
+    }
+
+    /**
+     * Send a system concierge message to a user
+     */
+    public function sendSystemMessage(Request $request): JsonResponse
+    {
+        $validator = Validator::make($request->all(), [
+            'user_id' => 'required|integer',
+            'user_type' => 'required|in:guest,cast',
+            'message' => 'required|string|max:2000',
+            'message_type' => 'nullable|string',
+            'category' => 'nullable|string',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Validation failed',
+                'errors' => $validator->errors()
+            ], 400);
+        }
+
+        $userId = $request->input('user_id');
+        $userType = $request->input('user_type');
+        $messageText = $request->input('message');
+        $messageType = $request->input('message_type', 'system');
+        $category = $request->input('category', 'system_notification');
+
+        // Create system concierge message
+        $conciergeMessage = ConciergeMessage::create([
+            'user_id' => $userId,
+            'user_type' => $userType,
+            'message' => $messageText,
+            'is_concierge' => true,
+            'is_read' => false,
+            'message_type' => $messageType,
+            'category' => $category,
+            'status' => 'delivered',
+            'user_agent' => $request->header('User-Agent'),
+            'ip_address' => $request->ip(),
+            'metadata' => [
+                'source' => 'system_message',
+                'message_type' => 'system_notification',
+                'auto_generated' => true,
+                'sent_at' => now()->toISOString(),
+            ],
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'data' => [
                 'concierge_message' => [
                     'id' => $conciergeMessage->id,
                     'text' => $conciergeMessage->message,
@@ -227,27 +291,27 @@ class ConciergeController extends Controller
     private function determineMessageType(string $message): string
     {
         $message = strtolower($message);
-        
+
         if (strpos($message, '予約') !== false || strpos($message, 'reservation') !== false || strpos($message, 'booking') !== false) {
             return 'reservation';
         }
-        
+
         if (strpos($message, '支払い') !== false || strpos($message, 'payment') !== false || strpos($message, '決済') !== false || strpos($message, '料金') !== false) {
             return 'payment';
         }
-        
+
         if (strpos($message, 'トラブル') !== false || strpos($message, '問題') !== false || strpos($message, '困') !== false || strpos($message, 'エラー') !== false) {
             return 'support';
         }
-        
+
         if (strpos($message, 'サービス') !== false || strpos($message, 'service') !== false || strpos($message, '機能') !== false) {
             return 'inquiry';
         }
-        
+
         if (strpos($message, '技術') !== false || strpos($message, 'technical') !== false || strpos($message, 'バグ') !== false) {
             return 'technical';
         }
-        
+
         return 'general';
     }
 
@@ -257,20 +321,20 @@ class ConciergeController extends Controller
     private function determineCategory(string $message): string
     {
         $message = strtolower($message);
-        
+
         // Check for urgent keywords
-        if (strpos($message, '緊急') !== false || strpos($message, 'urgent') !== false || 
+        if (strpos($message, '緊急') !== false || strpos($message, 'urgent') !== false ||
             strpos($message, 'すぐ') !== false || strpos($message, '今すぐ') !== false ||
             strpos($message, 'トラブル') !== false || strpos($message, '問題') !== false) {
             return 'urgent';
         }
-        
+
         // Check for low priority keywords
-        if (strpos($message, '質問') !== false || strpos($message, 'お聞き') !== false || 
+        if (strpos($message, '質問') !== false || strpos($message, 'お聞き') !== false ||
             strpos($message, '教えて') !== false) {
             return 'low';
         }
-        
+
         return 'normal';
     }
 
@@ -281,7 +345,7 @@ class ConciergeController extends Controller
     {
         $keywords = [];
         $message = strtolower($message);
-        
+
         $keywordPatterns = [
             'reservation' => ['予約', 'reservation', 'booking'],
             'payment' => ['支払い', 'payment', '決済', '料金'],
@@ -289,7 +353,7 @@ class ConciergeController extends Controller
             'technical' => ['技術', 'technical', 'バグ', 'bug'],
             'urgent' => ['緊急', 'urgent', 'すぐ', '今すぐ'],
         ];
-        
+
         foreach ($keywordPatterns as $category => $patterns) {
             foreach ($patterns as $pattern) {
                 if (strpos($message, $pattern) !== false) {
@@ -298,7 +362,7 @@ class ConciergeController extends Controller
                 }
             }
         }
-        
+
         return array_unique($keywords);
     }
 
@@ -308,25 +372,25 @@ class ConciergeController extends Controller
     private function analyzeSentiment(string $message): string
     {
         $message = strtolower($message);
-        
+
         $positiveWords = ['ありがとう', 'thank', '良い', 'good', '素晴らしい', 'great'];
         $negativeWords = ['困', '問題', 'トラブル', '問題', 'bad', '悪い', '嫌'];
-        
+
         $positiveCount = 0;
         $negativeCount = 0;
-        
+
         foreach ($positiveWords as $word) {
             if (strpos($message, $word) !== false) {
                 $positiveCount++;
             }
         }
-        
+
         foreach ($negativeWords as $word) {
             if (strpos($message, $word) !== false) {
                 $negativeCount++;
             }
         }
-        
+
         if ($positiveCount > $negativeCount) {
             return 'positive';
         } elseif ($negativeCount > $positiveCount) {
@@ -342,25 +406,25 @@ class ConciergeController extends Controller
     private function generateConciergeResponse(string $userMessage): string
     {
         $message = strtolower($userMessage);
-        
+
         // Simple keyword-based responses
         if (strpos($message, '予約') !== false || strpos($message, 'reservation') !== false) {
             return '予約についてのご質問ですね。予約の変更・キャンセルは24時間前まで可能です。詳細はお気軽にお聞かせください。';
         }
-        
+
         if (strpos($message, '支払い') !== false || strpos($message, 'payment') !== false || strpos($message, '料金') !== false) {
             return '支払いについてのご質問ですね。クレジットカード、銀行振込、コンビニ決済に対応しています。';
         }
-        
+
         if (strpos($message, 'トラブル') !== false || strpos($message, '問題') !== false || strpos($message, '困') !== false) {
             return 'トラブルが発生してしまい、申し訳ございません。詳しい状況をお聞かせください。すぐに対応いたします。';
         }
-        
+
         if (strpos($message, 'サービス') !== false || strpos($message, 'service') !== false) {
             return 'サービスについてのご質問ですね。当店では様々なサービスをご提供しております。詳しくはお気軽にお聞かせください。';
         }
-        
+
         // Default response
         return 'ありがとうございます。すぐに対応いたします。何か他にご質問がございましたら、お気軽にお聞かせください。';
     }
-} 
+}

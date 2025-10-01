@@ -32,7 +32,7 @@ class CastAuthController extends Controller
             // Accept code if provided, but do not require it because phone may already be verified
             'verification_code' => 'nullable|string|size:6',
         ]);
-        
+
         if ($validator->fails()) {
             return response()->json(['message' => 'Invalid credentials'], 422);
         }
@@ -40,10 +40,10 @@ class CastAuthController extends Controller
         // Verify via cached verified state first. If not verified yet, attempt direct code verification when provided.
         $phoneNumber = $request->phone;
         $phoneNumber = $this->formatPhoneNumberForInfobip($phoneNumber);
-        
+
         $isVerified = $this->infobipService->isPhoneVerified($phoneNumber);
         $errorMessage = 'Phone number not verified. Please verify your number again.';
-        
+
         if (!$isVerified && $request->filled('verification_code')) {
             $verificationResult = $this->infobipService->verifyCode($phoneNumber, $request->verification_code);
             $isVerified = $verificationResult['success'];
@@ -51,7 +51,7 @@ class CastAuthController extends Controller
                 $errorMessage = $verificationResult['message'] ?? $errorMessage;
             }
         }
-        
+
         if (!$isVerified) {
             return response()->json(['message' => $errorMessage], 422);
         }
@@ -63,7 +63,7 @@ class CastAuthController extends Controller
                 'cast' => null
             ], 404);
         }
-        
+
         // Log the cast in using Laravel session (cast guard)
         \Illuminate\Support\Facades\Auth::guard('cast')->login($cast);
         return response()->json([
@@ -80,20 +80,20 @@ class CastAuthController extends Controller
         $validator = Validator::make($request->all(), [
             'phone' => 'required|string',
         ]);
-        
+
         if ($validator->fails()) {
             return response()->json(['message' => 'Invalid phone number'], 422);
         }
 
         $cast = Cast::where('phone', $request->phone)->first();
-        
+
         if (!$cast) {
             return response()->json([
                 'exists' => false,
                 'message' => 'お客様の情報は存在しません。管理者までご連絡ください。'
             ], 404);
         }
-        
+
         return response()->json([
             'exists' => true,
             'cast' => $cast
@@ -125,7 +125,7 @@ class CastAuthController extends Controller
             'id', 'phone', 'line_id', 'password', 'nickname', 'avatar', 'birth_year', 'height', 'residence',
             'birthplace', 'profile_text', 'created_at', 'updated_at', 'grade_points'
         ]);
-        
+
         if (!empty($data['id'])) {
             $cast = \App\Models\Cast::find($data['id']);
             if (!$cast) {
@@ -156,16 +156,16 @@ class CastAuthController extends Controller
             $reservations = \App\Models\Reservation::where('type', 'free')
                 ->orderBy('scheduled_at', 'desc')
                 ->get();
-            
+
             // Get all casts to calculate points based on their categories
             $casts = \App\Models\Cast::all()->keyBy('id');
-            
+
             // Add calculated points to each reservation
             $reservations->each(function ($reservation) use ($casts) {
                 // Calculate points based on cast category and duration
                 // Formula: category_points * duration * 60 / 30
                 $totalPoints = 0;
-                
+
                 // Check if reservation has cast_ids
                 if ($reservation->cast_ids) {
                     $castIds = $reservation->cast_ids;
@@ -173,14 +173,14 @@ class CastAuthController extends Controller
                         // Calculate points based on the first cast's category (or average if multiple)
                         $categoryPoints = 0;
                         $castCount = 0;
-                        
+
                         foreach ($castIds as $castId) {
                             if (isset($casts[$castId])) {
                                 $categoryPoints += $casts[$castId]->getCategoryPointsAttribute();
                                 $castCount++;
                             }
                         }
-                        
+
                         if ($castCount > 0) {
                             $averageCategoryPoints = $categoryPoints / $castCount;
                             $duration = $reservation->duration ?? 1;
@@ -188,17 +188,17 @@ class CastAuthController extends Controller
                         }
                     }
                 }
-                
+
                 // Fallback to default calculation if no cast_ids or casts not found
                 if ($totalPoints === 0) {
                     $defaultCategoryPoints = 12000; // Default to プレミアム
                     $duration = $reservation->duration ?? 1;
                     $totalPoints = $defaultCategoryPoints * $duration * 60 / 30;
                 }
-                
+
                 $reservation->calculated_points = $totalPoints;
             });
-            
+
             return response()->json(['reservations' => $reservations]);
         } catch (\Exception $e) {
             Log::error('Error in allReservations: ' . $e->getMessage());
@@ -273,7 +273,7 @@ class CastAuthController extends Controller
             ->where('type', 'gift')
             ->whereBetween('created_at', [$currentMonth, $nextMonth])
             ->count();
-        
+
         $successfulGiftTransactions = \App\Models\PointTransaction::where('cast_id', $id)
             ->where('type', 'gift')
             ->where('amount', '>', 0)
@@ -296,13 +296,13 @@ class CastAuthController extends Controller
     {
         $location = $request->query('location', '東京都');
         $limit = $request->query('limit', 50);
-        
+
         $casts = \App\Models\Cast::where('location', $location)
             ->where('status', 'active')
             ->inRandomOrder()
             ->limit($limit)
             ->get(['id', 'nickname', 'avatar', 'location', 'grade']);
-            
+
         return response()->json([
             'casts' => $casts,
             'total' => $casts->count(),
@@ -394,7 +394,7 @@ class CastAuthController extends Controller
     public function list(Request $request)
     {
         $query = Cast::query();
-        
+
         // Apply area filter if provided
         if ($request->has('area') && $request->area) {
             $area = $request->area;
@@ -404,7 +404,7 @@ class CastAuthController extends Controller
                   ->orWhereRaw("SUBSTRING_INDEX(residence, '/', 1) = ?", [$area]);
             });
         }
-        
+
         // Apply prefecture filter if provided
         if ($request->has('prefecture') && $request->prefecture) {
             $prefecture = $request->prefecture;
@@ -413,7 +413,7 @@ class CastAuthController extends Controller
                   ->orWhere('residence', 'LIKE', '%/' . $prefecture . '%');
             });
         }
-        
+
         // Apply search filter if provided
         if ($request->has('search') && $request->search) {
             $search = $request->search;
@@ -422,11 +422,11 @@ class CastAuthController extends Controller
                   ->orWhere('name', 'like', "%{$search}%");
             });
         }
-        
+
         // Apply sorting
         $sort = $request->get('sort', 'created_at');
         $order = $request->get('order', 'desc');
-        
+
         switch ($sort) {
             case 'created_at':
                 $query->orderBy('created_at', $order);
@@ -441,9 +441,9 @@ class CastAuthController extends Controller
             default:
                 $query->orderBy('created_at', 'desc');
         }
-        
+
         $casts = $query->get();
-        
+
         return response()->json(['casts' => $casts]);
     }
 
@@ -456,7 +456,7 @@ class CastAuthController extends Controller
     //             ->groupBy('residence')
     //             ->pluck('count', 'residence')
     //             ->toArray();
-            
+
     //         return response()->json($counts);
     //     } catch (\Exception $e) {
     //         \Log::error('Error in getCastCountsByLocation: ' . $e->getMessage());
@@ -496,13 +496,13 @@ class CastAuthController extends Controller
             return response()->json(['liked' => false]);
         } else {
             Like::create(['guest_id' => $guestId, 'cast_id' => $castId]);
-            
+
             // Send notification if enabled
             $cast = Cast::find($castId);
             if ($cast) {
                 \App\Services\NotificationService::sendLikeNotification($guestId, $castId, $cast->nickname);
             }
-            
+
             return response()->json(['liked' => true]);
         }
     }
@@ -525,31 +525,31 @@ class CastAuthController extends Controller
         if ($validator->fails()) {
             return response()->json(['message' => 'Validation failed', 'errors' => $validator->errors()], 422);
         }
-        
+
         $castId = $request->input('cast_id');
         $guestId = $request->input('guest_id');
-        
+
         // Check if this cast has already visited this guest recently (within 24 hours)
         $existingVisit = \App\Models\VisitHistory::where('cast_id', $castId)
             ->where('guest_id', $guestId)
             ->where('created_at', '>=', now()->subDay())
             ->first();
-            
+
         if ($existingVisit) {
             // Update the existing visit timestamp
             $existingVisit->touch();
             return response()->json(['success' => true]);
         }
-        
+
         // Create new visit record
         \App\Models\VisitHistory::create(['cast_id' => $castId, 'guest_id' => $guestId]);
-        
+
         // Create notification for the guest about the cast visit
         $cast = Cast::find($castId);
         if ($cast) {
             \App\Services\NotificationService::sendFootprintNotification($guestId, $castId, $cast->nickname);
         }
-        
+
         return response()->json(['success' => true]);
     }
 
@@ -563,7 +563,7 @@ class CastAuthController extends Controller
             ->orderBy('visit_histories.updated_at', 'desc')
             ->get()
             ->unique('cast_id'); // Ensure we only get one record per cast
-        
+
         return response()->json(['history' => $history]);
     }
 
@@ -636,15 +636,15 @@ class CastAuthController extends Controller
         }
         $reservation->started_at = now();
         $reservation->save();
-        
+
         // For pishatto calls, start monitoring for exceeded time
         if ($reservation->type === 'Pishatto') {
             $this->startExceededTimeMonitoring($reservation);
         }
-        
+
         // Broadcast the reservation update event
         event(new \App\Events\ReservationUpdated($reservation));
-        
+
         return response()->json(['reservation' => $reservation]);
     }
 
@@ -653,10 +653,13 @@ class CastAuthController extends Controller
      */
     private function startExceededTimeMonitoring(Reservation $reservation)
     {
+        // Ensure duration is a number (convert string to float if needed)
+        $duration = is_numeric($reservation->duration) ? (float)$reservation->duration : 0;
+
         // Schedule a job to check for exceeded time after the scheduled duration
         $scheduledEndTime = \Carbon\Carbon::parse($reservation->started_at)
-            ->addHours($reservation->duration);
-        
+            ->addHours($duration);
+
         // Dispatch a job to check exceeded time after scheduled duration
         \App\Jobs\CheckExceededTime::dispatch($reservation->id)
             ->delay($scheduledEndTime);
@@ -679,33 +682,33 @@ class CastAuthController extends Controller
         if ($reservation->ended_at) {
             return response()->json(['message' => 'Reservation already ended'], 400);
         }
-        
+
         // Set the cast_id if not already set
         if (!$reservation->cast_id) {
             $reservation->cast_id = $request->cast_id;
         }
-        
+
         $reservation->ended_at = now();
         $reservation->save();
-        
+
         // Calculate points and process transaction using the service
         // Note: Exceeded time is now handled within processReservationCompletion
         $pointService = app(\App\Services\PointTransactionService::class);
-        
+
         $success = $pointService->processReservationCompletion($reservation);
-        
+
         if (!$success) {
             return response()->json(['message' => 'Failed to process point transaction'], 500);
         }
-        
+
         // Get the updated reservation with points_earned
         $reservation->refresh();
-        
+
         // Find the pending transaction to get refund information
         $pendingTransaction = \App\Models\PointTransaction::where('reservation_id', $reservation->id)
             ->where('type', 'pending')
             ->first();
-        
+
         $refundTransaction = \App\Models\PointTransaction::where('reservation_id', $reservation->id)
             ->where('type', 'convert')
             ->where('description', 'like', '%refunded unused points%')
@@ -713,7 +716,7 @@ class CastAuthController extends Controller
 
         $refundAmount = $refundTransaction ? $refundTransaction->amount : 0;
         $reservedAmount = $pendingTransaction ? $pendingTransaction->amount : 0;
-        
+
         // Create receipt for the session
         $receipt = null;
         try {
@@ -726,7 +729,7 @@ class CastAuthController extends Controller
                 'purpose' => 'Pishatto利用料',
                 'transaction_created_at' => $reservation->ended_at,
             ]));
-            
+
             // Extract receipt from the response
             if ($receiptResponse && $receiptResponse->getData() && $receiptResponse->getData()->success) {
                 $receipt = $receiptResponse->getData()->receipt;
@@ -734,32 +737,32 @@ class CastAuthController extends Controller
         } catch (\Exception $e) {
             Log::error('Failed to create receipt for reservation ' . $reservation->id . ': ' . $e->getMessage());
         }
-        
+
         // Send notification to guest about session completion
         if ($receipt) {
             try {
                 $notificationService = app(\App\Services\NotificationService::class);
-                
+
                 // Generate proper shareable receipt URL matching ReceiptConfirmationPage format
                 $frontendUrl = env('FRONTEND_URL', 'http://localhost:3000');
                 if (!preg_match('#^https?://#i', $frontendUrl)) {
                     $frontendUrl = 'http://' . ltrim($frontendUrl, '/');
                 }
                 $frontendUrl = rtrim($frontendUrl, '/');
-                
+
                 // Generate random suffix like in ReceiptConfirmationPage for security
                 $randomSuffix1 = substr(str_shuffle('abcdefghijklmnopqrstuvwxyz0123456789'), 0, 8);
                 $randomSuffix2 = substr(str_shuffle('abcdefghijklmnopqrstuvwxyz0123456789'), 0, 8);
                 $receiptUrl = $frontendUrl . '/receipt/' . $receipt->receipt_number . '-' . $randomSuffix1 . '_' . $randomSuffix2;
-                
+
                 $message = "🎉 解散が完了いたしました！\n\n📄 領収書は以下の通りとなります：\n🔗 {$receiptUrl}\n\n⚠️ 内容に相違ございましたら3日以内に運営にご連絡くださいませ。\n\n🙏 またのご利用を心よりお待ちしております。";
-                
+
                 $notification = $notificationService->sendMeetupDissolutionNotification(
                     $reservation->guest_id,
                     $message,
                     $reservation->id
                 );
-                
+
                 // Broadcast the notification event for real-time delivery
                 if ($notification) {
                     event(new \App\Events\NotificationSent($notification));
@@ -809,12 +812,12 @@ class CastAuthController extends Controller
                 Log::error('Failed to send dissolution notification for reservation ' . $reservation->id . ': ' . $e->getMessage());
             }
         }
-        
+
         // Broadcast the reservation update event
         event(new \App\Events\ReservationUpdated($reservation));
-        
+
         return response()->json([
-            'reservation' => $reservation, 
+            'reservation' => $reservation,
             'message' => 'Reservation completed and points transferred successfully',
             'points_transferred' => $reservation->points_earned,
             'points_reserved' => $reservedAmount,
@@ -861,15 +864,15 @@ class CastAuthController extends Controller
     {
         // Remove any non-digit characters
         $phoneNumber = preg_replace('/[^0-9]/', '', $phoneNumber);
-        
+
         // Ensure it starts with 0 (Japanese format)
         if (!str_starts_with($phoneNumber, '0')) {
             throw new \InvalidArgumentException('Phone number must start with 0');
         }
-        
+
         // Remove leading 0 and add 81
         $formattedNumber = '81' . ltrim($phoneNumber, '0');
-        
+
         return $formattedNumber;
     }
-} 
+}

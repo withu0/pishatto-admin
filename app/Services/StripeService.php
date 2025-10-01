@@ -142,7 +142,7 @@ class StripeService
                     'payment_intent_id' => $paymentIntent->id,
                     'client_secret' => $paymentIntent->client_secret
                 ]);
-                
+
                 // For server-side payments, we can't handle 3DS interactively
                 // Return the client_secret for frontend handling
                 return [
@@ -221,7 +221,7 @@ class StripeService
     {
         try {
             $paymentIntent = PaymentIntent::retrieve($paymentIntentId);
-            
+
             // If the payment intent is still in requires_action status,
             // we need to confirm it again after 3DS completion
             if ($paymentIntent->status === 'requires_action') {
@@ -372,6 +372,160 @@ class StripeService
     }
 
     /**
+     * Process a payment using Stripe with manual capture (for delayed processing)
+     */
+    public function processPaymentWithManualCapture($paymentData)
+    {
+        try {
+            // Create payment intent with manual capture
+            $paymentIntentData = [
+                'amount' => $paymentData['amount'], // Amount in cents
+                'currency' => 'jpy',
+                'description' => $paymentData['description'] ?? 'Payment',
+                'metadata' => $paymentData['metadata'] ?? [],
+                'capture_method' => 'manual', // Manual capture for delayed processing
+            ];
+
+            // Add customer if provided
+            if (isset($paymentData['customer_id'])) {
+                $paymentIntentData['customer'] = $paymentData['customer_id'];
+
+                // Get customer's default payment method
+                if (!isset($paymentData['payment_method'])) {
+                    try {
+                        $paymentMethods = PaymentMethod::all([
+                            'customer' => $paymentData['customer_id'],
+                            'type' => 'card',
+                        ]);
+
+                        if (!empty($paymentMethods->data)) {
+                            $paymentMethodId = $paymentMethods->data[0]->id;
+
+                            // Ensure payment method is attached to customer
+                            $paymentMethod = PaymentMethod::retrieve($paymentMethodId);
+                            if (!$paymentMethod->customer) {
+                                $paymentMethod->attach(['customer' => $paymentData['customer_id']]);
+                            }
+
+                            // Set payment method and configuration
+                            $paymentIntentData['payment_method'] = $paymentMethodId;
+                            $paymentIntentData['confirm'] = true;
+                            $paymentIntentData['off_session'] = true;
+                            $paymentIntentData['return_url'] = config('app.url') . '/payment/return';
+                            $paymentIntentData['automatic_payment_methods'] = [
+                                'enabled' => true,
+                                'allow_redirects' => 'never'
+                            ];
+
+                            Log::info('Using customer default payment method for manual capture', [
+                                'customer_id' => $paymentData['customer_id'],
+                                'payment_method_id' => $paymentMethodId
+                            ]);
+                        }
+                    } catch (Exception $e) {
+                        Log::warning('Failed to get customer payment methods for manual capture', [
+                            'customer_id' => $paymentData['customer_id'],
+                            'error' => $e->getMessage()
+                        ]);
+                    }
+                }
+            }
+
+            // Add payment method if provided (for direct payment method usage)
+            if (isset($paymentData['payment_method']) && !isset($paymentIntentData['payment_method'])) {
+                $paymentIntentData['payment_method'] = $paymentData['payment_method'];
+                $paymentIntentData['confirm'] = true;
+                $paymentIntentData['off_session'] = true;
+                $paymentIntentData['return_url'] = config('app.url') . '/payment/return';
+                $paymentIntentData['automatic_payment_methods'] = [
+                    'enabled' => true,
+                    'allow_redirects' => 'never'
+                ];
+            }
+
+            // Log the payment intent data being sent to Stripe
+            Log::info('Creating payment intent with manual capture', [
+                'payment_intent_data' => $paymentIntentData
+            ]);
+
+            $paymentIntent = PaymentIntent::create($paymentIntentData);
+
+            Log::info('Stripe payment intent created with manual capture', [
+                'payment_intent_id' => $paymentIntent->id,
+                'status' => $paymentIntent->status,
+                'confirmation_method' => $paymentIntent->confirmation_method,
+                'capture_method' => $paymentIntent->capture_method
+            ]);
+
+            // Handle different payment intent statuses
+            if ($paymentIntent->status === 'requires_confirmation' && isset($paymentIntentData['payment_method'])) {
+                try {
+                    $paymentIntent->confirm(['payment_method' => $paymentIntentData['payment_method']]);
+                    Log::info('Payment intent confirmed for manual capture', [
+                        'payment_intent_id' => $paymentIntent->id,
+                        'status' => $paymentIntent->status
+                    ]);
+                } catch (Exception $e) {
+                    Log::warning('Payment intent confirmation failed for manual capture', [
+                        'payment_intent_id' => $paymentIntent->id,
+                        'error' => $e->getMessage()
+                    ]);
+                }
+            } elseif ($paymentIntent->status === 'requires_payment_method' && isset($paymentIntentData['payment_method'])) {
+                // If payment intent still requires payment method, try to update it
+                try {
+                    $paymentIntent->payment_method = $paymentIntentData['payment_method'];
+                    $paymentIntent->save();
+                    $paymentIntent->confirm(['payment_method' => $paymentIntentData['payment_method']]);
+                    Log::info('Payment intent updated and confirmed for manual capture', [
+                        'payment_intent_id' => $paymentIntent->id,
+                        'status' => $paymentIntent->status
+                    ]);
+                } catch (Exception $e) {
+                    Log::warning('Payment intent update failed for manual capture', [
+                        'payment_intent_id' => $paymentIntent->id,
+                        'error' => $e->getMessage()
+                    ]);
+                }
+            }
+
+            // For manual capture, payment is successful if it's authorized (requires_capture)
+            $isPaymentAuthorized = in_array($paymentIntent->status, ['requires_capture', 'succeeded']);
+
+            // Create payment record in database
+            $payment = \App\Models\Payment::create([
+                'user_id' => $paymentData['user_id'],
+                'user_type' => $paymentData['user_type'],
+                'amount' => $paymentData['amount'],
+                'payment_method' => $paymentData['payment_method_type'] ?? 'card',
+                'status' => $isPaymentAuthorized ? 'pending' : 'failed',
+                'description' => $paymentData['description'] ?? 'Payment',
+                'stripe_payment_intent_id' => $paymentIntent->id,
+                'stripe_customer_id' => $paymentData['customer_id'] ?? null,
+                'metadata' => $paymentData['metadata'] ?? [],
+                'paid_at' => null, // Will be set when payment is captured
+            ]);
+
+            return [
+                'success' => $isPaymentAuthorized,
+                'payment' => $payment,
+                'payment_intent' => $paymentIntent->toArray(),
+            ];
+
+        } catch (Exception $e) {
+            Log::error('Manual capture payment processing failed', [
+                'payment_data' => $paymentData,
+                'error' => $e->getMessage()
+            ]);
+
+            return [
+                'success' => false,
+                'error' => $e->getMessage(),
+            ];
+        }
+    }
+
+    /**
      * Process a payment using Stripe
      */
     public function processPayment($paymentData)
@@ -388,7 +542,7 @@ class StripeService
             // Add customer if provided
             if (isset($paymentData['customer_id'])) {
                 $paymentIntentData['customer'] = $paymentData['customer_id'];
-                
+
                 // If no payment method provided, get customer's default payment method
                 if (!isset($paymentData['payment_method'])) {
                     try {
@@ -396,16 +550,16 @@ class StripeService
                             'customer' => $paymentData['customer_id'],
                             'type' => 'card',
                         ]);
-                        
+
                         if (!empty($paymentMethods->data)) {
                             $paymentMethodId = $paymentMethods->data[0]->id;
-                            
+
                             // Ensure payment method is attached to customer
                             $paymentMethod = PaymentMethod::retrieve($paymentMethodId);
                             if (!$paymentMethod->customer) {
                                 $paymentMethod->attach(['customer' => $paymentData['customer_id']]);
                             }
-                            
+
                             // Set payment method and configuration
                             $paymentIntentData['payment_method'] = $paymentMethodId;
                             $paymentIntentData['confirm'] = true;
@@ -416,7 +570,7 @@ class StripeService
                                 'enabled' => true,
                                 'allow_redirects' => 'never'
                             ];
-                            
+
                             Log::info('Using customer default payment method', [
                                 'customer_id' => $paymentData['customer_id'],
                                 'payment_method_id' => $paymentMethodId
@@ -492,7 +646,7 @@ class StripeService
 
             // Check if payment was successful
             $isPaymentSuccessful = $paymentIntent->status === 'succeeded';
-            
+
             // Create payment record in database
             $payment = \App\Models\Payment::create([
                 'user_id' => $paymentData['user_id'],
@@ -527,6 +681,58 @@ class StripeService
     }
 
     /**
+     * Capture a payment intent (for manual capture payments)
+     */
+    public function capturePaymentIntent($paymentIntentId, $amount = null)
+    {
+        try {
+            $paymentIntent = PaymentIntent::retrieve($paymentIntentId);
+
+            if ($paymentIntent->status !== 'requires_capture') {
+                Log::warning('Payment intent is not in requires_capture status', [
+                    'payment_intent_id' => $paymentIntentId,
+                    'current_status' => $paymentIntent->status
+                ]);
+
+                return [
+                    'success' => false,
+                    'error' => "Payment intent is not in requires_capture status. Current status: {$paymentIntent->status}"
+                ];
+            }
+
+            $captureData = [];
+            if ($amount !== null) {
+                $captureData['amount_to_capture'] = $amount;
+            }
+
+            $capturedPaymentIntent = $paymentIntent->capture($captureData);
+
+            Log::info('Payment intent captured successfully', [
+                'payment_intent_id' => $paymentIntentId,
+                'captured_amount' => $capturedPaymentIntent->amount_received,
+                'status' => $capturedPaymentIntent->status
+            ]);
+
+            return [
+                'success' => true,
+                'payment_intent' => $capturedPaymentIntent->toArray(),
+                'captured_amount' => $capturedPaymentIntent->amount_received
+            ];
+
+        } catch (Exception $e) {
+            Log::error('Payment intent capture failed', [
+                'payment_intent_id' => $paymentIntentId,
+                'error' => $e->getMessage()
+            ]);
+
+            return [
+                'success' => false,
+                'error' => $e->getMessage()
+            ];
+        }
+    }
+
+    /**
      * Handle webhook
      */
     public function handleWebhook($payload, $signature)
@@ -540,7 +746,7 @@ class StripeService
                     Log::info('Payment succeeded', [
                         'payment_intent_id' => $event->data->object->id
                     ]);
-                    
+
                     // Update payment status in database
                     $payment = \App\Models\Payment::where('stripe_payment_intent_id', $event->data->object->id)->first();
                     if ($payment && $payment->status !== 'paid') {
@@ -548,23 +754,23 @@ class StripeService
                             'status' => 'paid',
                             'paid_at' => now(),
                         ]);
-                        
+
                         // Add points to user if not already added
                         if ($payment->user_type === 'guest') {
                             $model = \App\Models\Guest::find($payment->user_id);
                         } else {
                             $model = \App\Models\Cast::find($payment->user_id);
                         }
-                        
+
                         if ($model) {
                             $yenPerPoint = (float) config('points.yen_per_point', 1.2);
                             $pointsToCredit = (int) floor(((float) $payment->amount) / max(0.0001, $yenPerPoint));
-                            
+
                             $currentPoints = $model->points ?? 0;
                             $newPoints = $currentPoints + $pointsToCredit;
                             $model->points = $newPoints;
                             $model->save();
-                            
+
                             Log::info('Points added via webhook', [
                                 'user_id' => $payment->user_id,
                                 'user_type' => $payment->user_type,
@@ -579,7 +785,7 @@ class StripeService
                     Log::warning('Payment failed', [
                         'payment_intent_id' => $event->data->object->id
                     ]);
-                    
+
                     // Update payment status to failed
                     $payment = \App\Models\Payment::where('stripe_payment_intent_id', $event->data->object->id)->first();
                     if ($payment) {
@@ -601,6 +807,39 @@ class StripeService
 
         } catch (Exception $e) {
             Log::error('Webhook handling failed', ['error' => $e->getMessage()]);
+
+            return [
+                'success' => false,
+                'error' => $e->getMessage(),
+            ];
+        }
+    }
+
+    /**
+     * Cancel a payment intent
+     */
+    public function cancelPaymentIntent(string $paymentIntentId): array
+    {
+        try {
+            $stripe = new \Stripe\StripeClient(config('services.stripe.secret_key'));
+
+            $paymentIntent = $stripe->paymentIntents->cancel($paymentIntentId);
+
+            Log::info('Payment intent cancelled successfully', [
+                'payment_intent_id' => $paymentIntentId,
+                'status' => $paymentIntent->status
+            ]);
+
+            return [
+                'success' => true,
+                'payment_intent' => $paymentIntent->toArray()
+            ];
+
+        } catch (Exception $e) {
+            Log::error('Failed to cancel payment intent', [
+                'payment_intent_id' => $paymentIntentId,
+                'error' => $e->getMessage()
+            ]);
 
             return [
                 'success' => false,

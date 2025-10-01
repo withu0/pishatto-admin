@@ -209,12 +209,12 @@ class PointTransactionService
                     if ($guest) {
                         $requiredAmount = (int) $transaction->amount;
                         $availablePoints = (int) $guest->points;
-                        
+
                         if ($availablePoints >= $requiredAmount) {
                             // Sufficient points - deduct normally
                             $guest->points -= $requiredAmount;
                             $guest->save();
-                            
+
                             Log::info('Exceeded pending: Sufficient points available', [
                                 'guest_id' => $guest->id,
                                 'required_amount' => $requiredAmount,
@@ -226,7 +226,7 @@ class PointTransactionService
                             // Note: Automatic payment should have been handled during transaction creation
                             $guest->points = 0;
                             $guest->save();
-                            
+
                             Log::warning('Exceeded pending: Insufficient points, deducting available points only', [
                                 'guest_id' => $guest->id,
                                 'available_points' => $availablePoints,
@@ -292,7 +292,7 @@ class PointTransactionService
 
         $startedAt = \Carbon\Carbon::parse($reservation->started_at)->setTimezone('UTC');
         $endedAt = \Carbon\Carbon::parse($reservation->ended_at)->setTimezone('UTC');
-        
+
         // Ensure we have valid dates and ended_at is after started_at
         if ($endedAt->lessThanOrEqualTo($startedAt)) {
             Log::warning('calculateTotalPointsBasedOnElapsedTime: Invalid time range', [
@@ -302,10 +302,10 @@ class PointTransactionService
             ]);
             return 0;
         }
-        
+
         // Calculate elapsed minutes manually to avoid diffInMinutes() issues
         $timeDifferenceSeconds = $endedAt->timestamp - $startedAt->timestamp;
-        $elapsedMinutes = max(0, (int) floor($timeDifferenceSeconds / 60));
+        $elapsedMinutes = max(0, $timeDifferenceSeconds / 60); // Use decimal minutes for accurate calculation
 
         // Calculate base points for elapsed time
         $basePoints = (int) ($perMinute * $elapsedMinutes);
@@ -432,13 +432,13 @@ class PointTransactionService
 
         $exceededMinutes = $elapsedMinutes - $scheduledDurationMinutes;
         $exceededAmount = (int) floor($perMinute * $exceededMinutes * self::EXTENSION_MULTIPLIER);
-        
+
         Log::info('calculateExceededTimeAmount: Exceeded time calculated', [
             'reservation_id' => $reservation->id,
             'exceeded_minutes' => $exceededMinutes,
             'exceeded_amount' => $exceededAmount
         ]);
-        
+
         return $exceededAmount;
     }
 
@@ -520,7 +520,7 @@ class PointTransactionService
 
         $nightHours = (int) floor($nightMinutes / 60);
         $bonus = $nightHours * 4000;
-        
+
         Log::info('calculateNightTimeBonus: Calculation', [
             'started_at' => $start->toDateTimeString(),
             'ended_at' => $end->toDateTimeString(),
@@ -531,7 +531,7 @@ class PointTransactionService
             'bonus' => $bonus,
             'is_night_time' => ($start->hour >= 0 && $start->hour < 6) || ($end->hour >= 0 && $end->hour < 6)
         ]);
-        
+
         return $bonus;
     }
 
@@ -569,7 +569,8 @@ class PointTransactionService
         }
 
         $elapsedMinutes = (int) $now->diffInMinutes($startedAt);
-        $scheduledMinutes = (int) ($reservation->duration * 60);
+        $duration = is_numeric($reservation->duration) ? (float)$reservation->duration : 0;
+        $scheduledMinutes = (int) ($duration * 60);
 
         $baseForElapsed = (int) ($perMinute * min($elapsedMinutes, $scheduledMinutes));
         $extensionMinutes = max(0, $elapsedMinutes - $scheduledMinutes);
@@ -590,9 +591,25 @@ class PointTransactionService
     public function processReservationCompletion(Reservation $reservation): bool
     {
         try {
+            Log::info('Starting processReservationCompletion', [
+                'reservation_id' => $reservation->id,
+                'guest_id' => $reservation->guest_id,
+                'cast_id' => $reservation->cast_id,
+                'type' => $reservation->type
+            ]);
+
             DB::beginTransaction();
 
             $reservation->refresh();
+
+            // Check if reservation has already been processed
+            if ($reservation->points_earned !== null) {
+                Log::info('Reservation already processed, skipping', [
+                    'reservation_id' => $reservation->id,
+                    'points_earned' => $reservation->points_earned
+                ]);
+                return true;
+            }
 
             // Ensure ended_at exists; caller should set it before invoking
             if (!$reservation->ended_at) {
@@ -634,7 +651,7 @@ class PointTransactionService
             // Calculate total points based on actual elapsed time (started_at to ended_at)
             $totalPoints = $this->calculateTotalPointsBasedOnElapsedTime($reservation);
             $nightBonus = $this->calculateNightTimeBonus($reservation->started_at, $reservation->ended_at);
-            
+
             // Sum all pending amounts for this reservation (reserved for scheduled duration)
             $reservedPoints = (int) PointTransaction::where('reservation_id', $reservation->id)
                 ->where('type', 'pending')
@@ -642,6 +659,24 @@ class PointTransactionService
 
             // Calculate exceeded_pending as total_points - pending_points
             $exceededPendingPoints = max(0, $totalPoints - $reservedPoints);
+
+            // Calculate actual shortfall based on guest's total available points
+            // Guest's current points + reserved points (pending transaction)
+            $guestAvailablePoints = (int) $guest->points;
+            $reservedPoints = (int) $reservedPoints; // Ensure it's an integer
+            $guestTotalAvailablePoints = $guestAvailablePoints + $reservedPoints;
+            $totalShortfall = max(0, $totalPoints - $guestTotalAvailablePoints);
+
+            Log::info('Shortfall calculation debug', [
+                'reservation_id' => $reservation->id,
+                'total_points' => $totalPoints,
+                'guest_available_points' => $guestAvailablePoints,
+                'reserved_points' => $reservedPoints,
+                'guest_total_available_points' => $guestTotalAvailablePoints,
+                'calculated_shortfall' => $totalShortfall,
+                'guest_id' => $guest->id,
+                'guest_points_before_pending' => $guestAvailablePoints + $reservedPoints
+            ]);
 
             $reservation->points_earned = $totalPoints;
             $reservation->save();
@@ -651,7 +686,7 @@ class PointTransactionService
                 DB::rollBack();
                 return false;
             }
-            
+
             Log::info('Reservation completion calculation', [
                 'reservation_id' => $reservation->id,
                 'reserved_points' => $reservedPoints,
@@ -662,124 +697,102 @@ class PointTransactionService
                 'ended_at' => $reservation->ended_at
             ]);
 
-            // 1. Transfer ALL pending points to cast (for scheduled duration)
-            if ($reservedPoints > 0) {
-                $this->createTransferTransaction([
-                    'guest_id' => $guest->id,
-                    'cast_id' => $cast->id,
-                    'reservation_id' => $reservation->id,
-                    'amount' => $reservedPoints,
-                    'description' => "予約待ちから予約へ移行 - {$reservation->id}",
-                ]);
-            }
+            Log::info('Guest points before shortfall calculation', [
+                'reservation_id' => $reservation->id,
+                'guest_id' => $guest->id,
+                'guest_points' => $guest->points,
+                'guest_points_before_pending' => $guest->points + $reservedPoints
+            ]);
 
-            // 2. Create exceeded_pending transaction if total points exceed reserved points
-            if ($exceededPendingPoints > 0) {
-                // Check if exceeded_pending transaction already exists for this reservation
-                $existingExceededPending = PointTransaction::where('reservation_id', $reservation->id)
-                    ->where('type', 'exceeded_pending')
+            // 1. Handle automatic payment for shortfall BEFORE any point deductions
+            if ($totalShortfall > 0) {
+                // Check if automatic payment transaction already exists for this reservation
+                $existingPayment = PointTransaction::where('reservation_id', $reservation->id)
+                    ->where('type', 'buy')
+                    ->where('description', 'like', '%Automatic payment for exceeded time%')
                     ->first();
-                    
-                if (!$existingExceededPending) {
-                    // Check if guest has sufficient points for exceeded time
-                    $availablePoints = (int) $guest->points;
-                    
-                    if ($availablePoints >= $exceededPendingPoints) {
-                        // Sufficient points - create exceeded_pending transaction normally
+
+                if (!$existingPayment) {
+                    try {
+                        // Process automatic payment for the shortfall
+                        $automaticPaymentService = app(\App\Services\AutomaticPaymentService::class);
+                        $paymentResult = $automaticPaymentService->processAutomaticPaymentForInsufficientPoints(
+                            $guest->id,
+                            $totalShortfall,
+                            $reservation->id,
+                            "Automatic payment for exceeded time - reservation {$reservation->id}"
+                        );
+                    } catch (\Exception $e) {
+                        Log::error('Automatic payment failed', [
+                            'reservation_id' => $reservation->id,
+                            'guest_id' => $guest->id,
+                            'shortfall' => $totalShortfall,
+                            'error' => $e->getMessage(),
+                            'trace' => $e->getTraceAsString()
+                        ]);
+
+                        // Set payment result to failed
+                        $paymentResult = [
+                            'success' => false,
+                            'error' => $e->getMessage()
+                        ];
+                    }
+
+                    if ($paymentResult['success']) {
+                        // Add the payment points to guest's account
+                        $guest->points += $paymentResult['points_added'];
+                        $guest->save();
+
+                        // Deduct the total points used from guest's account
+                        // The guest should end up with: original_points + payment_points - total_points
+                        $guest->points = max(0, $guest->points - $totalPoints);
+                        $guest->save();
+
+                        // Create exceeded_pending transaction for the total points used
                         $this->createExceededPendingTransaction([
                             'guest_id' => $guest->id,
                             'cast_id' => $cast->id,
                             'reservation_id' => $reservation->id,
-                            'amount' => $exceededPendingPoints,
-                            'description' => "Pishatto call exceeded time - {$reservation->id}",
-                        ]);
-                        
-                        Log::info('Exceeded pending: Sufficient points available', [
-                            'guest_id' => $guest->id,
-                            'required_amount' => $exceededPendingPoints,
-                            'available_points' => $availablePoints,
-                            'reservation_id' => $reservation->id
+                            'amount' => $totalPoints,
+                            'description' => "Pishatto call exceeded time - {$reservation->id} (paid via automatic payment)",
                         ]);
                     } else {
-                        // Insufficient points - attempt automatic payment
-                        $shortfall = $exceededPendingPoints - $availablePoints;
-                        
-                        Log::info('Exceeded pending: Insufficient points, attempting automatic payment', [
+                        // Payment failed - deduct available points only
+                        $guest->points = 0;
+                        $guest->save();
+
+                        // Create exceeded_pending transaction for available points only
+                        $this->createExceededPendingTransaction([
                             'guest_id' => $guest->id,
-                            'required_amount' => $exceededPendingPoints,
-                            'available_points' => $availablePoints,
-                            'shortfall' => $shortfall,
-                            'reservation_id' => $reservation->id
+                            'cast_id' => $cast->id,
+                            'reservation_id' => $reservation->id,
+                            'amount' => $guestAvailablePoints,
+                            'description' => "Pishatto call exceeded time - {$reservation->id} (insufficient points, no payment method)",
                         ]);
-                        
-                        // Check if guest has registered payment method
-                        $automaticPaymentService = app(\App\Services\AutomaticPaymentService::class);
-                        
-                        if ($automaticPaymentService->hasRegisteredPaymentMethod($guest->id)) {
-                            // Process automatic payment for the shortfall
-                            $paymentResult = $automaticPaymentService->processAutomaticPaymentForInsufficientPoints(
-                                $guest->id,
-                                $shortfall,
-                                $reservation->id,
-                                "Automatic payment for exceeded time - reservation {$reservation->id}"
-                            );
-                            
-                            if ($paymentResult['success']) {
-                                // Payment successful - create exceeded_pending transaction for full amount
-                                $this->createExceededPendingTransaction([
-                                    'guest_id' => $guest->id,
-                                    'cast_id' => $cast->id,
-                                    'reservation_id' => $reservation->id,
-                                    'amount' => $exceededPendingPoints,
-                                    'description' => "Pishatto call exceeded time - {$reservation->id} (paid via automatic payment)",
-                                ]);
-                                
-                                Log::info('Exceeded pending: Automatic payment successful', [
-                                    'guest_id' => $guest->id,
-                                    'payment_id' => $paymentResult['payment_id'],
-                                    'amount_yen' => $paymentResult['amount_yen'],
-                                    'points_added' => $paymentResult['points_added'],
-                                    'reservation_id' => $reservation->id
-                                ]);
-                            } else {
-                                // Payment failed - create exceeded_pending transaction for available points only
-                                $this->createExceededPendingTransaction([
-                                    'guest_id' => $guest->id,
-                                    'cast_id' => $cast->id,
-                                    'reservation_id' => $reservation->id,
-                                    'amount' => $availablePoints,
-                                    'description' => "Pishatto call exceeded time - {$reservation->id} (partial payment due to insufficient funds)",
-                                ]);
-                                
-                                Log::warning('Exceeded pending: Automatic payment failed, using available points only', [
-                                    'guest_id' => $guest->id,
-                                    'available_points' => $availablePoints,
-                                    'required_amount' => $exceededPendingPoints,
-                                    'payment_error' => $paymentResult['error'],
-                                    'reservation_id' => $reservation->id
-                                ]);
-                            }
-                        } else {
-                            // No registered payment method - create exceeded_pending transaction for available points only
-                            $this->createExceededPendingTransaction([
-                                'guest_id' => $guest->id,
-                                'cast_id' => $cast->id,
-                                'reservation_id' => $reservation->id,
-                                'amount' => $availablePoints,
-                                'description' => "Pishatto call exceeded time - {$reservation->id} (partial payment - no registered card)",
-                            ]);
-                            
-                            Log::warning('Exceeded pending: No registered payment method, using available points only', [
-                                'guest_id' => $guest->id,
-                                'available_points' => $availablePoints,
-                                'required_amount' => $exceededPendingPoints,
-                                'shortfall' => $shortfall,
-                                'reservation_id' => $reservation->id
-                            ]);
-                        }
                     }
                 }
             }
+
+            // 2. Transfer ALL pending points to cast (for scheduled duration)
+            if ($reservedPoints > 0) {
+                // Check if transfer transaction already exists to avoid duplicates
+                $existingTransfer = PointTransaction::where('reservation_id', $reservation->id)
+                    ->where('type', 'transfer')
+                    ->where('description', 'like', '%予約待ちから予約へ移行%')
+                    ->first();
+
+                if (!$existingTransfer) {
+                    $this->createTransferTransaction([
+                        'guest_id' => $guest->id,
+                        'reservation_id' => $reservation->id,
+                        'amount' => $reservedPoints,
+                        'description' => "予約待ちから予約へ移行 - {$reservation->id}",
+                    ]);
+                }
+            }
+
+            // 3. Exceeded_pending transactions are now handled in the automatic payment section above
+            // No additional logic needed here
 
             // 3. Handle refund when reserved exceeds what was actually used
             // Only refund if we used less than what was reserved
@@ -803,6 +816,9 @@ class PointTransactionService
                     $gradeService->calculateAndUpdateGrade($guest);
                 }
             }
+
+            // Send concierge message to guest with session completion details
+            $this->sendSessionCompletionMessage($reservation, $guest, $cast, $totalPoints, $reservedPoints, $totalShortfall);
 
             DB::commit();
             return true;
@@ -974,7 +990,7 @@ class PointTransactionService
     public function processAutoTransferExceededPending(): int
     {
         $processedCount = 0;
-        
+
         try {
             DB::beginTransaction();
 
@@ -1078,10 +1094,83 @@ class PointTransactionService
      */
     public function getAllPointTransactionsExceptPending()
     {
-        return PointTransaction::with(['guest', 'cast', 'reservation'])
+        return PointTransaction::with(['guest', 'cast', 'reservation', 'payment'])
             ->where('type', '!=', 'pending')
             ->orderBy('created_at', 'desc')
             ->get();
+    }
+
+    /**
+     * Get point transactions grouped by reservation for admin view
+     */
+    public function getPointTransactionsGroupedByReservation()
+    {
+        $transactions = PointTransaction::with(['guest', 'cast', 'reservation.cast', 'payment'])
+            ->where('type', '!=', 'pending')
+            ->whereNotNull('reservation_id')
+            ->orderBy('created_at', 'desc')
+            ->get();
+
+        // Group transactions by reservation_id
+        $groupedTransactions = $transactions->groupBy('reservation_id');
+
+        $reservationSummaries = [];
+
+        foreach ($groupedTransactions as $reservationId => $reservationTransactions) {
+            $reservation = $reservationTransactions->first()->reservation;
+            $guest = $reservationTransactions->first()->guest;
+
+            // Get cast from reservation relationship or from transactions
+            $cast = null;
+            if ($reservation && $reservation->cast) {
+                $cast = $reservation->cast;
+            } else {
+                // Try to get cast from any transaction that has cast_id
+                $castTransaction = $reservationTransactions->where('cast_id', '!=', null)->first();
+                if ($castTransaction) {
+                    $cast = $castTransaction->cast;
+                } else {
+                    $cast = $reservationTransactions->first()->cast;
+                }
+            }
+
+
+            // Calculate various point amounts
+            $reservedPoints = $reservationTransactions->where('type', 'transfer')->sum('amount');
+            $actualUsedPoints = $reservationTransactions->where('type', 'exceeded_pending')->where('amount', '>', 0)->sum('amount');
+            $boughtPoints = $reservationTransactions->where('type', 'buy')->sum('amount');
+            $exceededPoints = max(0, $actualUsedPoints - $reservedPoints);
+
+            // Get payment information
+            $paymentTransaction = $reservationTransactions->where('type', 'buy')->first();
+            $payment = $paymentTransaction ? $paymentTransaction->payment : null;
+            $paymentAmountYen = $payment ? $payment->amount : 0;
+
+            $reservationSummaries[] = [
+                'reservation_id' => $reservationId,
+                'reservation' => $reservation,
+                'guest' => $guest,
+                'cast' => $cast,
+                'reserved_points' => $reservedPoints,
+                'actual_used_points' => $actualUsedPoints,
+                'exceeded_points' => $exceededPoints,
+                'bought_points' => $boughtPoints,
+                'payment_amount_yen' => $paymentAmountYen,
+                'payment_status' => $payment ? $payment->status : null,
+                'payment_id' => $payment ? $payment->id : null,
+                'stripe_payment_intent_id' => $payment ? $payment->stripe_payment_intent_id : null,
+                'transactions' => $reservationTransactions->toArray(),
+                'created_at' => $reservationTransactions->first()->created_at,
+                'updated_at' => $reservationTransactions->max('updated_at')
+            ];
+        }
+
+        // Sort by most recent first
+        usort($reservationSummaries, function($a, $b) {
+            return strtotime($b['created_at']) - strtotime($a['created_at']);
+        });
+
+        return $reservationSummaries;
     }
 
     /**
@@ -1125,12 +1214,12 @@ class PointTransactionService
                 if ($transaction->guest_id && $transaction->cast_id) {
                     $guest = Guest::find($transaction->guest_id);
                     $cast = Cast::find($transaction->cast_id);
-                    
+
                     if ($guest) {
                         $guest->points += $transaction->amount;
                         $guest->save();
                     }
-                    
+
                     if ($cast) {
                         $cast->points = max(0, $cast->points - $transaction->amount);
                         $cast->save();
@@ -1139,4 +1228,120 @@ class PointTransactionService
                 break;
         }
     }
-} 
+
+    /**
+     * Send session completion message to guest via concierge system
+     */
+    private function sendSessionCompletionMessage(Reservation $reservation, Guest $guest, Cast $cast, int $totalPoints, int $reservedPoints, int $totalShortfall): void
+    {
+        try {
+            // Calculate session duration
+            $startedAt = \Carbon\Carbon::parse($reservation->started_at);
+            $endedAt = \Carbon\Carbon::parse($reservation->ended_at);
+            $durationSeconds = max(0, $startedAt->diffInSeconds($endedAt));
+            $sessionMinutes = floor($durationSeconds / 60);
+            $sessionSeconds = $durationSeconds % 60;
+            $sessionTimeText = $sessionMinutes > 0 ? "{$sessionMinutes}分{$sessionSeconds}秒" : "{$sessionSeconds}秒";
+
+            // Calculate reservation duration in minutes
+            $reservationDurationMinutes = floor($reservation->duration * 60);
+
+            // Calculate exceeded points and shortfall
+            $exceededPoints = max(0, $totalPoints - $reservedPoints);
+            $shortfallPoints = $totalShortfall;
+
+            Log::info('Message generation debug', [
+                'reservation_id' => $reservation->id,
+                'total_points' => $totalPoints,
+                'reserved_points' => $reservedPoints,
+                'exceeded_points' => $exceededPoints,
+                'total_shortfall' => $totalShortfall,
+                'shortfall_points' => $shortfallPoints,
+                'duration_seconds' => $durationSeconds,
+                'session_time_text' => $sessionTimeText
+            ]);
+
+            // Build the concierge message
+            $conciergeMessage = "【セッション終了レポート】\n\n" .
+                "⏰ セッション時間:\n" .
+                "• 予約時間: {$reservationDurationMinutes}分\n" .
+                "• 実際の使用時間: {$sessionTimeText}\n\n" .
+                "📊 ポイント使用状況:\n" .
+                "• 予約時支払いポイント: " . number_format($reservedPoints) . "P\n" .
+                "• 実際の使用ポイント: " . number_format($totalPoints) . "P\n" .
+                "• キャスト獲得ポイント: " . number_format($totalPoints) . "P\n" .
+                "• ゲスト返金ポイント: " . number_format(max(0, $reservedPoints - $totalPoints)) . "P\n\n";
+
+            // Add payment information if there was a shortfall
+            if ($shortfallPoints > 0) {
+                // Get the actual payment amount from the database
+                $paymentRecord = \App\Models\Payment::where('reservation_id', $reservation->id)
+                    ->where('status', 'pending')
+                    ->where('is_automatic', true)
+                    ->first();
+
+                $calculatedAmount = ceil($shortfallPoints * 1.2);
+                $actualPaymentAmount = $paymentRecord ? $paymentRecord->amount : $calculatedAmount;
+
+                Log::info('Payment amount calculation', [
+                    'reservation_id' => $reservation->id,
+                    'shortfall_points' => $shortfallPoints,
+                    'calculated_amount' => $calculatedAmount,
+                    'payment_record_found' => $paymentRecord ? true : false,
+                    'actual_payment_amount' => $actualPaymentAmount,
+                    'payment_record_amount' => $paymentRecord ? $paymentRecord->amount : null
+                ]);
+
+                $conciergeMessage .= "💳 決済情報:\n" .
+                    "• 残りポイント不足のため、クレジットカードから自動決済を実行しました\n" .
+                    "• 決済金額: " . number_format($actualPaymentAmount) . "円 (" . number_format($shortfallPoints) . "P × 1.2円)\n" .
+                    "• 決済は承認済みですが、実際の引き落としは2日後に自動実行されます\n" .
+                    "• 決済詳細はマイページの「決済履歴」でご確認いただけます\n\n" .
+                    "📝 ポイント使用の詳細:\n" .
+                    "• 予約時にお支払いいただいたポイント: " . number_format($reservedPoints) . "P\n" .
+                    "• セッション中に実際に使用されたポイント: " . number_format($totalPoints) . "P\n" .
+                    "• 超過分: " . number_format($exceededPoints) . "P\n" .
+                    "• クレジットカードからの支払い: " . number_format($shortfallPoints) . "P\n\n";
+            } else if ($exceededPoints > 0) {
+                $conciergeMessage .= "📝 ポイント使用の詳細:\n" .
+                    "• 予約時にお支払いいただいたポイント: " . number_format($reservedPoints) . "P\n" .
+                    "• セッション中に実際に使用されたポイント: " . number_format($totalPoints) . "P\n" .
+                    "• 超過分: " . number_format($exceededPoints) . "P\n" .
+                    "• お持ちのポイントから支払い: " . number_format($exceededPoints) . "P\n\n";
+            } else {
+                $conciergeMessage .= "📝 ポイント使用の詳細:\n" .
+                    "• 予約時にお支払いいただいたポイント: " . number_format($reservedPoints) . "P\n" .
+                    "• セッション中に実際に使用されたポイント: " . number_format($totalPoints) . "P\n" .
+                    "• 未使用分の返金: " . number_format(max(0, $reservedPoints - $totalPoints)) . "P\n\n";
+            }
+
+            $conciergeMessage .= "ご利用いただき、ありがとうございました！";
+
+            // Send the message via the concierge system
+            $conciergeController = app(\App\Http\Controllers\ConciergeController::class);
+            $conciergeController->sendSystemMessage(new \Illuminate\Http\Request([
+                'user_id' => $guest->id,
+                'user_type' => 'guest',
+                'message' => $conciergeMessage,
+                'message_type' => 'system',
+                'category' => 'session_report'
+            ]));
+
+            Log::info('Session completion message sent', [
+                'reservation_id' => $reservation->id,
+                'guest_id' => $guest->id,
+                'total_points' => $totalPoints,
+                'shortfall_points' => $shortfallPoints,
+                'message_length' => strlen($conciergeMessage)
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('Failed to send session completion message', [
+                'reservation_id' => $reservation->id,
+                'guest_id' => $guest->id,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+        }
+    }
+}

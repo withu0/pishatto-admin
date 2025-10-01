@@ -126,6 +126,7 @@ Route::get('/badges', function () {
 // Concierge routes
 Route::get('/concierge/messages', [ConciergeController::class, 'getMessages']);
 Route::post('/concierge/messages', [ConciergeController::class, 'sendMessage']);
+Route::post('/concierge/system-message', [ConciergeController::class, 'sendSystemMessage']);
 Route::post('/concierge/mark-read', [ConciergeController::class, 'markAsRead']);
 Route::get('/concierge/info', [ConciergeController::class, 'getInfo']);
 
@@ -281,8 +282,10 @@ Route::get('/admin-news/{userType}', [GuestAuthController::class, 'getAdminNews'
 
 // Point transactions admin routes (all except pending type)
 Route::get('/admin/exceeded-pending', [App\Http\Controllers\Admin\ExceededPendingController::class, 'index']);
+Route::get('/admin/exceeded-pending/grouped', [App\Http\Controllers\Admin\ExceededPendingController::class, 'groupedByReservation']);
 Route::get('/admin/exceeded-pending/count', [App\Http\Controllers\Admin\ExceededPendingController::class, 'count']);
 Route::post('/admin/exceeded-pending/process-all', [App\Http\Controllers\Admin\ExceededPendingController::class, 'processAll']);
+Route::post('/admin/exceeded-pending/cancel-payment', [App\Http\Controllers\Admin\ExceededPendingController::class, 'cancelPayment']);
 
 // Test endpoint for exceeded time processing (for development/testing)
 Route::post('/test/exceeded-time/{reservationId}', function ($reservationId) {
@@ -290,16 +293,16 @@ Route::post('/test/exceeded-time/{reservationId}', function ($reservationId) {
     if (!$reservation) {
         return response()->json(['message' => 'Reservation not found'], 404);
     }
-    
+
     $pointService = app(\App\Services\PointTransactionService::class);
     $exceededAmount = $pointService->calculateExceededTimeAmount($reservation);
     $success = $pointService->processExceededTime($reservation);
-    
+
     // Check if exceeded_pending transaction was created
     $exceededPendingTransaction = \App\Models\PointTransaction::where('reservation_id', $reservationId)
         ->where('type', 'exceeded_pending')
         ->first();
-    
+
     return response()->json([
         'reservation_id' => $reservationId,
         'reservation_type' => $reservation->type,

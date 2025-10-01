@@ -9,7 +9,7 @@ use App\Models\Chat;
 use App\Models\ChatGroup;
 use App\Models\Like;
 use App\Models\AdminNews;
-use App\Models\ChatFavorite;        
+use App\Models\ChatFavorite;
 use App\Models\PointTransaction;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
@@ -63,9 +63,9 @@ class GuestAuthController extends Controller
         // Check if verification code has been verified
         $phoneNumber = $request->phone;
         $phoneNumber = $this->formatPhoneNumberForInfobip($phoneNumber);
-        
+
         $isVerified = $this->infobipService->isCodeVerified($phoneNumber, $request->verification_code);
-        
+
         if (!$isVerified) {
             return response()->json(['message' => 'Verification code not found or already used'], 422);
         }
@@ -120,7 +120,7 @@ class GuestAuthController extends Controller
 			// Accept code if provided, but do not require it because phone may already be verified
 			'verification_code' => 'nullable|string|size:6',
 		]);
-        
+
         if ($validator->fails()) {
             return response()->json(['message' => 'Invalid credentials'], 422);
         }
@@ -128,10 +128,10 @@ class GuestAuthController extends Controller
 		// Verify via cached verified state first. If not verified yet, attempt direct code verification when provided.
 		$phoneNumber = $request->phone;
 		$phoneNumber = $this->formatPhoneNumberForInfobip($phoneNumber);
-		
+
 		$isVerified = $this->infobipService->isPhoneVerified($phoneNumber);
 		$errorMessage = 'Phone number not verified. Please verify your number again.';
-		
+
 		if (!$isVerified && $request->filled('verification_code')) {
 			$verificationResult = $this->infobipService->verifyCode($phoneNumber, $request->verification_code);
 			$isVerified = $verificationResult['success'];
@@ -139,7 +139,7 @@ class GuestAuthController extends Controller
 				$errorMessage = $verificationResult['message'] ?? $errorMessage;
 			}
 		}
-		
+
 		if (!$isVerified) {
 			return response()->json(['message' => $errorMessage], 422);
 		}
@@ -148,10 +148,10 @@ class GuestAuthController extends Controller
         if (!$guest) {
             $guest = Guest::create(['phone' => $request->phone]);
         }
-        
+
         // Log the guest in using Laravel session (guest guard)
         \Illuminate\Support\Facades\Auth::guard('guest')->login($guest);
-        
+
         return response()->json([
             'guest' => $guest,
             'token' => base64_encode('guest|' . $guest->id . '|' . now()), // placeholder token
@@ -202,11 +202,11 @@ class GuestAuthController extends Controller
     public function getProfile($phone)
     {
         $guest = Guest::where('phone', $phone)->first();
-        
+
         if (!$guest) {
             return response()->json(['message' => 'Guest not found'], 404);
         }
-        
+
         return response()->json([
             'guest' => $guest,
             'interests' => $guest->interests ?? [],
@@ -216,11 +216,11 @@ class GuestAuthController extends Controller
     public function getProfileByLineId($line_id)
     {
         $guest = Guest::where('line_id', $line_id)->first();
-        
+
         if (!$guest) {
             return response()->json(['message' => 'Guest not found'], 404);
         }
-        
+
         return response()->json([
             'guest' => $guest,
             'interests' => $guest->interests ?? [],
@@ -270,7 +270,7 @@ class GuestAuthController extends Controller
             'annual_income', 'education', 'occupation', 'alcohol', 'tobacco', 'siblings', 'cohabitant',
             'pressure', 'favorite_area'
         ]);
-        
+
         // Handle avatar upload
         if ($request->hasFile('profile_photo')) {
             $file = $request->file('profile_photo');
@@ -278,17 +278,17 @@ class GuestAuthController extends Controller
             $path = $file->storeAs('avatars', $fileName, 'public');
             $data['avatar'] = 'avatars/' . $fileName;
         }
-        
+
         // Remove null values to avoid overwriting existing data with null
         $data = array_filter($data, function($value) {
             return $value !== null && $value !== '';
         });
-        
+
         // Map location to favorite_area for backward compatibility
         if (!isset($data['favorite_area']) && isset($data['location'])) {
             $data['favorite_area'] = $data['location'];
         }
-        
+
         // Determine the search condition based on what's provided
         $searchCondition = [];
         if (isset($data['phone'])) {
@@ -296,12 +296,12 @@ class GuestAuthController extends Controller
         } elseif (isset($data['line_id'])) {
             $searchCondition['line_id'] = $data['line_id'];
         }
-        
+
         $guest = Guest::updateOrCreate(
             $searchCondition,
             $data
         );
-        
+
         return response()->json([
             'message' => 'Profile updated successfully',
             'guest' => $guest
@@ -312,16 +312,16 @@ class GuestAuthController extends Controller
     {
         // Use the public storage path where avatars should be stored
         $path = storage_path('app/public/avatars/' . $filename);
-        
+
         if (!file_exists($path)) {
             // Fallback to the private path for existing files
             $path = storage_path('app/private/public/avatars/' . $filename);
-            
+
             if (!file_exists($path)) {
                 abort(404);
             }
         }
-        
+
         return response()->file($path);
     }
 
@@ -364,14 +364,14 @@ class GuestAuthController extends Controller
             ]);
             $data['scheduled_at'] = \Carbon\Carbon::parse($request->scheduled_at);
             $data['type'] = 'Pishatto';
-            
+
             \Log::info('createReservation: Data being saved', [
                 'duration' => $data['duration'],
                 'duration_type' => gettype($data['duration'])
             ]);
-            
+
             $reservation = Reservation::create($data);
-            
+
             \Log::info('createReservation: Reservation created', [
                 'reservation_id' => $reservation->id,
                 'duration' => $reservation->duration,
@@ -405,6 +405,7 @@ class GuestAuthController extends Controller
                 'guest_id' => $guest->id,
                 'reservation_id' => $reservation->id,
                 'amount' => $requiredPoints,
+                'cast_id' => $reservation->cast_id,
                 'description' => "ピシャット予約 - {$reservation->id}",
             ]);
 
@@ -416,10 +417,10 @@ class GuestAuthController extends Controller
             // Real-time ranking update for guest
             $rankingService = app(\App\Services\RankingService::class);
         $rankingService->updateRealTimeRankings($reservation->location ?? '全国');
-            
+
             // Broadcast reservation creation
             event(new \App\Events\ReservationUpdated($reservation));
-            
+
             return response()->json([
                 'reservation' => $reservation,
                 'points_deducted' => $requiredPoints,
@@ -498,7 +499,7 @@ class GuestAuthController extends Controller
 
             // Use the service to process free call creation (deduct points and create pending transaction)
             $success = $this->pointTransactionService->processFreeCallCreation($reservation, $requiredPoints);
-            
+
             if (!$success) {
                 DB::rollBack();
                 return response()->json([
@@ -536,7 +537,7 @@ class GuestAuthController extends Controller
             // Broadcast chat group and initial guest-only chat so it appears in message screens
             event(new \App\Events\ChatGroupCreated($chatGroup));
             event(new \App\Events\ChatCreated($guestChat));
-            
+
             return response()->json([
                 'reservation' => $reservation,
                 'chat_group' => $chatGroup,
@@ -584,10 +585,10 @@ class GuestAuthController extends Controller
         try {
             DB::beginTransaction();
             error_log('scheduled_at: ' . $request->scheduled_at);
-            
+
             // Debug: Log the incoming request data
             error_log('Free call reservation request data: ' . json_encode($request->all()));
-            
+
             // Create the reservation with type 'free'
             $reservation = Reservation::create([
                 'guest_id' => $request->guest_id,
@@ -621,7 +622,7 @@ class GuestAuthController extends Controller
 
             // Use the service to process free call creation (deduct points and create pending transaction)
             $success = $this->pointTransactionService->processFreeCallCreation($reservation, $requiredPoints);
-            
+
             if (!$success) {
                 DB::rollBack();
                 return response()->json([
@@ -649,7 +650,7 @@ class GuestAuthController extends Controller
             event(new \App\Events\ReservationUpdated($reservation));
             // Inform participants about the newly created group
             event(new \App\Events\ChatGroupCreated($chatGroup));
-            
+
             return response()->json([
                 'reservation' => $reservation,
                 'chat_group' => $chatGroup,
@@ -674,21 +675,21 @@ class GuestAuthController extends Controller
         $vipCount = $castCounts['vip'] ?? 0;
         $premiumCount = $castCounts['premium'] ?? 0;
         $totalCasts = $royalVipCount + $vipCount + $premiumCount;
-        
 
-        
+
+
         // Get all available casts in the specified location first
         $availableCasts = Cast::where('location', $location)
             ->where('status', 'active')
             ->inRandomOrder()
             ->get();
-            
+
         Log::info('Available casts in location', [
             'location' => $location,
             'count' => $availableCasts->count(),
             'cast_ids' => $availableCasts->pluck('id')->toArray()
         ]);
-        
+
         // If not enough in location, get from other locations
         if ($availableCasts->count() < $totalCasts) {
             $remainingCount = $totalCasts - $availableCasts->count();
@@ -697,12 +698,12 @@ class GuestAuthController extends Controller
                 ->inRandomOrder()
                 ->limit($remainingCount)
                 ->get();
-                
 
-            
+
+
             $availableCasts = $availableCasts->merge($additionalCasts);
         }
-        
+
         // If still not enough, get any available casts
         if ($availableCasts->count() < $totalCasts) {
             $finalRemainingCount = $totalCasts - $availableCasts->count();
@@ -711,16 +712,16 @@ class GuestAuthController extends Controller
                 ->inRandomOrder()
                 ->limit($finalRemainingCount)
                 ->get();
-                
+
             Log::info('Final additional casts', [
                 'finalRemainingCount' => $finalRemainingCount,
                 'finalCount' => $finalCasts->count(),
                 'final_cast_ids' => $finalCasts->pluck('id')->toArray()
             ]);
-            
+
             $availableCasts = $availableCasts->merge($finalCasts);
         }
-        
+
         // Take only the required number of casts
         $selectedCasts = $availableCasts->take($totalCasts);
 
@@ -755,37 +756,37 @@ class GuestAuthController extends Controller
     {
         if ($userType === 'guest') {
             $chats = Chat::where('guest_id', $userId)->with(['cast', 'messages', 'group'])->get();
-            
+
             // Group chats by group_id
             $groupedChats = $chats->groupBy('group_id');
             $result = [];
-            
+
             foreach ($groupedChats as $groupId => $groupChats) {
                 if ($groupId) {
                     // This is a group chat - combine all casts into one chat entry
                     $firstChat = $groupChats->first();
                     $group = $firstChat->group;
-                    
+
                     // Get all casts in this group (filter out null casts for guest-only chats)
                     $casts = $groupChats->map(function($chat) {
                         return $chat->cast;
                     })->filter();
-                    
+
                     // Combine all messages from all chats in this group
                     $allMessages = $groupChats->flatMap(function($chat) {
                         return $chat->messages;
                     })->sortBy('created_at');
-                    
+
                     // Count unread messages for this guest in this group
                     $unread = $allMessages->where('is_read', false)
                         ->filter(function($msg) {
-                            return $msg->sender_cast_id && !$msg->is_read && 
+                            return $msg->sender_cast_id && !$msg->is_read &&
                                    ($msg->recipient_type === 'both' || $msg->recipient_type === 'guest');
                         })->count();
-                    
+
                     // Check if this is a guest-only group (no casts assigned yet)
                     $isGuestOnlyGroup = $casts->isEmpty();
-                    
+
                     $result[] = [
                         'id' => $firstChat->id, // Use first chat ID as group chat ID
                         'group_id' => $groupId,
@@ -800,10 +801,10 @@ class GuestAuthController extends Controller
                         })->toArray(),
                         'avatar' => $casts->first() ? $casts->first()->avatar : null,
                         'cast_id' => $casts->first() ? $casts->first()->id : null,
-                        'cast_nickname' => $isGuestOnlyGroup ? 
-                            ($group->name ?? 'フリーコール') : 
-                            ($casts->count() > 1 ? 
-                                $group->name ?? 'Group Chat' : 
+                        'cast_nickname' => $isGuestOnlyGroup ?
+                            ($group->name ?? 'フリーコール') :
+                            ($casts->count() > 1 ?
+                                $group->name ?? 'Group Chat' :
                                 ($casts->first() ? $casts->first()->nickname : 'Unknown')),
                         'last_message' => $allMessages->last() ? $allMessages->last()->message : '',
                         'updated_at' => $allMessages->last() ? $allMessages->last()->created_at : $firstChat->created_at,
@@ -817,7 +818,7 @@ class GuestAuthController extends Controller
                             ->filter(function($msg) {
                                 return $msg->sender_cast_id && !$msg->is_read;
                             })->count();
-                        
+
                         $result[] = [
                             'id' => $chat->id,
                             'is_group_chat' => false,
@@ -832,22 +833,22 @@ class GuestAuthController extends Controller
                     }
                 }
             }
-            
+
             return response()->json(['chats' => $result]);
         } else {
             // For cast, join reservation and guest to get guest avatar
             $chats = Chat::where('cast_id', $userId)->with(['guest', 'reservation.guest', 'messages', 'group'])->get();
-            
+
             // Group chats by group_id
             $groupedChats = $chats->groupBy('group_id');
             $result = [];
-            
+
             foreach ($groupedChats as $groupId => $groupChats) {
                 if ($groupId) {
                     // This is a group chat - combine all guests into one chat entry
                     $firstChat = $groupChats->first();
                     $group = $firstChat->group;
-                    
+
                     // Get all guests in this group (should be the same guest for all chats)
                     $guests = $groupChats->map(function($chat) {
                         $guest = $chat->guest;
@@ -856,21 +857,21 @@ class GuestAuthController extends Controller
                         }
                         return $guest;
                     })->filter();
-                    
+
                     // Combine all messages from all chats in this group
                     $allMessages = $groupChats->flatMap(function($chat) {
                         return $chat->messages;
                     })->sortBy('created_at');
-                    
+
                     // Count unread messages for this cast in this group
                     $unread = $allMessages->where('is_read', false)
                         ->filter(function($msg) {
-                            return $msg->sender_guest_id && !$msg->is_read && 
+                            return $msg->sender_guest_id && !$msg->is_read &&
                                    ($msg->recipient_type === 'both' || $msg->recipient_type === 'cast');
                         })->count();
-                    
+
                     $guest = $guests->first();
-                    
+
                     $result[] = [
                         'id' => $firstChat->id, // Use first chat ID as group chat ID
                         'group_id' => $groupId,
@@ -892,12 +893,12 @@ class GuestAuthController extends Controller
                         if (!$guest && $chat->reservation && $chat->reservation->guest) {
                             $guest = $chat->reservation->guest;
                         }
-                        
+
                         $unread = $chat->messages->where('is_read', false)
                             ->filter(function($msg) {
                                 return $msg->sender_guest_id && !$msg->is_read;
                             })->count();
-                        
+
                         $result[] = [
                             'id' => $chat->id,
                             'is_group_chat' => false,
@@ -913,7 +914,7 @@ class GuestAuthController extends Controller
                     }
                 }
             }
-            
+
             return response()->json(['chats' => $result]);
         }
     }
@@ -922,34 +923,34 @@ class GuestAuthController extends Controller
     {
         // For cast, join reservation and guest to get guest avatar
         $chats = Chat::where('cast_id', $castId)->with(['guest', 'reservation.guest', 'messages', 'group'])->get();
-        
+
         // Group chats by group_id
         $groupedChats = $chats->groupBy('group_id');
         $result = [];
-        
+
         foreach ($groupedChats as $groupId => $groupChats) {
             if ($groupId) {
                 // This is a group chat - combine all guests into one chat entry
                 $firstChat = $groupChats->first();
                 $group = $firstChat->group;
-                
+
                 // Get all guests in this group
                 $guests = $groupChats->map(function($chat) {
                     return $chat->guest;
                 })->filter();
-                
+
                 // Combine all messages from all chats in this group
                 $allMessages = $groupChats->flatMap(function($chat) {
                     return $chat->messages;
                 })->sortBy('created_at');
-                
+
                 // Count unread messages for this cast in this group
                 $unread = $allMessages->where('is_read', false)
                     ->filter(function($msg) {
-                        return $msg->sender_guest_id && !$msg->is_read && 
+                        return $msg->sender_guest_id && !$msg->is_read &&
                                ($msg->recipient_type === 'both' || $msg->recipient_type === 'cast');
                     })->count();
-                
+
                 $result[] = [
                     'id' => $firstChat->id, // Use first chat ID as group chat ID
                     'group_id' => $groupId,
@@ -964,8 +965,8 @@ class GuestAuthController extends Controller
                     })->toArray(),
                     'avatar' => $guests->first() ? $guests->first()->avatar : null,
                     'guest_id' => $guests->first() ? $guests->first()->id : null,
-                    'guest_nickname' => $guests->count() > 1 ? 
-                        ($group->name ?? 'Group Chat') : 
+                    'guest_nickname' => $guests->count() > 1 ?
+                        ($group->name ?? 'Group Chat') :
                         ($guests->first() ? $guests->first()->nickname : 'Unknown Guest'),
                     'last_message' => $allMessages->last() ? $allMessages->last()->message : '',
                     'updated_at' => $allMessages->last() ? $allMessages->last()->created_at : $firstChat->created_at,
@@ -979,7 +980,7 @@ class GuestAuthController extends Controller
                         ->filter(function($msg) {
                             return $msg->sender_guest_id && !$msg->is_read;
                         })->count();
-                    
+
                     $result[] = [
                         'id' => $chat->id,
                         'is_group_chat' => false,
@@ -994,7 +995,7 @@ class GuestAuthController extends Controller
                 }
             }
         }
-        
+
         return response()->json(['chats' => $result]);
     }
 
@@ -1018,7 +1019,7 @@ class GuestAuthController extends Controller
         $guests = Guest::withCount('reservations')
             ->having('reservations_count', '>', 1)
             ->get(['id', 'nickname', 'avatar', 'birth_year', 'residence']);
-        
+
         $result = $guests->map(function ($guest) {
             return [
                 'id' => $guest->id,
@@ -1045,7 +1046,7 @@ class GuestAuthController extends Controller
     public function getNotifications($userType, $userId)
     {
 
-        
+
         try {
             $notifications = Notification::where('user_type', $userType)
                 ->where('user_id', $userId)
@@ -1155,7 +1156,7 @@ class GuestAuthController extends Controller
                 ], 422);
             }
             $data = $request->only(['duration', 'location', 'details', 'time']);
-            
+
             // Handle datetime fields properly
             if ($request->has('scheduled_at')) {
                 $data['scheduled_at'] = \Carbon\Carbon::parse($request->scheduled_at);
@@ -1166,7 +1167,7 @@ class GuestAuthController extends Controller
             if ($request->has('ended_at')) {
                 $data['ended_at'] = \Carbon\Carbon::parse($request->ended_at);
             }
-            
+
             $reservation->fill($data);
 
             // For pishatto calls, check if time was exceeded and create exceeded_pending transaction
@@ -1179,9 +1180,9 @@ class GuestAuthController extends Controller
                     'ended_at' => $reservation->ended_at,
                     'duration' => $reservation->duration
                 ]);
-                
+
                 $result = $this->pointTransactionService->processExceededTime($reservation);
-                
+
                 \Log::info('updateReservation: processExceededTime result', [
                     'reservation_id' => $reservation->id,
                     'result' => $result
@@ -1226,7 +1227,7 @@ class GuestAuthController extends Controller
             }
 
             $data = $request->all();
-            
+
             // Get the cast and guest
             $cast = Cast::findOrFail($data['cast_id']);
             $guest = Guest::findOrFail($data['guest_id']);
@@ -1293,7 +1294,7 @@ class GuestAuthController extends Controller
             DB::beginTransaction();
 
             $reservation = Reservation::with(['guest', 'cast'])->findOrFail($id);
-            
+
             // Check if reservation has a cast assigned
             if (!$reservation->cast_id) {
                 DB::rollBack();
@@ -1318,7 +1319,7 @@ class GuestAuthController extends Controller
 
             // Use the service to process the reservation completion
             $success = $this->pointTransactionService->processReservationCompletion($reservation);
-            
+
             if (!$success) {
                 DB::rollBack();
                 return response()->json([
@@ -1335,7 +1336,7 @@ class GuestAuthController extends Controller
             $pendingTransaction = PointTransaction::where('reservation_id', $reservation->id)
                 ->where('type', 'pending')
                 ->first();
-            
+
             $refundTransaction = PointTransaction::where('reservation_id', $reservation->id)
                 ->where('type', 'convert')
                 ->where('description', 'like', '%refunded unused points%')
@@ -1381,7 +1382,7 @@ class GuestAuthController extends Controller
             DB::beginTransaction();
 
             $reservation = Reservation::with(['guest'])->findOrFail($id);
-            
+
             // Check if reservation is still active and not completed
             if (!$reservation->active || $reservation->ended_at) {
                 DB::rollBack();
@@ -1392,7 +1393,7 @@ class GuestAuthController extends Controller
 
             // Use the service to refund unused points
             $success = $this->pointTransactionService->refundUnusedPoints($reservation);
-            
+
             if (!$success) {
                 DB::rollBack();
                 return response()->json([
@@ -1443,35 +1444,36 @@ class GuestAuthController extends Controller
     {
         try {
             $reservation = Reservation::with(['guest', 'cast'])->findOrFail($id);
-            
+
             // Calculate base points
             $basePoints = $this->pointTransactionService->calculateReservationPoints($reservation);
-            
+
             // Calculate night time bonus
             $nightTimeBonus = $this->pointTransactionService->calculateNightTimeBonus($reservation->started_at);
-            
+
             // Calculate extension fee
             $extensionFee = $this->pointTransactionService->calculateExtensionFee($reservation);
-            
+
             // Calculate total points
             $totalPoints = $basePoints + $nightTimeBonus + $extensionFee;
-            
+
             // Get pending transaction for reserved points
             $pendingTransaction = PointTransaction::where('reservation_id', $reservation->id)
                 ->where('type', 'pending')
                 ->first();
-            
+
             $reservedPoints = $pendingTransaction ? $pendingTransaction->amount : 0;
             $unusedPoints = $reservedPoints - $totalPoints;
-            
+
             // Calculate extension details if applicable
             $extensionDetails = null;
             if ($reservation->started_at && $reservation->ended_at) {
                 $startedAt = \Carbon\Carbon::parse($reservation->started_at);
                 $endedAt = \Carbon\Carbon::parse($reservation->ended_at);
-                $scheduledDuration = $reservation->duration * 60; // Convert hours to minutes
+                $duration = is_numeric($reservation->duration) ? (float)$reservation->duration : 0;
+                $scheduledDuration = $duration * 60; // Convert hours to minutes
                 $actualDuration = $endedAt->diffInMinutes($startedAt);
-                
+
                 if ($actualDuration > $scheduledDuration) {
                     $exceededMinutes = $actualDuration - $scheduledDuration;
                     $extensionDetails = [
@@ -1482,7 +1484,7 @@ class GuestAuthController extends Controller
                     ];
                 }
             }
-            
+
             return response()->json([
                 'reservation_id' => $reservation->id,
                 'base_points' => $basePoints,
@@ -1521,7 +1523,7 @@ class GuestAuthController extends Controller
             DB::beginTransaction();
 
             $reservation = Reservation::with(['guest'])->findOrFail($id);
-            
+
             // Check if reservation is completed
             if (!$reservation->ended_at) {
                 DB::rollBack();
@@ -1532,7 +1534,7 @@ class GuestAuthController extends Controller
 
             // Use the service to refund unused points
             $success = $this->pointTransactionService->refundUnusedPoints($reservation);
-            
+
             if (!$success) {
                 DB::rollBack();
                 return response()->json([
@@ -1586,7 +1588,7 @@ class GuestAuthController extends Controller
             $file = $request->file('avatar');
             $fileName = time() . '_' . $file->getClientOriginalName();
             $path = $file->storeAs('avatars', $fileName, 'public');
-            
+
             // Find the guest by phone or line_id
             $guest = null;
             if ($request->has('phone')) {
@@ -1594,7 +1596,7 @@ class GuestAuthController extends Controller
             } elseif ($request->has('line_id')) {
                 $guest = Guest::where('line_id', $request->line_id)->first();
             }
-            
+
             if (!$guest) {
                 return response()->json(['error' => 'Guest not found'], 404);
             }
@@ -1649,7 +1651,7 @@ class GuestAuthController extends Controller
             } elseif ($request->has('line_id')) {
                 $guest = Guest::where('line_id', $request->line_id)->first();
             }
-            
+
             if (!$guest) {
                 return response()->json(['error' => 'Guest not found'], 404);
             }
@@ -1660,7 +1662,7 @@ class GuestAuthController extends Controller
                 if (\Illuminate\Support\Facades\Storage::disk('public')->exists($avatarPath)) {
                     \Illuminate\Support\Facades\Storage::disk('public')->delete($avatarPath);
                 }
-                
+
                 // Clear the avatar field in database
                 $guest->update(['avatar' => null]);
             }
@@ -1688,19 +1690,19 @@ class GuestAuthController extends Controller
     {
         $guestId = $request->input('guest_id');
         $chatId = $request->input('chat_id');
-        
+
         $guest = Guest::findOrFail($guestId);
         $chat = Chat::findOrFail($chatId);
-        
+
         if ($guest->chatFavorites()->where('chat_id', $chatId)->exists()) {
             return response()->json(['favorited' => true, 'message' => 'Already favorited']);
         }
-        
+
         $guest->chatFavorites()->create([
             'chat_id' => $chatId,
             'created_at' => now()
         ]);
-        
+
         return response()->json(['favorited' => true]);
     }
 
@@ -1709,10 +1711,10 @@ class GuestAuthController extends Controller
     {
         $guestId = $request->input('guest_id');
         $chatId = $request->input('chat_id');
-        
+
         $guest = Guest::findOrFail($guestId);
         $guest->chatFavorites()->where('chat_id', $chatId)->delete();
-        
+
         return response()->json(['favorited' => false]);
     }
 
@@ -1722,11 +1724,11 @@ class GuestAuthController extends Controller
         $guest = Guest::with(['favoritedChats.cast', 'favoritedChats.messages' => function($q) {
             $q->orderBy('created_at', 'desc');
         }])->findOrFail($guestId);
-        
+
         $favoritedChats = $guest->favoritedChats->map(function ($chat) {
             $cast = $chat->cast;
             $lastMessage = $chat->messages->first();
-            
+
             return [
                 'id' => $chat->id,
                 'cast_id' => $chat->cast_id,
@@ -1739,7 +1741,7 @@ class GuestAuthController extends Controller
                 'favorited_at' => $chat->pivot->created_at ?? null
             ];
         });
-        
+
         return response()->json(['chats' => $favoritedChats]);
     }
 
@@ -1749,7 +1751,7 @@ class GuestAuthController extends Controller
         $favorite = ChatFavorite::where('chat_id', $chatId)
             ->where('guest_id', $guestId)
             ->first();
-        
+
         return response()->json(['favorited' => $favorite ? true : false]);
     }
 
@@ -1805,7 +1807,7 @@ class GuestAuthController extends Controller
 
             // Log before transaction
             error_log('=== DEDUCT POINTS DEBUG START ===');
-            
+
             // Check if guest has enough points
             if ($guest->points < $request->amount) {
                 return response()->json([
@@ -1820,7 +1822,7 @@ class GuestAuthController extends Controller
             $guest->grade_points += $request->amount;
             $guest->save();
             // Grade updates are handled via quarterly evaluation & admin approval
-            
+
             error_log("Points deducted successfully". json_encode($guest));
             DB::commit();
 
@@ -1850,15 +1852,15 @@ class GuestAuthController extends Controller
     {
         // Remove any non-digit characters
         $phoneNumber = preg_replace('/[^0-9]/', '', $phoneNumber);
-        
+
         // Ensure it starts with 0 (Japanese format)
         if (!str_starts_with($phoneNumber, '0')) {
             throw new \InvalidArgumentException('Phone number must start with 0');
         }
-        
+
         // Remove leading 0 and add 81
         $formattedNumber = '81' . ltrim($phoneNumber, '0');
-        
+
         return $formattedNumber;
     }
-} 
+}
