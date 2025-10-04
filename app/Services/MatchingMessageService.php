@@ -22,7 +22,7 @@ class MatchingMessageService
             // Get the cast and guest information
             $cast = Cast::find($castId);
             $guest = Guest::find($reservation->guest_id);
-            
+
             if (!$cast || !$guest) {
                 Log::error('Failed to send matching message: Cast or Guest not found', [
                     'reservation_id' => $reservation->id,
@@ -32,13 +32,13 @@ class MatchingMessageService
                 return false;
             }
 
-            // Format the reservation details for meeting time
-            $reservationDate = Carbon::parse($reservation->scheduled_at);
+            // Format the reservation details for meeting time (convert from UTC to JST)
+            $reservationDate = Carbon::parse($reservation->scheduled_at)->setTimezone('Asia/Tokyo');
             $meetingTime = $reservationDate->format('H:i');
-            
+
             // Send matching confirmation messages to group chat
             $this->sendGroupMatchingMessages($reservation, $castId, $meetingTime, $groupId);
-            
+
             Log::info('Group matching messages sent successfully', [
                 'reservation_id' => $reservation->id,
                 'cast_id' => $castId,
@@ -46,9 +46,9 @@ class MatchingMessageService
                 'meeting_time' => $meetingTime,
                 'group_id' => $groupId
             ]);
-            
+
             return true;
-            
+
         } catch (\Exception $e) {
             Log::error('Failed to send matching message', [
                 'reservation_id' => $reservation->id,
@@ -71,17 +71,17 @@ class MatchingMessageService
             if ($groupId) {
                 $chat = Chat::where('group_id', $groupId)->first();
             }
-            
+
             if (!$chat) {
                 // Fallback to finding a chat for this reservation
                 $chat = Chat::where('reservation_id', $reservation->id)->first();
             }
-            
+
             if ($chat && $chat->group_id) {
                 // Send message to guest only in group chat
                 $guestMessage = "マッチングが成立しました。合流時間は{$meetingTime}となります。キャストの合流ボタン押下後、マッチング開始となります。";
                 $this->sendToGroupChat($chat->group_id, $guestMessage, 'guest');
-                
+
                 // Send message to cast only in group chat
                 $castMessage = "マッチングが成立しました。合流時間は{$meetingTime}となります。ゲストと合流する直前に合流ボタンを必ず押下してください。また大幅な遅刻等はマナー違反です。合流時間に従って行動するようにしてください。";
                 $this->sendToGroupChat($chat->group_id, $castMessage, 'cast');
@@ -89,7 +89,7 @@ class MatchingMessageService
                 // Fallback to individual chat if no group found
                 $this->sendIndividualMatchingMessages($reservation, $castId, $meetingTime, null);
             }
-            
+
             Log::info('Group matching messages sent successfully', [
                 'reservation_id' => $reservation->id,
                 'cast_id' => $castId,
@@ -97,7 +97,7 @@ class MatchingMessageService
                 'group_id' => $chat?->group_id,
                 'meeting_time' => $meetingTime
             ]);
-            
+
         } catch (\Exception $e) {
             Log::error('Failed to send group matching messages', [
                 'reservation_id' => $reservation->id,
@@ -115,7 +115,7 @@ class MatchingMessageService
     {
         // Find a chat within the group to use as the target chat
         $targetChat = Chat::where('group_id', $groupId)->first();
-        
+
         if ($targetChat) {
             Message::create([
                 'chat_id' => $targetChat->id,
@@ -138,22 +138,22 @@ class MatchingMessageService
             if ($chatId) {
                 $chat = Chat::find($chatId);
             }
-            
+
             if (!$chat) {
                 // Find or create individual chats for guest and cast
                 $chat = $this->findOrCreateGuestChat($reservation->guest_id, $castId, $reservation->id);
             }
-            
+
             if ($chat) {
                 // Send message to guest only
                 $guestMessage = "マッチングが成立しました。合流時間は{$meetingTime}となります。キャストの合流ボタン押下後、マッチング開始となります。";
                 $this->sendToChat($chat->id, $guestMessage, 'guest');
-                
+
                 // Send message to cast only
                 $castMessage = "マッチングが成立しました。合流時間は{$meetingTime}となります。ゲストと合流する直前に合流ボタンを必ず押下してください。また大幅な遅刻等はマナー違反です。合流時間に従って行動するようにしてください。";
                 $this->sendToChat($chat->id, $castMessage, 'cast');
             }
-            
+
             Log::info('Individual matching messages sent successfully', [
                 'reservation_id' => $reservation->id,
                 'cast_id' => $castId,
@@ -161,7 +161,7 @@ class MatchingMessageService
                 'chat_id' => $chat?->id,
                 'meeting_time' => $meetingTime
             ]);
-            
+
         } catch (\Exception $e) {
             Log::error('Failed to send individual matching messages', [
                 'reservation_id' => $reservation->id,
@@ -182,11 +182,11 @@ class MatchingMessageService
                    ->where('cast_id', $castId)
                    ->where('reservation_id', $reservationId)
                    ->first();
-        
+
         if ($chat) {
             return $chat;
         }
-        
+
         // Create new chat if not found
         try {
             $chat = Chat::create([
@@ -195,10 +195,10 @@ class MatchingMessageService
                 'reservation_id' => $reservationId,
                 'created_at' => now(),
             ]);
-            
+
             // Broadcast chat creation
             event(new \App\Events\ChatCreated($chat));
-            
+
             return $chat;
         } catch (\Exception $e) {
             Log::error('Failed to create guest chat', [
@@ -241,7 +241,7 @@ class MatchingMessageService
     {
         try {
             $guest = Guest::find($reservation->guest_id);
-            
+
             if (!$guest) {
                 Log::error('Failed to send multiple matching message: Guest not found', [
                     'reservation_id' => $reservation->id,
@@ -250,13 +250,13 @@ class MatchingMessageService
                 return false;
             }
 
-            // Format the reservation details for meeting time
-            $reservationDate = Carbon::parse($reservation->scheduled_at);
+            // Format the reservation details for meeting time (convert from UTC to JST)
+            $reservationDate = Carbon::parse($reservation->scheduled_at)->setTimezone('Asia/Tokyo');
             $meetingTime = $reservationDate->format('H:i');
-            
+
             // Send group messages to guest and each cast
             $this->sendMultipleGroupMatchingMessages($reservation, $castIds, $meetingTime, $groupId);
-            
+
             Log::info('Multiple group matching messages sent successfully', [
                 'reservation_id' => $reservation->id,
                 'cast_count' => count($castIds),
@@ -264,9 +264,9 @@ class MatchingMessageService
                 'meeting_time' => $meetingTime,
                 'group_id' => $groupId
             ]);
-            
+
             return true;
-            
+
         } catch (\Exception $e) {
             Log::error('Failed to send multiple matching message', [
                 'reservation_id' => $reservation->id,
@@ -287,13 +287,13 @@ class MatchingMessageService
             // Send message to guest only in group chat
             $guestMessage = "マッチングが成立しました。合流時間は{$meetingTime}となります。キャストの合流ボタン押下後、マッチング開始となります。";
             $this->sendToGroupChat($groupId, $guestMessage, 'guest');
-            
+
             // Send message to each cast only in group chat
             foreach ($castIds as $castId) {
                 $castMessage = "マッチングが成立しました。合流時間は{$meetingTime}となります。ゲストと合流する直前に合流ボタンを必ず押下してください。また大幅な遅刻等はマナー違反です。合流時間に従って行動するようにしてください。";
                 $this->sendToGroupChat($groupId, $castMessage, 'cast');
             }
-            
+
             Log::info('Multiple group matching messages sent successfully', [
                 'reservation_id' => $reservation->id,
                 'cast_ids' => $castIds,
@@ -301,7 +301,7 @@ class MatchingMessageService
                 'group_id' => $groupId,
                 'meeting_time' => $meetingTime
             ]);
-            
+
         } catch (\Exception $e) {
             Log::error('Failed to send multiple group matching messages', [
                 'reservation_id' => $reservation->id,
@@ -321,7 +321,7 @@ class MatchingMessageService
             // Get the cast and guest information
             $cast = Cast::find($castId);
             $guest = Guest::find($reservation->guest_id);
-            
+
             if (!$cast || !$guest) {
                 Log::error('Failed to send additional cast matching message: Cast or Guest not found', [
                     'reservation_id' => $reservation->id,
@@ -331,13 +331,13 @@ class MatchingMessageService
                 return false;
             }
 
-            // Format the reservation details for meeting time
-            $reservationDate = Carbon::parse($reservation->scheduled_at);
+            // Format the reservation details for meeting time (convert from UTC to JST)
+            $reservationDate = Carbon::parse($reservation->scheduled_at)->setTimezone('Asia/Tokyo');
             $meetingTime = $reservationDate->format('H:i');
-            
+
             // Send group matching confirmation messages to guest and cast
             $this->sendGroupMatchingMessages($reservation, $castId, $meetingTime, $groupId);
-            
+
             Log::info('Additional cast group matching messages sent successfully', [
                 'reservation_id' => $reservation->id,
                 'cast_id' => $castId,
@@ -345,9 +345,9 @@ class MatchingMessageService
                 'meeting_time' => $meetingTime,
                 'group_id' => $groupId
             ]);
-            
+
             return true;
-            
+
         } catch (\Exception $e) {
             Log::error('Failed to send additional cast matching message', [
                 'reservation_id' => $reservation->id,

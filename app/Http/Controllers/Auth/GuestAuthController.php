@@ -332,6 +332,7 @@ class GuestAuthController extends Controller
             'cast_id' => 'nullable|exists:casts,id',
             'type' => 'nullable|in:free,Pishatto',
             'scheduled_at' => 'required|date',
+            'timezone' => 'nullable|string|max:50',
             'location' => 'nullable|string|max:255',
             'meeting_location' => 'nullable|string|max:255',
             'reservation_name' => 'nullable|string|max:255',
@@ -362,7 +363,14 @@ class GuestAuthController extends Controller
             $data = $request->only([
                 'guest_id', 'type', 'location', 'meeting_location', 'reservation_name', 'duration', 'details', 'time', 'cast_id'
             ]);
-            $data['scheduled_at'] = \Carbon\Carbon::parse($request->scheduled_at);
+
+            // Parse scheduled_at with timezone awareness
+            $scheduledAt = \Carbon\Carbon::parse($request->scheduled_at);
+            if ($request->timezone) {
+                // Convert from user's timezone to UTC for storage
+                $scheduledAt = $scheduledAt->setTimezone($request->timezone)->utc();
+            }
+            $data['scheduled_at'] = $scheduledAt;
             $data['type'] = 'Pishatto';
 
             \Log::info('createReservation: Data being saved', [
@@ -562,6 +570,7 @@ class GuestAuthController extends Controller
         $validator = Validator::make($request->all(), [
             'guest_id' => 'required|exists:guests,id',
             'scheduled_at' => 'required|date',
+            'timezone' => 'nullable|string|max:50',
             'location' => 'nullable|string|max:255',
             'address' => 'nullable|string|max:255',
             'name' => 'nullable|string|max:255',
@@ -589,12 +598,18 @@ class GuestAuthController extends Controller
             // Debug: Log the incoming request data
             error_log('Free call reservation request data: ' . json_encode($request->all()));
 
+            // Parse scheduled_at with timezone awareness
+            $scheduledAt = \Carbon\Carbon::parse($request->scheduled_at);
+            if ($request->timezone) {
+                // Convert from user's timezone to UTC for storage
+                $scheduledAt = $scheduledAt->setTimezone($request->timezone)->utc();
+            }
+
             // Create the reservation with type 'free'
             $reservation = Reservation::create([
                 'guest_id' => $request->guest_id,
                 'type' => 'free',
-                // 'scheduled_at' => \Carbon\Carbon::parse($request->scheduled_at),
-                'scheduled_at' => $request->scheduled_at,
+                'scheduled_at' => $scheduledAt,
                 'location' => $request->location,
                 'address' => $request->address,
                 'name' => $request->name,
