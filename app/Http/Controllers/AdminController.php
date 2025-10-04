@@ -9,7 +9,7 @@ use App\Models\Cast;
 use App\Models\Guest;
 use App\Services\MatchingMessageService;
 use Illuminate\Support\Facades\DB; // Added for DB facade
-use Illuminate\Support\Facades\Log; 
+use Illuminate\Support\Facades\Log;
 
 class AdminController extends Controller
 {
@@ -179,26 +179,46 @@ class AdminController extends Controller
             $matchingMessageService = app(MatchingMessageService::class);
             $matchingMessageService->sendMatchingMessage($reservation, $application->cast_id, $chat->id, $chatGroup->id);
 
+            // Format reservation details for notifications
+            $reservationDate = \Carbon\Carbon::parse($reservation->scheduled_at)->setTimezone('Asia/Tokyo');
+            $meetingTime = $reservationDate->format('Y年m月d日 H:i');
+            $location = $reservation->location ?: '未設定';
+            $duration = $reservation->duration ? (int)$reservation->duration . '時間' : '未設定';
+
+            // Debug: Log the notification details
+            \Log::info('Creating detailed notifications', [
+                'reservation_id' => $reservation->id,
+                'meeting_time' => $meetingTime,
+                'location' => $location,
+                'duration' => $duration
+            ]);
+
             // Notify guest
+            $guestMessage = "【予約承認】{$meetingTime} の予約が承認されました。\n場所: {$location}\n時間: {$duration}\n\nキャストと合流しました。合流後は自動延長となります。解散する際はキャストに解散とお伝えし、ボタン押下して終了となります。それでは、キャストとの時間をごゆっくりとお楽しみください。";
+            \Log::info('Guest notification message', ['message' => $guestMessage]);
+
             $guestNotification = \App\Models\Notification::create([
                 'user_id' => $reservation->guest_id,
                 'user_type' => 'guest',
                 'type' => 'order_matched',
                 'reservation_id' => $reservation->id,
                 'cast_id' => $application->cast_id,
-                'message' => 'キャストと合流しました。合流後は自動延長となります。解散する際はキャストに解散とお伝えし、ボタン押下して終了となります。それでは、キャストとの時間をごゆっくりとお楽しみください。',
+                'message' => $guestMessage,
                 'read' => false,
             ]);
             // Broadcast to guest
             event(new \App\Events\NotificationSent($guestNotification));
 
             // Notify approved cast
+            $castMessage = "【応募承認】{$meetingTime} の予約応募が承認されました。\n場所: {$location}\n時間: {$duration}\n\nゲストと合流する直前に合流ボタンを必ず押下してください。また大幅な遅刻等はマナー違反です。合流時間に従って行動するようにしてください。";
+            \Log::info('Cast notification message', ['message' => $castMessage]);
+
             $castNotification = \App\Models\Notification::create([
                 'user_id' => $application->cast_id,
                 'user_type' => 'cast',
                 'type' => 'application_approved',
                 'reservation_id' => $reservation->id,
-                'message' => '予約の応募が承認されました',
+                'message' => $castMessage,
                 'read' => false,
             ]);
             // Broadcast to approved cast
@@ -215,7 +235,7 @@ class AdminController extends Controller
                     'user_type' => 'cast',
                     'type' => 'application_rejected',
                     'reservation_id' => $reservation->id,
-                    'message' => '予約の応募が却下されました',
+                    'message' => "【応募却下】{$meetingTime} の予約応募が却下されました。\n場所: {$location}\n時間: {$duration}\n\n他のキャストが選択されました。またの機会をお待ちしております。",
                     'read' => false,
                 ]);
                 // Broadcast to rejected cast
@@ -282,7 +302,7 @@ class AdminController extends Controller
         ]);
 
         $reservation = \App\Models\Reservation::findOrFail($validated['reservation_id']);
-        
+
         if ($reservation->type !== 'Pishatto') {
             return response()->json([
                 'message' => 'Multiple cast selection is only allowed for Pishatto reservations'
@@ -369,13 +389,20 @@ class AdminController extends Controller
             $matchingMessageService = app(MatchingMessageService::class);
             $matchingMessageService->sendMultipleMatchingMessage($reservation, $validated['cast_ids'], $chatGroup->id);
 
+            // Format reservation details for notifications
+            $reservationDate = \Carbon\Carbon::parse($reservation->scheduled_at)->setTimezone('Asia/Tokyo');
+            $meetingTime = $reservationDate->format('Y年m月d日 H:i');
+            $location = $reservation->location ?: '未設定';
+            $duration = $reservation->duration ? (int)$reservation->duration . '時間' : '未設定';
+            $castCount = count($validated['cast_ids']);
+
             // Notify guest
             $guestNotification = \App\Models\Notification::create([
                 'user_id' => $reservation->guest_id,
                 'user_type' => 'guest',
                 'type' => 'order_matched',
                 'reservation_id' => $reservation->id,
-                'message' => '予約が複数のキャストにマッチされました',
+                'message' => "【プレミアム予約承認】{$meetingTime} の予約が{$castCount}名のキャストに承認されました。\n場所: {$location}\n時間: {$duration}\n\nキャストと合流しました。合流後は自動延長となります。解散する際はキャストに解散とお伝えし、ボタン押下して終了となります。それでは、キャストとの時間をごゆっくりとお楽しみください。",
                 'read' => false,
             ]);
             // Broadcast to guest
@@ -388,7 +415,7 @@ class AdminController extends Controller
                     'user_type' => 'cast',
                     'type' => 'application_approved',
                     'reservation_id' => $reservation->id,
-                    'message' => 'プレミアム予約の応募が承認されました',
+                    'message' => "【プレミアム応募承認】{$meetingTime} のプレミアム予約応募が承認されました。\n場所: {$location}\n時間: {$duration}\n参加キャスト: {$castCount}名\n\nゲストと合流する直前に合流ボタンを必ず押下してください。また大幅な遅刻等はマナー違反です。合流時間に従って行動するようにしてください。",
                     'read' => false,
                 ]);
                 // Broadcast to approved cast
@@ -406,7 +433,7 @@ class AdminController extends Controller
                     'user_type' => 'cast',
                     'type' => 'application_rejected',
                     'reservation_id' => $reservation->id,
-                    'message' => '予約の応募が却下されました',
+                    'message' => "【応募却下】{$meetingTime} の予約応募が却下されました。\n場所: {$location}\n時間: {$duration}\n\n他のキャストが選択されました。またの機会をお待ちしております。",
                     'read' => false,
                 ]);
                 // Broadcast to rejected cast

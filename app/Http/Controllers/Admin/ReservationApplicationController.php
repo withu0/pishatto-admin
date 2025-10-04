@@ -116,6 +116,12 @@ class ReservationApplicationController extends Controller
             $matchingMessageService = app(MatchingMessageService::class);
             $matchingMessageService->sendMatchingMessage($reservation, $application->cast_id, $chat->id, $chatGroup->id);
 
+            // Format reservation details for notifications
+            $reservationDate = \Carbon\Carbon::parse($reservation->scheduled_at)->setTimezone('Asia/Tokyo');
+            $meetingTime = $reservationDate->format('Y年m月d日 H:i');
+            $location = $reservation->location ?: '未設定';
+            $duration = $reservation->duration ? (int)$reservation->duration . '時間' : '未設定';
+
             // Notify guest
             $guestNotification = Notification::create([
                 'user_id' => $reservation->guest_id,
@@ -123,7 +129,7 @@ class ReservationApplicationController extends Controller
                 'type' => 'order_matched',
                 'reservation_id' => $reservation->id,
                 'cast_id' => $application->cast_id,
-                'message' => 'キャストと合流しました。合流後は自動延長となります。解散する際はキャストに解散とお伝えし、ボタン押下して終了となります。それでは、キャストとの時間をごゆっくりとお楽しみください。',
+                'message' => "【予約承認】{$meetingTime} の予約が承認されました。\n場所: {$location}\n時間: {$duration}\n\nキャストと合流しました。合流後は自動延長となります。解散する際はキャストに解散とお伝えし、ボタン押下して終了となります。それでは、キャストとの時間をごゆっくりとお楽しみください。",
                 'read' => false,
             ]);
             // Broadcast to guest
@@ -135,7 +141,7 @@ class ReservationApplicationController extends Controller
                 'user_type' => 'cast',
                 'type' => 'application_approved',
                 'reservation_id' => $reservation->id,
-                'message' => '予約の応募が承認されました',
+                'message' => "【応募承認】{$meetingTime} の予約応募が承認されました。\n場所: {$location}\n時間: {$duration}\n\nゲストと合流する直前に合流ボタンを必ず押下してください。また大幅な遅刻等はマナー違反です。合流時間に従って行動するようにしてください。",
                 'read' => false,
             ]);
             // Broadcast to approved cast
@@ -155,7 +161,7 @@ class ReservationApplicationController extends Controller
                     'user_type' => 'cast',
                     'type' => 'application_rejected',
                     'reservation_id' => $reservation->id,
-                    'message' => '予約の応募が却下されました',
+                    'message' => "【応募却下】{$meetingTime} の予約応募が却下されました。\n場所: {$location}\n時間: {$duration}\n\n他のキャストが選択されました。またの機会をお待ちしております。",
                     'read' => false,
                 ]);
                 // Broadcast to rejected cast
@@ -204,4 +210,4 @@ class ReservationApplicationController extends Controller
             'message' => 'Application rejected successfully'
         ]);
     }
-} 
+}
