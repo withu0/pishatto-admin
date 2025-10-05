@@ -642,10 +642,58 @@ class CastAuthController extends Controller
             $this->startExceededTimeMonitoring($reservation);
         }
 
+        // Send admin message to group chat about session start
+        $this->sendSessionStartMessage($reservation, $request->cast_id);
+
         // Broadcast the reservation update event
         event(new \App\Events\ReservationUpdated($reservation));
 
         return response()->json(['reservation' => $reservation]);
+    }
+
+    /**
+     * Send admin message to group chat about session start
+     */
+    private function sendSessionStartMessage(Reservation $reservation, int $castId)
+    {
+        try {
+            // Find the chat group for this reservation
+            $chatGroup = \App\Models\ChatGroup::where('reservation_id', $reservation->id)->first();
+
+            if ($chatGroup) {
+                // Get cast information
+                $cast = \App\Models\Cast::find($castId);
+                $castName = $cast ? $cast->nickname : 'キャスト';
+
+                // Format current time in JST
+                $currentTime = \Carbon\Carbon::now()->setTimezone('Asia/Tokyo')->format('H:i');
+
+                // Create admin message
+                $adminMessage = "【セッション開始】{$castName}が合流しました。\n開始時間: {$currentTime}\n\nセッションが開始されました。お楽しみください！";
+
+                // Find a chat within the group to send the message
+                $targetChat = \App\Models\Chat::where('group_id', $chatGroup->id)->first();
+
+                if ($targetChat) {
+                    $message = \App\Models\Message::create([
+                        'chat_id' => $targetChat->id,
+                        'message' => $adminMessage,
+                        'recipient_type' => 'both', // Visible to both guest and cast
+                        'created_at' => now(),
+                        'is_read' => false,
+                    ]);
+
+                    // Broadcast the message for real-time updates
+                    event(new \App\Events\GroupMessageSent($message, $chatGroup->id));
+                }
+            }
+        } catch (\Exception $e) {
+            Log::error('Failed to send session start message', [
+                'reservation_id' => $reservation->id,
+                'cast_id' => $castId,
+                'error' => $e->getMessage()
+            ]);
+        }
     }
 
     /**
@@ -813,6 +861,9 @@ class CastAuthController extends Controller
             }
         }
 
+        // Send admin message to group chat about session end
+        $this->sendSessionEndMessage($reservation, $request->cast_id);
+
         // Broadcast the reservation update event
         event(new \App\Events\ReservationUpdated($reservation));
 
@@ -824,6 +875,59 @@ class CastAuthController extends Controller
             'points_refunded' => $refundAmount,
             'receipt' => $receipt
         ]);
+    }
+
+    /**
+     * Send admin message to group chat about session end
+     */
+    private function sendSessionEndMessage(Reservation $reservation, int $castId)
+    {
+        try {
+            // Find the chat group for this reservation
+            $chatGroup = \App\Models\ChatGroup::where('reservation_id', $reservation->id)->first();
+
+            if ($chatGroup) {
+                // Get cast information
+                $cast = \App\Models\Cast::find($castId);
+                $castName = $cast ? $cast->nickname : 'キャスト';
+
+                // Format end time in JST
+                $endTime = \Carbon\Carbon::now()->setTimezone('Asia/Tokyo')->format('H:i');
+
+                // Calculate session duration
+                $startTime = \Carbon\Carbon::parse($reservation->started_at)->setTimezone('Asia/Tokyo');
+                $endTimeCarbon = \Carbon\Carbon::parse($reservation->ended_at)->setTimezone('Asia/Tokyo');
+                $duration = $startTime->diffInMinutes($endTimeCarbon);
+                $hours = floor($duration / 60);
+                $minutes = $duration % 60;
+                $durationText = $hours > 0 ? "{$hours}時間{$minutes}分" : "{$minutes}分";
+
+                // Create admin message
+                $adminMessage = "【セッション終了】{$castName}がセッションを終了しました。\n終了時間: {$endTime}\nセッション時間: {$durationText}\n\nお疲れ様でした！";
+
+                // Find a chat within the group to send the message
+                $targetChat = \App\Models\Chat::where('group_id', $chatGroup->id)->first();
+
+                if ($targetChat) {
+                    $message = \App\Models\Message::create([
+                        'chat_id' => $targetChat->id,
+                        'message' => $adminMessage,
+                        'recipient_type' => 'both', // Visible to both guest and cast
+                        'created_at' => now(),
+                        'is_read' => false,
+                    ]);
+
+                    // Broadcast the message for real-time updates
+                    event(new \App\Events\GroupMessageSent($message, $chatGroup->id));
+                }
+            }
+        } catch (\Exception $e) {
+            Log::error('Failed to send session end message', [
+                'reservation_id' => $reservation->id,
+                'cast_id' => $castId,
+                'error' => $e->getMessage()
+            ]);
+        }
     }
 
     // Add a cast to guest's favorites
