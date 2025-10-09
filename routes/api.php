@@ -256,6 +256,8 @@ Route::post('/ranking/recalculate-all', [RankingController::class, 'recalculateA
 Route::get('/chats/{chatId}', [ChatController::class, 'show']);
 Route::post('/reservation/start', [CastAuthController::class, 'startReservation']);
 Route::post('/reservation/stop', [CastAuthController::class, 'stopReservation']);
+Route::get('/reservation/cast-session-status', [CastAuthController::class, 'getCastSessionStatus']);
+Route::get('/reservation/cast-sessions', [CastAuthController::class, 'getReservationCastSessions']);
 Route::post('/casts/favorite', [CastAuthController::class, 'favorite']);
 Route::post('/casts/unfavorite', [CastAuthController::class, 'unfavorite']);
 Route::get('/casts/favorites/{guestId}', [CastAuthController::class, 'favoriteCasts']);
@@ -286,6 +288,9 @@ Route::get('/admin/exceeded-pending/grouped', [App\Http\Controllers\Admin\Exceed
 Route::get('/admin/exceeded-pending/count', [App\Http\Controllers\Admin\ExceededPendingController::class, 'count']);
 Route::post('/admin/exceeded-pending/process-all', [App\Http\Controllers\Admin\ExceededPendingController::class, 'processAll']);
 Route::post('/admin/exceeded-pending/cancel-payment', [App\Http\Controllers\Admin\ExceededPendingController::class, 'cancelPayment']);
+
+// All point transactions (including pending)
+Route::get('/admin/point-transactions', [App\Http\Controllers\Admin\ExceededPendingController::class, 'getAllPointTransactions']);
 
 // Test endpoint for exceeded time processing (for development/testing)
 Route::post('/test/exceeded-time/{reservationId}', function ($reservationId) {

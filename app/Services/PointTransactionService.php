@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\Guest;
 use App\Models\Cast;
 use App\Models\Reservation;
+use App\Models\CastSession;
 use App\Models\PointTransaction;
 use App\Services\GradeService;
 use Illuminate\Support\Facades\DB;
@@ -368,6 +369,58 @@ class PointTransactionService
     }
 
     /**
+     * Calculate extension fee for free call cast session
+     * For free calls, extension fee = per-minute rate × extension minutes (no multiplier)
+     */
+    public function calculateFreeCallExtensionFee(CastSession $castSession, Reservation $reservation): int
+    {
+        if (!$castSession->started_at || !$castSession->ended_at || !$reservation->duration) {
+            return 0;
+        }
+
+        $cast = $castSession->cast;
+        if (!$cast) {
+            return 0;
+        }
+
+        // For free calls, use category_points per minute
+        $perMinute = (int) floor(($cast->category_points ?? 0) / 30);
+
+        $startedAt = \Carbon\Carbon::parse($castSession->started_at);
+        $endedAt = \Carbon\Carbon::parse($castSession->ended_at);
+        $scheduledDurationMinutes = $this->getScheduledDurationMinutes($reservation);
+        $actualMinutes = max(0, $endedAt->diffInMinutes($startedAt));
+
+        if ($actualMinutes <= $scheduledDurationMinutes) {
+            return 0;
+        }
+
+        $exceededMinutes = $actualMinutes - $scheduledDurationMinutes;
+        // For free calls, no extension multiplier (1.0)
+        return (int) floor($perMinute * $exceededMinutes * 1.0);
+    }
+
+    /**
+     * Calculate total extension fees for all cast sessions in a free call reservation
+     */
+    public function calculateTotalFreeCallExtensionFees(Reservation $reservation): int
+    {
+        if ($reservation->type !== 'free') {
+            return 0;
+        }
+
+        $totalExtensionFees = 0;
+        $castSessions = $reservation->castSessions()->whereNotNull('ended_at')->get();
+
+        foreach ($castSessions as $castSession) {
+            $extensionFee = $this->calculateFreeCallExtensionFee($castSession, $reservation);
+            $totalExtensionFees += $extensionFee;
+        }
+
+        return $totalExtensionFees;
+    }
+
+    /**
      * Calculate exceeded time amount for pishatto calls and create pending transaction
      * This is called when a pishatto call exceeds the scheduled duration
      * NOTE: This method is now deprecated - exceeded time is handled in processReservationCompletion
@@ -635,7 +688,7 @@ class PointTransactionService
                         'guest_id' => $guest->id,
                         'reservation_id' => $reservation->id,
                         'amount' => $reservedPoints,
-                        'description' => "Free call completed without cast - refunding all points - {$reservation->id}",
+                        'description' => "フリーコール完了（キャストなし） - 全ポイント返金 - 予約{$reservation->id}",
                     ]);
 
                     // Reduce grade_points by refunded amount
@@ -709,7 +762,7 @@ class PointTransactionService
                 // Check if automatic payment transaction already exists for this reservation
                 $existingPayment = PointTransaction::where('reservation_id', $reservation->id)
                     ->where('type', 'buy')
-                    ->where('description', 'like', '%Automatic payment for exceeded time%')
+                    ->where('description', 'like', '%自動支払い%')
                     ->first();
 
                 if (!$existingPayment) {
@@ -754,7 +807,7 @@ class PointTransactionService
                             'cast_id' => $cast->id,
                             'reservation_id' => $reservation->id,
                             'amount' => $totalPoints,
-                            'description' => "Pishatto call exceeded time - {$reservation->id} (paid via automatic payment)",
+                            'description' => "ピシャットコール延長時間 - 予約{$reservation->id} (自動支払い済み)",
                         ]);
                     } else {
                         // Payment failed - deduct available points only
@@ -767,7 +820,7 @@ class PointTransactionService
                             'cast_id' => $cast->id,
                             'reservation_id' => $reservation->id,
                             'amount' => $guestAvailablePoints,
-                            'description' => "Pishatto call exceeded time - {$reservation->id} (insufficient points, no payment method)",
+                            'description' => "ピシャットコール延長時間 - 予約{$reservation->id} (ポイント不足、支払い方法なし)",
                         ]);
                     }
                 }
@@ -861,7 +914,7 @@ class PointTransactionService
                 'guest_id' => $guest->id,
                 'reservation_id' => $reservation->id,
                 'amount' => $reservedPoints,
-                'description' => "refunded all points for cancelled reservation - {$reservation->id}",
+                'description' => "キャンセル予約の全ポイント返金 - 予約{$reservation->id}",
             ]);
 
             // Reduce grade_points by refunded amount
@@ -997,7 +1050,7 @@ class PointTransactionService
             // Find exceeded_pending transactions older than 2 days that haven't been processed yet
             $exceededPendingTransactions = PointTransaction::where('type', 'exceeded_pending')
                 ->where('created_at', '<=', now()->subDays(2))
-                ->where('description', 'not like', '%(Auto-transferred after 2 days)%')
+                ->where('description', 'not like', '%(2日後自動転送済み)%')
                 ->get();
 
             foreach ($exceededPendingTransactions as $transaction) {
@@ -1050,12 +1103,12 @@ class PointTransactionService
                 'cast_id' => $cast->id,
                 'reservation_id' => $transaction->reservation_id,
                 'amount' => $transaction->amount,
-                'description' => "Auto-transfer exceeded pending amount after 2 days - {$transaction->id}",
+                'description' => "2日後自動転送 - 超過保留金額 - 取引{$transaction->id}",
             ]);
 
             // Mark the exceeded_pending transaction as processed (but keep type as exceeded_pending)
             $transaction->update([
-                'description' => $transaction->description . ' (Auto-transferred after 2 days)',
+                'description' => $transaction->description . ' (2日後自動転送済み)',
                 // Keep type as 'exceeded_pending' to maintain audit trail
             ]);
 
@@ -1105,7 +1158,7 @@ class PointTransactionService
      */
     public function getPointTransactionsGroupedByReservation()
     {
-        $transactions = PointTransaction::with(['guest', 'cast', 'reservation.cast', 'payment'])
+        $transactions = PointTransaction::with(['guest', 'cast', 'reservation.cast', 'reservation.castSessions.cast', 'payment'])
             ->where('type', '!=', 'pending')
             ->whereNotNull('reservation_id')
             ->orderBy('created_at', 'desc')
@@ -1120,49 +1173,18 @@ class PointTransactionService
             $reservation = $reservationTransactions->first()->reservation;
             $guest = $reservationTransactions->first()->guest;
 
-            // Get cast from reservation relationship or from transactions
-            $cast = null;
-            if ($reservation && $reservation->cast) {
-                $cast = $reservation->cast;
+            // Handle different reservation types
+            if ($reservation && $reservation->type === 'free') {
+                // For free calls, get data from cast sessions
+                $reservationSummary = $this->buildFreeCallReservationSummary($reservation, $guest, $reservationTransactions);
             } else {
-                // Try to get cast from any transaction that has cast_id
-                $castTransaction = $reservationTransactions->where('cast_id', '!=', null)->first();
-                if ($castTransaction) {
-                    $cast = $castTransaction->cast;
-                } else {
-                    $cast = $reservationTransactions->first()->cast;
-                }
+                // For Pishatto calls, use existing logic
+                $reservationSummary = $this->buildPishattoReservationSummary($reservation, $guest, $reservationTransactions);
             }
 
-
-            // Calculate various point amounts
-            $reservedPoints = $reservationTransactions->where('type', 'transfer')->sum('amount');
-            $actualUsedPoints = $reservationTransactions->where('type', 'exceeded_pending')->where('amount', '>', 0)->sum('amount');
-            $boughtPoints = $reservationTransactions->where('type', 'buy')->sum('amount');
-            $exceededPoints = max(0, $actualUsedPoints - $reservedPoints);
-
-            // Get payment information
-            $paymentTransaction = $reservationTransactions->where('type', 'buy')->first();
-            $payment = $paymentTransaction ? $paymentTransaction->payment : null;
-            $paymentAmountYen = $payment ? $payment->amount : 0;
-
-            $reservationSummaries[] = [
-                'reservation_id' => $reservationId,
-                'reservation' => $reservation,
-                'guest' => $guest,
-                'cast' => $cast,
-                'reserved_points' => $reservedPoints,
-                'actual_used_points' => $actualUsedPoints,
-                'exceeded_points' => $exceededPoints,
-                'bought_points' => $boughtPoints,
-                'payment_amount_yen' => $paymentAmountYen,
-                'payment_status' => $payment ? $payment->status : null,
-                'payment_id' => $payment ? $payment->id : null,
-                'stripe_payment_intent_id' => $payment ? $payment->stripe_payment_intent_id : null,
-                'transactions' => $reservationTransactions->toArray(),
-                'created_at' => $reservationTransactions->first()->created_at,
-                'updated_at' => $reservationTransactions->max('updated_at')
-            ];
+            if ($reservationSummary) {
+                $reservationSummaries[] = $reservationSummary;
+            }
         }
 
         // Sort by most recent first
@@ -1171,6 +1193,128 @@ class PointTransactionService
         });
 
         return $reservationSummaries;
+    }
+
+    /**
+     * Build reservation summary for free calls with cast session data
+     */
+    private function buildFreeCallReservationSummary($reservation, $guest, $reservationTransactions)
+    {
+        if (!$reservation || !$guest) {
+            return null;
+        }
+
+        // Get all cast sessions for this reservation
+        $castSessions = $reservation->castSessions()->with('cast')->get();
+
+        // Calculate totals across all casts
+        $totalReservedPoints = $reservationTransactions->where('type', 'transfer')->sum('amount');
+        $totalActualUsedPoints = $reservationTransactions->where('type', 'exceeded_pending')->where('amount', '>', 0)->sum('amount');
+        $totalBoughtPoints = $reservationTransactions->where('type', 'buy')->sum('amount');
+        $totalExceededPoints = max(0, $totalActualUsedPoints - $totalReservedPoints);
+
+        // Get payment information
+        $paymentTransaction = $reservationTransactions->where('type', 'buy')->first();
+        $payment = $paymentTransaction ? $paymentTransaction->payment : null;
+        $paymentAmountYen = $payment ? $payment->amount : 0;
+
+        // Build cast session details
+        $castSessionDetails = [];
+        foreach ($castSessions as $castSession) {
+            $castTransactions = $reservationTransactions->where('cast_id', $castSession->cast_id);
+
+            $castReservedPoints = $castTransactions->where('type', 'transfer')->sum('amount');
+            $castActualUsedPoints = $castTransactions->where('type', 'exceeded_pending')->where('amount', '>', 0)->sum('amount');
+            $castExceededPoints = max(0, $castActualUsedPoints - $castReservedPoints);
+
+            $castSessionDetails[] = [
+                'cast_id' => $castSession->cast_id,
+                'cast_nickname' => $castSession->cast->nickname ?? 'Unknown',
+                'cast_grade' => $castSession->cast->grade ?? 'Unknown',
+                'started_at' => $castSession->started_at,
+                'ended_at' => $castSession->ended_at,
+                'points_earned' => $castSession->points_earned ?? 0,
+                'reserved_points' => $castReservedPoints,
+                'actual_used_points' => $castActualUsedPoints,
+                'exceeded_points' => $castExceededPoints,
+                'session_duration_minutes' => $castSession->started_at && $castSession->ended_at
+                    ? \Carbon\Carbon::parse($castSession->ended_at)->diffInMinutes(\Carbon\Carbon::parse($castSession->started_at))
+                    : 0
+            ];
+        }
+
+        return [
+            'reservation_id' => $reservation->id,
+            'reservation' => $reservation,
+            'guest' => $guest,
+            'cast' => null, // For free calls, we have multiple casts
+            'cast_sessions' => $castSessionDetails,
+            'reserved_points' => $totalReservedPoints,
+            'actual_used_points' => $totalActualUsedPoints,
+            'exceeded_points' => $totalExceededPoints,
+            'bought_points' => $totalBoughtPoints,
+            'payment_amount_yen' => $paymentAmountYen,
+            'payment_status' => $payment ? $payment->status : null,
+            'payment_id' => $payment ? $payment->id : null,
+            'stripe_payment_intent_id' => $payment ? $payment->stripe_payment_intent_id : null,
+            'transactions' => $reservationTransactions->toArray(),
+            'created_at' => $reservationTransactions->first()->created_at,
+            'updated_at' => $reservationTransactions->max('updated_at')
+        ];
+    }
+
+    /**
+     * Build reservation summary for Pishatto calls (existing logic)
+     */
+    private function buildPishattoReservationSummary($reservation, $guest, $reservationTransactions)
+    {
+        if (!$reservation || !$guest) {
+            return null;
+        }
+
+        // Get cast from reservation relationship or from transactions
+        $cast = null;
+        if ($reservation && $reservation->cast) {
+            $cast = $reservation->cast;
+        } else {
+            // Try to get cast from any transaction that has cast_id
+            $castTransaction = $reservationTransactions->where('cast_id', '!=', null)->first();
+            if ($castTransaction) {
+                $cast = $castTransaction->cast;
+            } else {
+                $cast = $reservationTransactions->first()->cast;
+            }
+        }
+
+        // Calculate various point amounts
+        $reservedPoints = $reservationTransactions->where('type', 'transfer')->sum('amount');
+        $actualUsedPoints = $reservationTransactions->where('type', 'exceeded_pending')->where('amount', '>', 0)->sum('amount');
+        $boughtPoints = $reservationTransactions->where('type', 'buy')->sum('amount');
+        $exceededPoints = max(0, $actualUsedPoints - $reservedPoints);
+
+        // Get payment information
+        $paymentTransaction = $reservationTransactions->where('type', 'buy')->first();
+        $payment = $paymentTransaction ? $paymentTransaction->payment : null;
+        $paymentAmountYen = $payment ? $payment->amount : 0;
+
+        return [
+            'reservation_id' => $reservation->id,
+            'reservation' => $reservation,
+            'guest' => $guest,
+            'cast' => $cast,
+            'cast_sessions' => null, // Not applicable for Pishatto calls
+            'reserved_points' => $reservedPoints,
+            'actual_used_points' => $actualUsedPoints,
+            'exceeded_points' => $exceededPoints,
+            'bought_points' => $boughtPoints,
+            'payment_amount_yen' => $paymentAmountYen,
+            'payment_status' => $payment ? $payment->status : null,
+            'payment_id' => $payment ? $payment->id : null,
+            'stripe_payment_intent_id' => $payment ? $payment->stripe_payment_intent_id : null,
+            'transactions' => $reservationTransactions->toArray(),
+            'created_at' => $reservationTransactions->first()->created_at,
+            'updated_at' => $reservationTransactions->max('updated_at')
+        ];
     }
 
     /**

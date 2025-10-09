@@ -71,9 +71,9 @@ class PaymentController extends Controller
 
         try {
             $result = $this->stripeService->completePaymentIntent($request->payment_intent_id);
-            
+
             $isPaymentSuccessful = $result['status'] === 'succeeded';
-            
+
             return response()->json([
                 'success' => true,
                 'payment_intent' => $result,
@@ -176,7 +176,7 @@ class PaymentController extends Controller
             // Check if payment was successful or requires action
             $isPaymentSuccessful = $result['status'] === 'succeeded';
             $requiresAction = $result['status'] === 'requires_action';
-            
+
             $response = [
                 'success' => true,
                 'payment_intent' => $result,
@@ -301,10 +301,13 @@ class PaymentController extends Controller
             $yenPerPoint = (float) config('points.yen_per_point', 1.2);
             $intendedPoints = (int) floor(((float) $request->amount) / max(0.0001, $yenPerPoint));
 
+            // Apply consumption tax (1.1 multiplier)
+            $amountWithTax = (int) ceil($request->amount * 1.1);
+
             $paymentData = [
                 'user_id' => $request->user_id,
                 'user_type' => $request->user_type,
-                'amount' => $request->amount, // amount in cents for Stripe
+                'amount' => $amountWithTax, // amount with consumption tax for Stripe
                 'payment_method' => $request->payment_method,
                 'payment_method_type' => $request->payment_method_type ?? 'card',
                 'description' => $request->description ?? "{$intendedPoints}ポイント購入",
@@ -315,6 +318,9 @@ class PaymentController extends Controller
                     'intended_points' => $intendedPoints,
                     'customer_id' => $model->stripe_customer_id,
                     'payment_type' => $request->payment_method ? 'payment_method' : 'customer',
+                    'original_amount' => $request->amount,
+                    'tax_amount' => $amountWithTax - $request->amount,
+                    'consumption_tax_applied' => true
                 ],
             ];
 
@@ -326,7 +332,9 @@ class PaymentController extends Controller
                     'user_id' => $request->user_id,
                     'user_type' => $request->user_type,
                     'customer_id' => $model->stripe_customer_id,
-                    'amount' => $request->amount
+                    'original_amount' => $request->amount,
+                    'amount_with_tax' => $amountWithTax,
+                    'tax_amount' => $amountWithTax - $request->amount
                 ]);
             } else if ($request->payment_method) {
                 // Use payment method if no customer ID
@@ -335,7 +343,9 @@ class PaymentController extends Controller
                 Log::info('Processing payment with payment method (no registered customer)', [
                     'user_id' => $request->user_id,
                     'user_type' => $request->user_type,
-                    'amount' => $request->amount
+                    'original_amount' => $request->amount,
+                    'amount_with_tax' => $amountWithTax,
+                    'tax_amount' => $amountWithTax - $request->amount
                 ]);
             } else {
                 return response()->json([
@@ -350,7 +360,8 @@ class PaymentController extends Controller
                 Log::error('Payment processing failed', [
                     'user_id' => $request->user_id,
                     'user_type' => $request->user_type,
-                    'amount' => $request->amount,
+                    'original_amount' => $request->amount,
+                    'amount_with_tax' => $amountWithTax,
                     'error' => $result['error']
                 ]);
 
@@ -1405,7 +1416,7 @@ class PaymentController extends Controller
 
         try {
             $automaticPaymentService = app(AutomaticPaymentService::class);
-            
+
             $result = $automaticPaymentService->processAutomaticPaymentForInsufficientPoints(
                 $request->guest_id,
                 $request->required_points,
@@ -1456,7 +1467,7 @@ class PaymentController extends Controller
 
         try {
             $automaticPaymentService = app(AutomaticPaymentService::class);
-            
+
             $hasPaymentMethod = $automaticPaymentService->hasRegisteredPaymentMethod($request->guest_id);
             $paymentInfo = $automaticPaymentService->getGuestPaymentInfo($request->guest_id);
 
@@ -1492,7 +1503,7 @@ class PaymentController extends Controller
 
         try {
             $auditService = app(AutomaticPaymentAuditService::class);
-            
+
             $payments = $auditService->getGuestAutomaticPayments($request->guest_id);
             $summary = $auditService->getGuestAutomaticPaymentSummary($request->guest_id);
 
@@ -1528,7 +1539,7 @@ class PaymentController extends Controller
 
         try {
             $auditService = app(AutomaticPaymentAuditService::class);
-            
+
             $auditTrail = $auditService->getAuditTrail(
                 $request->guest_id,
                 $request->reservation_id
@@ -1561,7 +1572,7 @@ class PaymentController extends Controller
     {
         try {
             $auditService = app(AutomaticPaymentAuditService::class);
-            
+
             $payments = $auditService->getReservationAutomaticPayments($reservationId);
 
             return response()->json([

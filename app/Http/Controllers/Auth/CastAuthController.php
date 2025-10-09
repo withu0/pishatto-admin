@@ -153,7 +153,8 @@ class CastAuthController extends Controller
     public function allReservations()
     {
         try {
-            $reservations = \App\Models\Reservation::where('type', 'free')
+            $reservations = \App\Models\Reservation::with(['castSessions.cast'])
+                ->where('type', 'free')
                 ->orderBy('scheduled_at', 'desc')
                 ->get();
 
@@ -197,6 +198,11 @@ class CastAuthController extends Controller
                 }
 
                 $reservation->calculated_points = $totalPoints;
+
+                // Add cast session information for group calls
+                $reservation->active_sessions_count = $reservation->activeCastSessions()->count();
+                $reservation->completed_sessions_count = $reservation->completedCastSessions()->count();
+                $reservation->total_cast_earnings = $reservation->getTotalCastEarnings();
             });
 
             return response()->json(['reservations' => $reservations]);
@@ -629,26 +635,52 @@ class CastAuthController extends Controller
         if ($validator->fails()) {
             return response()->json(['message' => 'Validation failed', 'errors' => $validator->errors()], 422);
         }
+
         $reservation = Reservation::find($request->reservation_id);
-        // Optionally: check if this cast is allowed to start this reservation
-        if ($reservation->started_at) {
-            return response()->json(['message' => 'Reservation already started'], 400);
+        $castId = $request->cast_id;
+
+        // Check if this cast already has an active session for this reservation
+        $existingSession = \App\Models\CastSession::where('reservation_id', $reservation->id)
+            ->where('cast_id', $castId)
+            ->where('status', 'active')
+            ->first();
+
+        if ($existingSession) {
+            return response()->json(['message' => 'Cast session already active for this reservation'], 400);
         }
+
+        // Create or update cast session
+        $castSession = \App\Models\CastSession::updateOrCreate(
+            [
+                'reservation_id' => $reservation->id,
+                'cast_id' => $castId
+            ],
+            [
+                'started_at' => now(),
+                'status' => 'active'
+            ]
+        );
+
+        // For group calls (free type), we don't set reservation started_at
+        // For individual calls (Pishatto type), set reservation started_at if not already set
+        if ($reservation->type === 'Pishatto' && !$reservation->started_at) {
         $reservation->started_at = now();
         $reservation->save();
 
-        // For pishatto calls, start monitoring for exceeded time
-        if ($reservation->type === 'Pishatto') {
+            // Start monitoring for exceeded time
             $this->startExceededTimeMonitoring($reservation);
         }
 
         // Send admin message to group chat about session start
-        $this->sendSessionStartMessage($reservation, $request->cast_id);
+        $this->sendSessionStartMessage($reservation, $castId);
 
         // Broadcast the reservation update event
         event(new \App\Events\ReservationUpdated($reservation));
 
-        return response()->json(['reservation' => $reservation]);
+        return response()->json([
+            'reservation' => $reservation,
+            'cast_session' => $castSession
+        ]);
     }
 
     /**
@@ -723,211 +755,215 @@ class CastAuthController extends Controller
         if ($validator->fails()) {
             return response()->json(['message' => 'Validation failed', 'errors' => $validator->errors()], 422);
         }
+
         $reservation = Reservation::find($request->reservation_id);
-        if (!$reservation->started_at) {
-            return response()->json(['message' => 'Reservation not started'], 400);
-        }
-        if ($reservation->ended_at) {
-            return response()->json(['message' => 'Reservation already ended'], 400);
+        $castId = $request->cast_id;
+
+        // Find the cast session for this cast and reservation
+        $castSession = \App\Models\CastSession::where('reservation_id', $reservation->id)
+            ->where('cast_id', $castId)
+            ->where('status', 'active')
+            ->first();
+
+        if (!$castSession) {
+            return response()->json(['message' => 'Cast session not found or not active'], 400);
         }
 
-        // Set the cast_id if not already set
-        if (!$reservation->cast_id) {
-            $reservation->cast_id = $request->cast_id;
+        if (!$castSession->started_at) {
+            return response()->json(['message' => 'Cast session not started'], 400);
         }
 
+        if ($castSession->ended_at) {
+            return response()->json(['message' => 'Cast session already ended'], 400);
+        }
+
+        // Update cast session
+        $castSession->ended_at = now();
+        $castSession->status = 'completed';
+        $castSession->save();
+
+        // For individual calls (Pishatto type), end the reservation if this is the only cast
+        if ($reservation->type === 'Pishatto') {
+            $activeSessions = \App\Models\CastSession::where('reservation_id', $reservation->id)
+                ->where('status', 'active')
+                ->count();
+
+            if ($activeSessions === 0 && !$reservation->ended_at) {
         $reservation->ended_at = now();
         $reservation->save();
 
-        // Calculate points and process transaction using the service
-        // Note: Exceeded time is now handled within processReservationCompletion
+                // Process reservation completion for individual calls
         $pointService = app(\App\Services\PointTransactionService::class);
-
         $success = $pointService->processReservationCompletion($reservation);
 
         if (!$success) {
             return response()->json(['message' => 'Failed to process point transaction'], 500);
-        }
-
-        // Get the updated reservation with points_earned
-        $reservation->refresh();
-
-        // Find the pending transaction to get refund information
-        $pendingTransaction = \App\Models\PointTransaction::where('reservation_id', $reservation->id)
-            ->where('type', 'pending')
-            ->first();
-
-        $refundTransaction = \App\Models\PointTransaction::where('reservation_id', $reservation->id)
-            ->where('type', 'convert')
-            ->where('description', 'like', '%refunded unused points%')
-            ->first();
-
-        $refundAmount = $refundTransaction ? $refundTransaction->amount : 0;
-        $reservedAmount = $pendingTransaction ? $pendingTransaction->amount : 0;
-
-        // Create receipt for the session
-        $receipt = null;
-        try {
-            $receiptService = app(\App\Http\Controllers\PaymentController::class);
-            $receiptResponse = $receiptService->createReceipt(new \Illuminate\Http\Request([
-                'user_type' => 'guest',
-                'user_id' => $reservation->guest_id,
-                'recipient_name' => $reservation->guest->nickname ?? 'ゲスト',
-                'amount' => abs($reservation->points_earned ?? 0),
-                'purpose' => 'Pishatto利用料',
-                'transaction_created_at' => $reservation->ended_at,
-            ]));
-
-            // Extract receipt from the response
-            if ($receiptResponse && $receiptResponse->getData() && $receiptResponse->getData()->success) {
-                $receipt = $receiptResponse->getData()->receipt;
-            }
-        } catch (\Exception $e) {
-            Log::error('Failed to create receipt for reservation ' . $reservation->id . ': ' . $e->getMessage());
-        }
-
-        // Send notification to guest about session completion
-        if ($receipt) {
-            try {
-                $notificationService = app(\App\Services\NotificationService::class);
-
-                // Generate proper shareable receipt URL matching ReceiptConfirmationPage format
-                $frontendUrl = env('FRONTEND_URL', 'http://localhost:3000');
-                if (!preg_match('#^https?://#i', $frontendUrl)) {
-                    $frontendUrl = 'http://' . ltrim($frontendUrl, '/');
                 }
-                $frontendUrl = rtrim($frontendUrl, '/');
-
-                // Generate random suffix like in ReceiptConfirmationPage for security
-                $randomSuffix1 = substr(str_shuffle('abcdefghijklmnopqrstuvwxyz0123456789'), 0, 8);
-                $randomSuffix2 = substr(str_shuffle('abcdefghijklmnopqrstuvwxyz0123456789'), 0, 8);
-                $receiptUrl = $frontendUrl . '/receipt/' . $receipt->receipt_number . '-' . $randomSuffix1 . '_' . $randomSuffix2;
-
-                $message = "🎉 解散が完了いたしました！\n\n📄 領収書は以下の通りとなります：\n🔗 {$receiptUrl}\n\n⚠️ 内容に相違ございましたら3日以内に運営にご連絡くださいませ。\n\n🙏 またのご利用を心よりお待ちしております。";
-
-                $notification = $notificationService->sendMeetupDissolutionNotification(
-                    $reservation->guest_id,
-                    $message,
-                    $reservation->id
-                );
-
-                // Broadcast the notification event for real-time delivery
-                if ($notification) {
-                    event(new \App\Events\NotificationSent($notification));
-                }
-
-                // Also notify involved casts with the required message format using existing notification service
-                // Determine cast IDs (supports single cast_id and multiple cast_ids array/json)
-                $castIds = [];
-                if (!empty($reservation->cast_id)) {
-                    $castIds[] = (int)$reservation->cast_id;
-                }
-                if (!empty($reservation->cast_ids)) {
-                    $ids = $reservation->cast_ids;
-                    if (is_string($ids)) {
-                        // Attempt to decode JSON string to array
-                        $decoded = json_decode($ids, true);
-                        if (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) {
-                            $ids = $decoded;
-                        }
-                    }
-                    if (is_array($ids)) {
-                        foreach ($ids as $cid) {
-                            $castIds[] = (int)$cid;
-                        }
-                    }
-                }
-                $castIds = array_values(array_unique(array_filter($castIds)));
-
-                if (!empty($castIds)) {
-                    $castMessage = "解散が完了いたしました。\n今回の売上は以下の通りとなります。\nURL：{$receiptUrl}\n内容に相違ございましたら3日以内に運営にご連絡くださいませ。\n今後ともどうぞよろしくお願いいたします。";
-                    foreach ($castIds as $castIdForNotice) {
-                        $castNotification = \App\Services\NotificationService::sendNotificationIfEnabled(
-                            (int)$castIdForNotice,
-                            'cast',
-                            'meetup_dissolution',
-                            'meetup_dissolution',
-                            $castMessage,
-                            $reservation->id,
-                            null
-                        );
-                        if ($castNotification) {
-                            event(new \App\Events\NotificationSent($castNotification));
-                        }
-                    }
-                }
-            } catch (\Exception $e) {
-                Log::error('Failed to send dissolution notification for reservation ' . $reservation->id . ': ' . $e->getMessage());
             }
         }
 
-        // Send admin message to group chat about session end
-        $this->sendSessionEndMessage($reservation, $request->cast_id);
+        // For group calls (free type), calculate and process individual cast earnings
+        if ($reservation->type === 'free') {
+            $this->processCastSessionCompletion($castSession, $reservation);
+        }
 
         // Broadcast the reservation update event
         event(new \App\Events\ReservationUpdated($reservation));
 
         return response()->json([
             'reservation' => $reservation,
-            'message' => 'Reservation completed and points transferred successfully',
-            'points_transferred' => $reservation->points_earned,
-            'points_reserved' => $reservedAmount,
-            'points_refunded' => $refundAmount,
-            'receipt' => $receipt
+            'cast_session' => $castSession
         ]);
     }
 
     /**
-     * Send admin message to group chat about session end
+     * Process individual cast session completion for group calls
      */
-    private function sendSessionEndMessage(Reservation $reservation, int $castId)
+    private function processCastSessionCompletion(\App\Models\CastSession $castSession, Reservation $reservation)
     {
         try {
-            // Find the chat group for this reservation
-            $chatGroup = \App\Models\ChatGroup::where('reservation_id', $reservation->id)->first();
-
-            if ($chatGroup) {
-                // Get cast information
-                $cast = \App\Models\Cast::find($castId);
-                $castName = $cast ? $cast->nickname : 'キャスト';
-
-                // Format end time in JST
-                $endTime = \Carbon\Carbon::now()->setTimezone('Asia/Tokyo')->format('H:i');
-
-                // Calculate session duration
-                $startTime = \Carbon\Carbon::parse($reservation->started_at)->setTimezone('Asia/Tokyo');
-                $endTimeCarbon = \Carbon\Carbon::parse($reservation->ended_at)->setTimezone('Asia/Tokyo');
-                $duration = $startTime->diffInMinutes($endTimeCarbon);
-                $hours = floor($duration / 60);
-                $minutes = $duration % 60;
-                $durationText = $hours > 0 ? "{$hours}時間{$minutes}分" : "{$minutes}分";
-
-                // Create admin message
-                $adminMessage = "【セッション終了】{$castName}がセッションを終了しました。\n終了時間: {$endTime}\nセッション時間: {$durationText}\n\nお疲れ様でした！";
-
-                // Find a chat within the group to send the message
-                $targetChat = \App\Models\Chat::where('group_id', $chatGroup->id)->first();
-
-                if ($targetChat) {
-                    $message = \App\Models\Message::create([
-                        'chat_id' => $targetChat->id,
-                        'message' => $adminMessage,
-                        'recipient_type' => 'both', // Visible to both guest and cast
-                        'created_at' => now(),
-                        'is_read' => false,
-                    ]);
-
-                    // Broadcast the message for real-time updates
-                    event(new \App\Events\GroupMessageSent($message, $chatGroup->id));
-                }
+            // Check if points have already been processed for this session
+            if ($castSession->points_earned !== null && $castSession->points_earned > 0) {
+                \Log::warning('Cast session completion already processed, skipping', [
+                    'cast_session_id' => $castSession->id,
+                    'points_earned' => $castSession->points_earned
+                ]);
+                return;
             }
-        } catch (\Exception $e) {
-            Log::error('Failed to send session end message', [
+
+            // Calculate elapsed time for this cast
+            $elapsedTime = $castSession->getElapsedTimeAttribute();
+            $elapsedMinutes = $elapsedTime / 60;
+
+            // Get cast profile for category points
+            $cast = $castSession->cast;
+            $categoryPoints = $cast->category_points ?? 12000; // Default to プレミアム
+
+            // Calculate per-minute rate
+            $perMinute = (int) floor($categoryPoints / 30);
+
+            // Get scheduled duration in minutes
+            $duration = is_numeric($reservation->duration) ? (float)$reservation->duration : 0;
+            $scheduledMinutes = (int) ($duration * 60);
+
+            // Apply the correct logic for free calls:
+            // if elapsed_minutes < scheduled_minutes: cast earns perMinute * scheduled_minutes (full scheduled time)
+            // if elapsed_minutes > scheduled_minutes: cast earns perMinute * scheduled_minutes + extension
+            if ($elapsedMinutes < $scheduledMinutes) {
+                // Cast earns for full scheduled duration even if they joined for less time
+                $points = max(1, (int) ($perMinute * $scheduledMinutes));
+            } else {
+                // Cast earns for scheduled duration + any extension time
+                $baseForScheduled = (int) ($perMinute * $scheduledMinutes);
+                $extensionMinutes = $elapsedMinutes - $scheduledMinutes;
+                $extensionFee = (int) floor($perMinute * $extensionMinutes * 1.0); // No extension multiplier for group calls
+                $points = max(1, $baseForScheduled + $extensionFee);
+
+                // Handle extension payment if elapsed time exceeds scheduled time
+                // This will create exceeded_pending transactions for the extension fee
+                \Log::info('Free call extension payment: Triggering extension payment', [
+                    'reservation_id' => $reservation->id,
+                    'cast_session_id' => $castSession->id,
+                    'elapsed_minutes' => $elapsedMinutes,
+                    'scheduled_minutes' => $scheduledMinutes,
+                    'extension_minutes' => $extensionMinutes,
+                    'per_minute' => $perMinute,
+                    'extension_fee' => $extensionFee
+                ]);
+                $this->handleFreeCallExtensionPayment($reservation, $castSession, (float) $extensionMinutes, $perMinute);
+            }
+
+            \Log::info('Cast session completion calculation', [
+                'cast_session_id' => $castSession->id,
+                'cast_id' => $castSession->cast_id,
+                'elapsed_minutes' => $elapsedMinutes,
+                'scheduled_minutes' => $scheduledMinutes,
+                'per_minute' => $perMinute,
+                'calculation_type' => $elapsedMinutes < $scheduledMinutes ? 'full_scheduled' : 'scheduled_plus_extension',
+                'total_points' => $points
+            ]);
+
+            // Update cast session with earned points
+            $castSession->points_earned = $points;
+            $castSession->save();
+
+            // Create point transfer transaction
+            $pointService = app(\App\Services\PointTransactionService::class);
+            $pointService->createTransferTransaction([
+                'cast_id' => $castSession->cast_id,
+                'amount' => $points,
                 'reservation_id' => $reservation->id,
-                'cast_id' => $castId,
+                'description' => "フリーコール決済 - 予約{$reservation->id}"
+            ]);
+
+            } catch (\Exception $e) {
+            \Log::error('Failed to process cast session completion', [
+                'cast_session_id' => $castSession->id,
                 'error' => $e->getMessage()
             ]);
         }
+    }
+
+    /**
+     * Get cast session status for a reservation
+     */
+    public function getCastSessionStatus(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'reservation_id' => 'required|exists:reservations,id',
+            'cast_id' => 'required|exists:casts,id',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json(['message' => 'Validation failed', 'errors' => $validator->errors()], 422);
+        }
+
+        $castSession = \App\Models\CastSession::where('reservation_id', $request->reservation_id)
+            ->where('cast_id', $request->cast_id)
+            ->first();
+
+        if (!$castSession) {
+        return response()->json([
+                'status' => 'not_started',
+                'started_at' => null,
+                'ended_at' => null,
+                'elapsed_time' => 0,
+                'points_earned' => 0
+            ]);
+        }
+
+        return response()->json([
+            'status' => $castSession->status,
+            'started_at' => $castSession->started_at,
+            'ended_at' => $castSession->ended_at,
+            'elapsed_time' => $castSession->getElapsedTimeAttribute(),
+            'points_earned' => $castSession->points_earned
+        ]);
+    }
+
+    /**
+     * Get all cast sessions for a reservation
+     */
+    public function getReservationCastSessions(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'reservation_id' => 'required|exists:reservations,id',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json(['message' => 'Validation failed', 'errors' => $validator->errors()], 422);
+        }
+
+        $castSessions = \App\Models\CastSession::with('cast')
+            ->where('reservation_id', $request->reservation_id)
+            ->get();
+
+        return response()->json([
+            'cast_sessions' => $castSessions,
+            'active_count' => $castSessions->where('status', 'active')->count(),
+            'completed_count' => $castSessions->where('status', 'completed')->count(),
+            'total_earnings' => $castSessions->sum('points_earned')
+        ]);
     }
 
     // Add a cast to guest's favorites
@@ -978,5 +1014,192 @@ class CastAuthController extends Controller
         $formattedNumber = '81' . ltrim($phoneNumber, '0');
 
         return $formattedNumber;
+    }
+
+    /**
+     * Handle extension payment for free call when elapsed time exceeds scheduled time
+     */
+    private function handleFreeCallExtensionPayment(Reservation $reservation, \App\Models\CastSession $castSession, float $extensionMinutes, int $perMinute)
+    {
+        try {
+            // Calculate extension fee for this specific cast
+            $extensionFee = (int) floor($perMinute * $extensionMinutes * 1.0);
+
+            \Log::info('Free call extension payment: Extension fee calculation', [
+                'reservation_id' => $reservation->id,
+                'cast_session_id' => $castSession->id,
+                'extension_minutes' => $extensionMinutes,
+                'per_minute' => $perMinute,
+                'extension_fee' => $extensionFee
+            ]);
+
+            if ($extensionFee <= 0) {
+                \Log::info('Free call extension payment: Extension fee is 0 or negative, skipping', [
+                    'reservation_id' => $reservation->id,
+                    'cast_session_id' => $castSession->id,
+                    'extension_fee' => $extensionFee
+                ]);
+                return;
+            }
+
+            $guest = $reservation->guest;
+            if (!$guest) {
+                \Log::error('Free call extension payment: Guest not found', [
+                    'reservation_id' => $reservation->id,
+                    'cast_session_id' => $castSession->id
+                ]);
+                return;
+            }
+
+            \Log::info('Free call extension payment calculation', [
+                'reservation_id' => $reservation->id,
+                'cast_session_id' => $castSession->id,
+                'extension_minutes' => $extensionMinutes,
+                'per_minute' => $perMinute,
+                'extension_fee' => $extensionFee,
+                'guest_id' => $guest->id,
+                'guest_points' => $guest->points
+            ]);
+
+            // Check if guest has sufficient points
+            if ($guest->points >= $extensionFee) {
+                // Deduct points from guest
+                $guest->points -= $extensionFee;
+                $guest->save();
+
+                // Create point transaction for extension fee
+                $pointService = app(\App\Services\PointTransactionService::class);
+                $pointService->createExceededPendingTransaction([
+                    'guest_id' => $guest->id,
+                    'cast_id' => $castSession->cast_id,
+                    'amount' => $extensionFee,
+                    'reservation_id' => $reservation->id,
+                    'description' => "フリーコール延長時間料金 - キャスト{$castSession->cast_id} - {$extensionMinutes}分 (予約{$reservation->id})"
+                ]);
+
+                \Log::info('Free call extension payment: Deducted from guest points', [
+                    'reservation_id' => $reservation->id,
+                    'cast_session_id' => $castSession->id,
+                    'extension_fee' => $extensionFee,
+                    'guest_points_after' => $guest->points
+                ]);
+            } else {
+                // Guest has insufficient points - process automatic payment
+                $shortfall = $extensionFee - $guest->points;
+
+                \Log::info('Free call extension payment: Insufficient points, processing automatic payment', [
+                    'reservation_id' => $reservation->id,
+                    'cast_session_id' => $castSession->id,
+                    'extension_fee' => $extensionFee,
+                    'guest_points' => $guest->points,
+                    'shortfall' => $shortfall
+                ]);
+
+                try {
+                    // Process automatic payment for the shortfall
+                    $automaticPaymentService = app(\App\Services\AutomaticPaymentService::class);
+                        $paymentResult = $automaticPaymentService->processAutomaticPaymentForInsufficientPoints(
+                            $guest->id,
+                            $shortfall,
+                            $reservation->id,
+                            "フリーコール延長時間料金 - キャスト{$castSession->cast_id} - {$extensionMinutes}分 (予約{$reservation->id})"
+                        );
+
+                    if ($paymentResult['success']) {
+                        // Add the payment points to guest's account
+                        $guest->points += $paymentResult['points_added'];
+                        $guest->save();
+
+                        // Deduct the extension fee from guest's account
+                        $guest->points = max(0, $guest->points - $extensionFee);
+                        $guest->save();
+
+                        // Create exceeded_pending transaction for the extension fee
+                        $pointService = app(\App\Services\PointTransactionService::class);
+                        $pointService->createExceededPendingTransaction([
+                            'guest_id' => $guest->id,
+                            'cast_id' => $castSession->cast_id,
+                            'amount' => $extensionFee,
+                            'reservation_id' => $reservation->id,
+                            'description' => "フリーコール延長時間料金 - キャスト{$castSession->cast_id} - {$extensionMinutes}分 (自動支払い済み) - 予約{$reservation->id}"
+                        ]);
+
+                        \Log::info('Free call extension payment: Automatic payment successful', [
+                            'reservation_id' => $reservation->id,
+                            'cast_session_id' => $castSession->id,
+                            'extension_fee' => $extensionFee,
+                            'points_added' => $paymentResult['points_added'],
+                            'guest_points_after' => $guest->points
+                        ]);
+                    } else {
+                        // Payment failed - deduct available points only
+                        $availablePoints = $guest->points;
+                        $guest->points = 0;
+                        $guest->save();
+
+                        // Create exceeded_pending transaction for available points only
+                        $pointService = app(\App\Services\PointTransactionService::class);
+                        $pointService->createExceededPendingTransaction([
+                            'guest_id' => $guest->id,
+                            'cast_id' => $castSession->cast_id,
+                            'amount' => $availablePoints,
+                            'reservation_id' => $reservation->id,
+                            'description' => "フリーコール延長時間料金 - キャスト{$castSession->cast_id} - {$extensionMinutes}分 (ポイント不足、支払い方法なし) - 予約{$reservation->id}"
+                        ]);
+
+                        \Log::warning('Free call extension payment: Automatic payment failed, deducted available points only', [
+                            'reservation_id' => $reservation->id,
+                            'cast_session_id' => $castSession->id,
+                            'extension_fee' => $extensionFee,
+                            'available_points' => $availablePoints,
+                            'payment_error' => $paymentResult['error'] ?? 'Unknown error'
+                        ]);
+                    }
+                } catch (\Exception $e) {
+                    \Log::error('Free call extension payment: Automatic payment exception', [
+                        'reservation_id' => $reservation->id,
+                        'cast_session_id' => $castSession->id,
+                        'extension_fee' => $extensionFee,
+                        'error' => $e->getMessage(),
+                        'trace' => $e->getTraceAsString()
+                    ]);
+
+                    // Deduct available points only
+                    $availablePoints = $guest->points;
+                    $guest->points = 0;
+                    $guest->save();
+
+                    // Create exceeded_pending transaction for available points only
+                    $pointService = app(\App\Services\PointTransactionService::class);
+                    $pointService->createExceededPendingTransaction([
+                        'guest_id' => $guest->id,
+                        'cast_id' => $castSession->cast_id,
+                        'amount' => $availablePoints,
+                        'reservation_id' => $reservation->id,
+                        'description' => "Free call extension fee - Cast {$castSession->cast_id} - {$extensionMinutes} minutes (payment failed) - reservation {$reservation->id}"
+                    ]);
+                }
+            }
+
+            // Update guest grade after point changes
+            try {
+                $gradeService = app(\App\Services\GradeService::class);
+                $gradeService->calculateAndUpdateGrade($guest);
+            } catch (\Throwable $e) {
+                \Log::warning('Failed to update guest grade after free call extension payment', [
+                    'guest_id' => $guest->id,
+                    'reservation_id' => $reservation->id,
+                    'error' => $e->getMessage()
+                ]);
+            }
+
+        } catch (\Exception $e) {
+            \Log::error('Free call extension payment: Unexpected error', [
+                'reservation_id' => $reservation->id,
+                'cast_session_id' => $castSession->id,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+        }
     }
 }

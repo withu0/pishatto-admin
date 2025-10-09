@@ -574,7 +574,7 @@ class GuestAuthController extends Controller
             'location' => 'nullable|string|max:255',
             'address' => 'nullable|string|max:255',
             'name' => 'nullable|string|max:255',
-            'duration' => 'nullable|integer',
+            'duration' => 'nullable',
             'custom_duration_hours' => 'nullable|integer|min:4|max:24',
             'details' => 'string',
             'time' => 'nullable|string|max:10',
@@ -1022,10 +1022,19 @@ class GuestAuthController extends Controller
 
     public function getReservationById($id)
     {
-        $reservation = Reservation::find($id);
+        $reservation = Reservation::with(['castSessions.cast', 'guest', 'cast'])->find($id);
         if (!$reservation) {
             return response()->json(['message' => 'Reservation not found'], 404);
         }
+
+        // Add cast session information for group calls
+        if ($reservation->type === 'free') {
+            $reservation->cast_sessions = $reservation->castSessions()->with('cast')->get();
+            $reservation->active_sessions_count = $reservation->activeCastSessions()->count();
+            $reservation->completed_sessions_count = $reservation->completedCastSessions()->count();
+            $reservation->total_cast_earnings = $reservation->getTotalCastEarnings();
+        }
+
         return response()->json(['reservation' => $reservation]);
     }
 

@@ -31,7 +31,7 @@ class AutomaticPaymentService
         int $guestId,
         int $requiredAmountInPoints,
         ?int $reservationId,
-        string $description = 'Automatic payment for exceeded time'
+        string $description = '延長時間の自動支払い'
     ): array {
         try {
             DB::beginTransaction();
@@ -49,7 +49,10 @@ class AutomaticPaymentService
 
             // Convert points to yen (1 point = 1.2 yen)
             $yenPerPoint = (float) config('points.yen_per_point', 1.2);
-            $amountInYen = (int) ceil($requiredAmountInPoints * $yenPerPoint);
+            $baseAmountInYen = (int) ceil($requiredAmountInPoints * $yenPerPoint);
+
+            // Apply consumption tax (1.1 multiplier)
+            $amountInYen = (int) ceil($baseAmountInYen * 1.1);
 
             // Ensure minimum amount for Stripe (100 yen)
             if ($amountInYen < 100) {
@@ -59,7 +62,9 @@ class AutomaticPaymentService
             Log::info('Processing automatic payment for insufficient points', [
                 'guest_id' => $guestId,
                 'required_points' => $requiredAmountInPoints,
-                'amount_yen' => $amountInYen,
+                'base_amount_yen' => $baseAmountInYen,
+                'amount_with_tax_yen' => $amountInYen,
+                'tax_amount' => $amountInYen - $baseAmountInYen,
                 'reservation_id' => $reservationId
             ]);
 
@@ -79,7 +84,10 @@ class AutomaticPaymentService
                     'required_points' => $requiredAmountInPoints,
                     'conversion_rate' => $yenPerPoint,
                     'original_points_requested' => $requiredAmountInPoints,
-                    'deduction_type' => 'exceeded_time_shortfall'
+                    'deduction_type' => 'exceeded_time_shortfall',
+                    'base_amount_yen' => $baseAmountInYen,
+                    'tax_amount' => $amountInYen - $baseAmountInYen,
+                    'consumption_tax_applied' => true
                 ]
             ]);
 
@@ -99,7 +107,10 @@ class AutomaticPaymentService
                     'conversion_rate' => $yenPerPoint,
                     'original_points_requested' => $requiredAmountInPoints,
                     'deduction_type' => 'exceeded_time_shortfall',
-                    'scheduled_capture_at' => now()->addDays(2)->toISOString()
+                    'scheduled_capture_at' => now()->addDays(2)->toISOString(),
+                    'base_amount_yen' => $baseAmountInYen,
+                    'tax_amount' => $amountInYen - $baseAmountInYen,
+                    'consumption_tax_applied' => true
                 ]
             ];
 
@@ -157,7 +168,7 @@ class AutomaticPaymentService
                 'guest_id' => $guestId,
                 'type' => 'buy',
                 'amount' => $requiredAmountInPoints,
-                'description' => "Automatic payment for exceeded time - reservation {$reservationId}",
+                'description' => "延長時間の自動支払い - 予約{$reservationId}",
                 'reservation_id' => $reservationId,
                 'payment_id' => $payment->id
             ]);
@@ -167,7 +178,7 @@ class AutomaticPaymentService
                 'guest_id' => $guestId,
                 'type' => 'exceeded_pending',
                 'amount' => -$requiredAmountInPoints, // Negative amount for deduction
-                'description' => "Automatic deduction for exceeded time - paid via card (Payment ID: {$payment->id})",
+                'description' => "延長時間の自動控除 - カード支払い済み (支払いID: {$payment->id})",
                 'reservation_id' => $reservationId,
                 'payment_id' => $payment->id
             ]);

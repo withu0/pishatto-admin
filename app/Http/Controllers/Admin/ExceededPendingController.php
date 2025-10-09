@@ -84,6 +84,30 @@ class ExceededPendingController extends Controller
     }
 
     /**
+     * Get all point transactions (including pending)
+     */
+    public function getAllPointTransactions(): JsonResponse
+    {
+        try {
+            $transactions = \App\Models\PointTransaction::with(['guest', 'cast', 'reservation.guest', 'payment'])
+                ->orderBy('created_at', 'desc')
+                ->get();
+
+            return response()->json([
+                'success' => true,
+                'data' => $transactions,
+                'count' => $transactions->count()
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to fetch point transactions',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
      * Manually process all exceeded pending transactions (admin override)
      */
     public function processAll(): JsonResponse
