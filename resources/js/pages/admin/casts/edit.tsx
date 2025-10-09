@@ -290,6 +290,15 @@ export default function CastEdit({ cast }: Props) {
                                                 onChange={handleFileSelect}
                                                 className="max-w-xs"
                                             />
+                                            <Button
+                                                type="button"
+                                                variant="outline"
+                                                size="sm"
+                                                onClick={() => document.getElementById('avatar-upload')?.click()}
+                                            >
+                                                <Upload className="w-4 h-4 mr-1" />
+                                                ファイルを選択
+                                            </Button>
                                             {selectedFiles.length > 0 && (
                                                 <Button
                                                     onClick={handleAvatarUpload}
