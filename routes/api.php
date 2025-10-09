@@ -266,7 +266,7 @@ Route::get('/casts/favorites/{guestId}', [CastAuthController::class, 'favoriteCa
 // Chat favorites routes
 Route::post('/chats/favorite', [GuestAuthController::class, 'favoriteChat']);
 Route::post('/chats/unfavorite', [GuestAuthController::class, 'unfavoriteChat']);
-Route::get('/chats/favorites/{guestId}', [GuestAuthController::class, 'favoriteChats']);
+Route::get('/chats-guest/favorites/{guestId}', [GuestAuthController::class, 'favoriteChats']);
 Route::get('/chats/{chatId}/favorited/{guestId}', [GuestAuthController::class, 'isChatFavorited']);
 
 // Cast payment routes
