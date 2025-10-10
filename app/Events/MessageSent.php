@@ -47,27 +47,29 @@ class MessageSent implements ShouldBroadcast
 
         // Also broadcast to user channels for real-time notifications
         if ($this->message->sender_guest_id) {
-            // Message from guest, notify cast only if message is for cast or both
+            // Message from guest, notify cast
             $chat = $this->message->chat;
-            if ($chat && $chat->cast_id &&
-                ($this->message->recipient_type === 'both' || $this->message->recipient_type === 'cast')) {
+            if ($chat && $chat->cast_id) {
                 $channels[] = new Channel('user.' . $chat->cast_id);
-                Log::info('MessageSent: Added cast user channel', [
+                $channels[] = new Channel('cast.' . $chat->cast_id);
+                Log::info('MessageSent: Added cast user channels', [
                     'message_id' => $this->message->id,
                     'cast_id' => $chat->cast_id,
-                    'channel' => 'user.' . $chat->cast_id
+                    'user_channel' => 'user.' . $chat->cast_id,
+                    'cast_channel' => 'cast.' . $chat->cast_id
                 ]);
             }
         } else if ($this->message->sender_cast_id) {
-            // Message from cast, notify guest only if message is for guest or both
+            // Message from cast, notify guest
             $chat = $this->message->chat;
-            if ($chat && $chat->guest_id &&
-                ($this->message->recipient_type === 'both' || $this->message->recipient_type === 'guest')) {
+            if ($chat && $chat->guest_id) {
                 $channels[] = new Channel('user.' . $chat->guest_id);
-                Log::info('MessageSent: Added guest user channel', [
+                $channels[] = new Channel('guest.' . $chat->guest_id);
+                Log::info('MessageSent: Added guest user channels', [
                     'message_id' => $this->message->id,
                     'guest_id' => $chat->guest_id,
-                    'channel' => 'user.' . $chat->guest_id
+                    'user_channel' => 'user.' . $chat->guest_id,
+                    'guest_channel' => 'guest.' . $chat->guest_id
                 ]);
             }
         }

@@ -261,6 +261,18 @@ Route::get('/reservation/cast-sessions', [CastAuthController::class, 'getReserva
 Route::post('/casts/favorite', [CastAuthController::class, 'favorite']);
 Route::post('/casts/unfavorite', [CastAuthController::class, 'unfavorite']);
 Route::get('/casts/favorites/{guestId}', [CastAuthController::class, 'favoriteCasts']);
+
+// Debug endpoint for realtime configuration
+Route::get('/debug/realtime-config', function () {
+    return response()->json([
+        'broadcast_driver' => config('broadcasting.default'),
+        'reverb_config' => config('broadcasting.connections.reverb'),
+        'app_url' => config('app.url'),
+        'app_env' => config('app.env'),
+        'log_level' => config('logging.default'),
+        'timestamp' => now()->toISOString()
+    ]);
+});
 // Route::get('/badges', [GuestAuthController::class, 'getAllBadges']); // Commented out to avoid duplicate routes
 
 // Chat favorites routes

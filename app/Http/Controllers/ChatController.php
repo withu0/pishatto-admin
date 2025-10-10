@@ -157,7 +157,21 @@ class ChatController extends Controller
         // Log before broadcasting
         Log::info('ChatController: Broadcasting MessageSent event', [
             'message_id' => $message->id,
-            'chat_id' => $message->chat_id
+            'chat_id' => $message->chat_id,
+            'sender_guest_id' => $message->sender_guest_id,
+            'sender_cast_id' => $message->sender_cast_id,
+            'recipient_type' => $message->recipient_type
+        ]);
+
+        // Log the chat relationship
+        $chat = $message->chat;
+        Log::info('ChatController: Chat relationship details', [
+            'message_id' => $message->id,
+            'chat_id' => $chat->id,
+            'guest_id' => $chat->guest_id,
+            'cast_id' => $chat->cast_id,
+            'reservation_id' => $chat->reservation_id,
+            'group_id' => $chat->group_id
         ]);
 
         event(new \App\Events\MessageSent($message));
