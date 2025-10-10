@@ -21,7 +21,7 @@ class LineAuthController extends Controller
      */
     private function getFrontendUrl(): string
     {
-        $frontendUrl = env('FRONTEND_URL', 'http://localhost:3000');
+        $frontendUrl = config('app.frontend_url', env('FRONTEND_URL', 'http://localhost:3000'));
         if (!preg_match('#^https?://#i', $frontendUrl)) {
             $frontendUrl = 'http://' . ltrim($frontendUrl, '/');
         }

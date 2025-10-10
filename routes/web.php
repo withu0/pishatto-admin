@@ -141,7 +141,7 @@ Route::delete('/api/cast/images', [App\Http\Controllers\CastApplicationControlle
 
 // Test route for debugging cast callback
 Route::get('/test-cast-callback', function() {
-    $frontendUrl = env('FRONTEND_URL', 'http://localhost:3000');
+    $frontendUrl = config('app.frontend_url', 'http://localhost:3000');
     return redirect()->away($frontendUrl . '/cast/register?line_id=test123&line_name=Test User&line_email=test@example.com&line_avatar=https://example.com/avatar.jpg&user_type=cast_registration');
 });
 
