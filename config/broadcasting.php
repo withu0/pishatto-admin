@@ -39,9 +39,11 @@ return [
                 'port' => env('REVERB_PORT', '8080'),
                 'scheme' => env('REVERB_SCHEME', 'https'),
                 'useTLS' => env('REVERB_SCHEME', 'https') === 'https',
+                'debug' => env('REVERB_DEBUG', false),
+                'log_level' => env('REVERB_LOG_LEVEL', 'info'),
             ],
         ],
-        
+
         'pusher' => [
             'driver' => 'pusher',
             'key' => env('PUSHER_APP_KEY'),
