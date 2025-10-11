@@ -488,7 +488,7 @@ export default function CastEdit({ cast }: Props) {
                                         </div>
 
                                         <div className="space-y-2">
-                                            <Label htmlFor="grade_points">グレードポイント</Label>
+                                            <Label htmlFor="grade_points">30分あたりのポイント</Label>
                                             <Input
                                                 id="grade_points"
                                                 type="number"
@@ -521,7 +521,7 @@ export default function CastEdit({ cast }: Props) {
 
                                     {/* 支払い情報 */}
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                        <div className="space-y-2">
+                                        {/* <div className="space-y-2">
                                             <Label htmlFor="payjp_customer_id">PayJP顧客ID</Label>
                                             <Input
                                                 id="payjp_customer_id"
@@ -532,7 +532,7 @@ export default function CastEdit({ cast }: Props) {
                                             {errors.payjp_customer_id && (
                                                 <p className="text-sm text-red-500">{errors.payjp_customer_id}</p>
                                             )}
-                                        </div>
+                                        </div> */}
 
                                         <div className="space-y-2">
                                             <Label htmlFor="points">ポイント</Label>
@@ -551,7 +551,7 @@ export default function CastEdit({ cast }: Props) {
                                     </div>
 
                                     {/* 支払い情報詳細 */}
-                                    <div className="space-y-2">
+                                    {/* <div className="space-y-2">
                                         <Label htmlFor="payment_info">支払い情報詳細</Label>
                                         <textarea
                                             id="payment_info"
@@ -564,7 +564,7 @@ export default function CastEdit({ cast }: Props) {
                                         {errors.payment_info && (
                                             <p className="text-sm text-red-500">{errors.payment_info}</p>
                                         )}
-                                    </div>
+                                    </div> */}
 
                                     {/* 送信ボタン */}
                                     <div className="flex justify-end gap-4">
