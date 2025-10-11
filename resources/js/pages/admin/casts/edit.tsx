@@ -475,12 +475,12 @@ export default function CastEdit({ cast }: Props) {
                                     {/* グレード情報 */}
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                                         <div className="space-y-2">
-                                            <Label htmlFor="grade">グレード</Label>
+                                            <Label htmlFor="grade">ランク</Label>
                                             <Input
                                                 id="grade"
                                                 value={data.grade}
                                                 onChange={e => setData('grade', e.target.value)}
-                                                placeholder="A"
+                                                placeholder="プレミアム/VIP/ロイヤルVIP"
                                             />
                                             {errors.grade && (
                                                 <p className="text-sm text-red-500">{errors.grade}</p>
@@ -494,7 +494,7 @@ export default function CastEdit({ cast }: Props) {
                                                 type="number"
                                                 value={data.grade_points}
                                                 onChange={e => setData('grade_points', e.target.value)}
-                                                placeholder="100"
+                                                placeholder="10,000"
                                                 min="0"
                                             />
                                             {errors.grade_points && (
