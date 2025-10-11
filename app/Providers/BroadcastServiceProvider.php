@@ -21,27 +21,27 @@ class BroadcastServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
-        // Log broadcast service initialization
-        Log::info('BroadcastServiceProvider: Initializing broadcast service', [
-            'broadcast_driver' => config('broadcasting.default'),
-            'reverb_host' => config('broadcasting.connections.reverb.options.host'),
-            'reverb_port' => config('broadcasting.connections.reverb.options.port'),
-            'reverb_scheme' => config('broadcasting.connections.reverb.options.scheme'),
-            'reverb_use_tls' => config('broadcasting.connections.reverb.options.useTLS'),
-        ]);
+        // // Log broadcast service initialization
+        // Log::info('BroadcastServiceProvider: Initializing broadcast service', [
+        //     'broadcast_driver' => config('broadcasting.default'),
+        //     'pusher_key' => config('broadcasting.connections.pusher.key'),
+        //     'pusher_cluster' => config('broadcasting.connections.pusher.options.cluster'),
+        //     'pusher_use_tls' => config('broadcasting.connections.pusher.options.useTLS'),
+        //     'pusher_encrypted' => config('broadcasting.connections.pusher.options.encrypted'),
+        // ]);
 
         // Enable broadcasting routes with both guest and cast guards
         Broadcast::routes(['middleware' => ['web', 'auth:guest,cast']]);
 
         // Log route registration
-        Log::info('BroadcastServiceProvider: Broadcasting routes registered', [
-            'middleware' => ['web', 'auth:guest,cast'],
-            'routes_file' => 'routes/channels.php'
-        ]);
+        // Log::info('BroadcastServiceProvider: Broadcasting routes registered', [
+        //     'middleware' => ['web', 'auth:guest,cast'],
+        //     'routes_file' => 'routes/channels.php'
+        // ]);
 
         require base_path('routes/channels.php');
 
         // Log successful initialization
-        Log::info('BroadcastServiceProvider: Broadcast service initialized successfully');
+        // Log::info('BroadcastServiceProvider: Broadcast service initialized successfully');
     }
 }
