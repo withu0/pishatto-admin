@@ -245,6 +245,7 @@ class CastAuthController extends Controller
         return response()->json(['cast' => $cast]);
     }
 
+
     public function getCastPointsData($id)
     {
         $cast = \App\Models\Cast::find($id);

@@ -754,7 +754,6 @@ class GuestAuthController extends Controller
     public function listReservations($guest_id)
     {
         $reservations = Reservation::where('guest_id', $guest_id)->orderBy('scheduled_at', 'desc')->get();
-        error_log('reservations: ' . json_encode($reservations));
         return response()->json(['reservations' => $reservations]);
     }
 
@@ -1069,33 +1068,36 @@ class GuestAuthController extends Controller
     // Fetch notifications for a user
     public function getNotifications($userType, $userId)
     {
-
-
         try {
-            $notifications = Notification::where('user_type', $userType)
-                ->where('user_id', $userId)
-                ->orderBy('created_at', 'desc')
+            // Use left join to get cast information in a single query
+            $notifications = Notification::leftJoin('casts', 'notifications.cast_id', '=', 'casts.id')
+                ->where('notifications.user_type', $userType)
+                ->where('notifications.user_id', $userId)
+                ->select(
+                    'notifications.*',
+                    'casts.id as cast_id',
+                    'casts.nickname as cast_nickname',
+                    'casts.avatar as cast_avatar'
+                )
+                ->orderBy('notifications.created_at', 'desc')
                 ->get();
 
-
-            // For notifications with cast_id, fetch cast information
-            foreach ($notifications as $notification) {
+            // Transform the data to include cast information when available
+            $notifications->transform(function ($notification) {
                 if ($notification->cast_id) {
-                    $cast = Cast::find($notification->cast_id);
-                    if ($cast) {
-                        $notification->cast = [
-                            'id' => $cast->id,
-                            'nickname' => $cast->nickname,
-                            'avatar' => $cast->avatar,
-                        ];
-                    }
+                    $notification->cast = [
+                        'id' => $notification->cast_id,
+                        'nickname' => $notification->cast_nickname,
+                        'avatar' => $notification->cast_avatar,
+                    ];
                 }
-            }
-
+                // Remove the individual cast fields to keep the response clean
+                unset($notification->cast_id, $notification->cast_nickname, $notification->cast_avatar);
+                return $notification;
+            });
 
             return response()->json(['notifications' => $notifications]);
         } catch (\Exception $e) {
-
             return response()->json(['error' => 'Failed to fetch notifications'], 500);
         }
     }

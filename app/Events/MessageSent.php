@@ -5,10 +5,10 @@ namespace App\Events;
 use App\Models\Message;
 use Illuminate\Broadcasting\Channel;
 use Illuminate\Broadcasting\InteractsWithSockets;
-use Illuminate\Contracts\Broadcasting\ShouldBroadcast;
+use Illuminate\Contracts\Broadcasting\ShouldBroadcastNow;
 use Illuminate\Support\Facades\Log;
 
-class MessageSent implements ShouldBroadcast
+class MessageSent implements ShouldBroadcastNow
 {
     use InteractsWithSockets;
 

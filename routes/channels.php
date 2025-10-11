@@ -22,25 +22,37 @@ Broadcast::channel('chat.{chatId}', function ($user, $chatId) {
         'timestamp' => now()->toISOString()
     ]);
 
-    // $chat = \App\Models\Chat::find($chatId);
-    // if (!$chat) return false;
+    $chat = \App\Models\Chat::find($chatId);
+    if (!$chat) {
+        Log::warning('Chat channel authorization: Chat not found', ['chat_id' => $chatId]);
+        return false;
+    }
 
-    // // If user is a Guest
-    // if ($user instanceof \App\Models\Guest && $chat->guest_id === $user->id) {
-    //     return true;
-    // }
-    // // If user is a Cast
-    // if ($user instanceof \App\Models\Cast && $chat->cast_id === $user->id) {
-    //     return true;
-    // }
-    // return false;
+    // If user is a Guest
+    if ($user instanceof \App\Models\Guest && $chat->guest_id === $user->id) {
+        Log::info('Chat channel authorization: Guest authorized', [
+            'chat_id' => $chatId,
+            'guest_id' => $user->id
+        ]);
+        return true;
+    }
+    // If user is a Cast
+    if ($user instanceof \App\Models\Cast && $chat->cast_id === $user->id) {
+        Log::info('Chat channel authorization: Cast authorized', [
+            'chat_id' => $chatId,
+            'cast_id' => $user->id
+        ]);
+        return true;
+    }
 
-    Log::info('Chat channel authorization: Granted (public access)', [
+    Log::warning('Chat channel authorization: Access denied', [
         'chat_id' => $chatId,
-        'user_id' => $user->id ?? 'unknown'
+        'user_id' => $user->id ?? 'unknown',
+        'user_type' => get_class($user),
+        'chat_guest_id' => $chat->guest_id,
+        'chat_cast_id' => $chat->cast_id
     ]);
-
-    return true; // keep public for now if used publicly; tighten later if needed
+    return false;
 });
 
 Broadcast::channel('group.{groupId}', function ($user, $groupId) {
