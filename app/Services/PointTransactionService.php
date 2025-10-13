@@ -885,6 +885,7 @@ class PointTransactionService
                 if (!$existingTransfer) {
                     $this->createTransferTransaction([
                         'guest_id' => $guest->id,
+                        'cast_id' => $cast->id,
                         'reservation_id' => $reservation->id,
                         'amount' => $reservedPoints,
                         'description' => "予約待ちから予約へ移行 - {$reservation->id}",

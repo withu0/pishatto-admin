@@ -396,14 +396,15 @@ class GuestAuthController extends Controller
                 return response()->json(['message' => 'Guest not found'], 404);
             }
 
-            // if ($guest->points < $requiredPoints) {
-            //     DB::rollBack();
-            //     return response()->json([
-            //         'message' => 'Insufficient points',
-            //         'required_points' => $requiredPoints,
-            //         'available_points' => $guest->points
-            //     ], 400);
-            // }
+            // Check if guest has sufficient points
+            if ($guest->points < $requiredPoints) {
+                DB::rollBack();
+                return response()->json([
+                    'message' => 'Insufficient points',
+                    'required_points' => $requiredPoints,
+                    'available_points' => $guest->points
+                ], 400);
+            }
 
             // Deduct points from guest and mark as pending
             // $guest->points -= $requiredPoints;
