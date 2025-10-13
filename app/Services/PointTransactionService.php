@@ -701,8 +701,15 @@ class PointTransactionService
                 return true;
             }
 
-            // Calculate total points based on actual elapsed time (started_at to ended_at)
-            $totalPoints = $this->calculateTotalPointsBasedOnElapsedTime($reservation);
+            // Calculate actual elapsed time and scheduled time
+            $startedAt = \Carbon\Carbon::parse($reservation->started_at);
+            $endedAt = \Carbon\Carbon::parse($reservation->ended_at);
+            $elapsedMinutes = $startedAt->diffInMinutes($endedAt);
+
+            $duration = is_numeric($reservation->duration) ? (float)$reservation->duration : 0;
+            $scheduledMinutes = (int) ($duration * 60); // Convert hours to minutes
+
+            // Calculate night bonus (used in logging)
             $nightBonus = $this->calculateNightTimeBonus($reservation->started_at, $reservation->ended_at);
 
             // Sum all pending amounts for this reservation (reserved for scheduled duration)
@@ -710,26 +717,66 @@ class PointTransactionService
                 ->where('type', 'pending')
                 ->sum('amount');
 
-            // Calculate exceeded_pending as total_points - pending_points
-            $exceededPendingPoints = max(0, $totalPoints - $reservedPoints);
+            // NEW LOGIC:
+            // If tracked time <= scheduled time: transfer full points (no conversion)
+            // If tracked time > scheduled time: auto-consume points and auto-pay if insufficient
+            if ($elapsedMinutes <= $scheduledMinutes) {
+                // Tracked time is within or under scheduled time - transfer full points
+                $totalPoints = $reservedPoints; // Use full reserved points
+                $exceededPendingPoints = 0; // No exceeded points
+                $totalShortfall = 0; // No shortfall
 
-            // Calculate actual shortfall based on guest's total available points
-            // Guest's current points + reserved points (pending transaction)
-            $guestAvailablePoints = (int) $guest->points;
-            $reservedPoints = (int) $reservedPoints; // Ensure it's an integer
-            $guestTotalAvailablePoints = $guestAvailablePoints + $reservedPoints;
-            $totalShortfall = max(0, $totalPoints - $guestTotalAvailablePoints);
+                Log::info('Reservation within scheduled time - transferring full points', [
+                    'reservation_id' => $reservation->id,
+                    'elapsed_minutes' => $elapsedMinutes,
+                    'scheduled_minutes' => $scheduledMinutes,
+                    'total_points' => $totalPoints,
+                    'reserved_points' => $reservedPoints
+                ]);
+            } else {
+                // Tracked time exceeds scheduled time - calculate based on actual time
+                $totalPoints = $this->calculateTotalPointsBasedOnElapsedTime($reservation);
+                $exceededPendingPoints = max(0, $totalPoints - $reservedPoints);
 
-            Log::info('Shortfall calculation debug', [
-                'reservation_id' => $reservation->id,
-                'total_points' => $totalPoints,
-                'guest_available_points' => $guestAvailablePoints,
-                'reserved_points' => $reservedPoints,
-                'guest_total_available_points' => $guestTotalAvailablePoints,
-                'calculated_shortfall' => $totalShortfall,
-                'guest_id' => $guest->id,
-                'guest_points_before_pending' => $guestAvailablePoints + $reservedPoints
-            ]);
+                // Calculate actual shortfall based on guest's total available points
+                $guestAvailablePoints = (int) $guest->points;
+                $guestTotalAvailablePoints = $guestAvailablePoints + $reservedPoints;
+                $totalShortfall = max(0, $totalPoints - $guestTotalAvailablePoints);
+
+                Log::info('Reservation exceeded scheduled time - calculating based on actual time', [
+                    'reservation_id' => $reservation->id,
+                    'elapsed_minutes' => $elapsedMinutes,
+                    'scheduled_minutes' => $scheduledMinutes,
+                    'total_points' => $totalPoints,
+                    'reserved_points' => $reservedPoints,
+                    'exceeded_pending_points' => $exceededPendingPoints,
+                    'total_shortfall' => $totalShortfall
+                ]);
+            }
+
+            // Log the calculation details
+            if ($elapsedMinutes <= $scheduledMinutes) {
+                Log::info('Reservation completion - within scheduled time', [
+                    'reservation_id' => $reservation->id,
+                    'total_points' => $totalPoints,
+                    'reserved_points' => $reservedPoints,
+                    'elapsed_minutes' => $elapsedMinutes,
+                    'scheduled_minutes' => $scheduledMinutes,
+                    'guest_id' => $guest->id
+                ]);
+            } else {
+                Log::info('Reservation completion - exceeded scheduled time', [
+                    'reservation_id' => $reservation->id,
+                    'total_points' => $totalPoints,
+                    'guest_available_points' => $guestAvailablePoints,
+                    'reserved_points' => $reservedPoints,
+                    'guest_total_available_points' => $guestTotalAvailablePoints,
+                    'calculated_shortfall' => $totalShortfall,
+                    'elapsed_minutes' => $elapsedMinutes,
+                    'scheduled_minutes' => $scheduledMinutes,
+                    'guest_id' => $guest->id
+                ]);
+            }
 
             $reservation->points_earned = $totalPoints;
             $reservation->save();
@@ -758,7 +805,8 @@ class PointTransactionService
             ]);
 
             // 1. Handle automatic payment for shortfall BEFORE any point deductions
-            if ($totalShortfall > 0) {
+            // Only process automatic payment if tracked time exceeded scheduled time
+            if ($elapsedMinutes > $scheduledMinutes && $totalShortfall > 0) {
                 // Check if automatic payment transaction already exists for this reservation
                 $existingPayment = PointTransaction::where('reservation_id', $reservation->id)
                     ->where('type', 'buy')
@@ -844,11 +892,27 @@ class PointTransactionService
                 }
             }
 
-            // 3. Exceeded_pending transactions are now handled in the automatic payment section above
-            // No additional logic needed here
+            // 3. Handle exceeded_pending transactions only when time was exceeded
+            if ($elapsedMinutes > $scheduledMinutes && $exceededPendingPoints > 0) {
+                // Check if exceeded_pending transaction already exists to avoid duplicates
+                $existingExceededPending = PointTransaction::where('reservation_id', $reservation->id)
+                    ->where('type', 'exceeded_pending')
+                    ->where('description', 'like', '%ピシャットコール延長時間%')
+                    ->first();
 
-            // 3. Handle refund when reserved exceeds what was actually used
-            // Only refund if we used less than what was reserved
+                if (!$existingExceededPending) {
+                    $this->createExceededPendingTransaction([
+                        'guest_id' => $guest->id,
+                        'cast_id' => $cast->id,
+                        'reservation_id' => $reservation->id,
+                        'amount' => $exceededPendingPoints,
+                        'description' => "ピシャットコール延長時間 - 予約{$reservation->id}",
+                    ]);
+                }
+            }
+
+            // 4. Handle refund when reserved exceeds what was actually used
+            // Only refund if we used less than what was reserved (should not happen with new logic)
             if ($reservedPoints > $totalPoints) {
                 $refund = $reservedPoints - $totalPoints;
                 if ($refund > 0) {
@@ -870,7 +934,7 @@ class PointTransactionService
                 }
             }
 
-            // Send concierge message to guest with session completion details
+            // Send session completion messages to chat and concierge
             $this->sendSessionCompletionMessage($reservation, $guest, $cast, $totalPoints, $reservedPoints, $totalShortfall);
 
             DB::commit();
@@ -1471,6 +1535,9 @@ class PointTransactionService
                 'category' => 'session_report'
             ]));
 
+            // Send chat messages to both guest and cast
+            $this->sendChatCompletionMessages($reservation, $guest, $cast, $totalPoints, $reservedPoints, $sessionTimeText);
+
             Log::info('Session completion message sent', [
                 'reservation_id' => $reservation->id,
                 'guest_id' => $guest->id,
@@ -1483,6 +1550,88 @@ class PointTransactionService
             Log::error('Failed to send session completion message', [
                 'reservation_id' => $reservation->id,
                 'guest_id' => $guest->id,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+        }
+    }
+
+    /**
+     * Send session completion messages to chat
+     */
+    private function sendChatCompletionMessages(Reservation $reservation, Guest $guest, Cast $cast, int $totalPoints, int $reservedPoints, string $sessionTimeText): void
+    {
+        try {
+            // Find the chat for this reservation
+            $chat = \App\Models\Chat::where('reservation_id', $reservation->id)
+                ->where('guest_id', $guest->id)
+                ->where('cast_id', $cast->id)
+                ->first();
+
+            if (!$chat) {
+                Log::warning('No chat found for reservation', [
+                    'reservation_id' => $reservation->id,
+                    'guest_id' => $guest->id,
+                    'cast_id' => $cast->id
+                ]);
+                return;
+            }
+
+            // Calculate guest refund points
+            $guestRefundPoints = max(0, $reservedPoints - $totalPoints);
+
+            // Message for guest
+            $guestMessage = "キャストが解散しました。お疲れ様でした！\n\n📊 セッション詳細:\n⏱️ 利用時間: {$sessionTimeText}\n💰 獲得ポイント: {$totalPoints}pt\n📅 予約ID: {$reservation->id}";
+
+            // Message for cast
+            $castMessage = "解散しました。お疲れ様でした！\n\n📊 セッション詳細:\n⏱️ 利用時間: {$sessionTimeText}\n💰 獲得ポイント: {$totalPoints}pt (キャスト: {$totalPoints}pt, ゲスト: {$guestRefundPoints}pt)\n📅 予約ID: {$reservation->id}";
+
+            // Send guest message
+            \App\Models\Message::create([
+                'chat_id' => $chat->id,
+                'sender_cast_id' => $cast->id,
+                'recipient_type' => 'both',
+                'message' => json_encode([
+                    'type' => 'system',
+                    'target' => 'guest',
+                    'text' => $guestMessage
+                ]),
+                'is_read' => 0
+            ]);
+
+            // Send cast message
+            \App\Models\Message::create([
+                'chat_id' => $chat->id,
+                'sender_cast_id' => $cast->id,
+                'recipient_type' => 'both',
+                'message' => json_encode([
+                    'type' => 'system',
+                    'target' => 'cast',
+                    'text' => $castMessage
+                ]),
+                'is_read' => 0
+            ]);
+
+            // Broadcast the messages (get the last created message)
+            $lastMessage = \App\Models\Message::where('chat_id', $chat->id)
+                ->where('sender_cast_id', $cast->id)
+                ->orderBy('created_at', 'desc')
+                ->first();
+
+            if ($lastMessage) {
+                event(new \App\Events\MessageSent($lastMessage));
+            }
+
+            Log::info('Chat completion messages sent', [
+                'reservation_id' => $reservation->id,
+                'chat_id' => $chat->id,
+                'total_points' => $totalPoints,
+                'guest_refund_points' => $guestRefundPoints
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('Failed to send chat completion messages', [
+                'reservation_id' => $reservation->id,
                 'error' => $e->getMessage(),
                 'trace' => $e->getTraceAsString()
             ]);

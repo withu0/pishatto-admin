@@ -254,6 +254,7 @@ Route::post('/ranking/clear-cache', [RankingController::class, 'clearRankingCach
 Route::post('/ranking/recalculate', [RankingController::class, 'recalculateRankings']);
 Route::post('/ranking/recalculate-all', [RankingController::class, 'recalculateAllRankings']);
 Route::get('/chats/{chatId}', [ChatController::class, 'show']);
+Route::put('/chats/{chatId}', [ChatController::class, 'update']);
 Route::post('/reservation/start', [CastAuthController::class, 'startReservation']);
 Route::post('/reservation/stop', [CastAuthController::class, 'stopReservation']);
 Route::get('/reservation/cast-session-status', [CastAuthController::class, 'getCastSessionStatus']);

@@ -584,8 +584,14 @@ class ChatController extends Controller
 
     public function update(Request $request, $chatId)
     {
+        Log::info('ChatController: update called', [
+            'chatId' => $chatId,
+            'request_data' => $request->all()
+        ]);
+
         $chat = \App\Models\Chat::with(['guest', 'cast', 'reservation'])->find($chatId);
         if (!$chat) {
+            Log::error('ChatController: Chat not found', ['chatId' => $chatId]);
             return response()->json(['message' => 'Chat not found'], 404);
         }
 
@@ -595,6 +601,7 @@ class ChatController extends Controller
             'location' => 'nullable|string|max:100',
             'duration' => 'nullable|integer|min:1',
             'details' => 'nullable|string|max:500',
+            'reservation_id' => 'nullable|exists:reservations,id',
         ]);
 
         // Update guest nickname if provided
@@ -605,6 +612,16 @@ class ChatController extends Controller
         // Update cast nickname if provided
         if (isset($validated['cast_nickname']) && $chat->cast) {
             $chat->cast->update(['nickname' => $validated['cast_nickname']]);
+        }
+
+        // Update chat reservation_id if provided
+        if (isset($validated['reservation_id'])) {
+            Log::info('ChatController: Updating chat reservation_id', [
+                'chatId' => $chatId,
+                'reservation_id' => $validated['reservation_id']
+            ]);
+            $chat->update(['reservation_id' => $validated['reservation_id']]);
+            Log::info('ChatController: Chat reservation_id updated successfully');
         }
 
         // Update reservation if provided
