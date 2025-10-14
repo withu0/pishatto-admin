@@ -855,7 +855,7 @@ class PointTransactionService
                             'cast_id' => $cast->id,
                             'reservation_id' => $reservation->id,
                             'amount' => $totalPoints,
-                            'description' => "ピシャットコール延長時間 - 予約{$reservation->id} (自動支払い済み)",
+                            'description' => "ピシャットコール延長時間 - 予約{$reservation->id} (即時支払い済み)",
                         ]);
 
                         Log::info('Automatic payment succeeded for reservation completion', [

@@ -132,20 +132,19 @@ class AutomaticPaymentService
                 ];
             }
 
-            // Update payment record with pending status (will be captured after 2 days)
+            // Update payment record with paid status (immediate capture)
             $paymentIntentId = $result['payment_intent']['id'] ?? null;
             $payment->update([
-                'status' => 'pending', // Payment is pending until captured
+                'status' => 'paid', // Payment is immediately captured
                 'stripe_payment_intent_id' => $paymentIntentId,
-                'paid_at' => null, // Will be set when payment is captured
+                'paid_at' => now(), // Set immediately since payment is captured
                 'metadata' => array_merge($payment->metadata ?? [], [
-                    'payment_authorized' => true,
+                    'payment_captured' => true,
                     'stripe_payment_intent_id' => $paymentIntentId,
-                    'authorized_at' => now()->toISOString(),
-                    'scheduled_capture_at' => now()->addDays(2)->toISOString(),
+                    'captured_at' => now()->toISOString(),
                     'deduction_amount_yen' => $amountInYen,
                     'deduction_amount_points' => $requiredAmountInPoints,
-                    'capture_method' => 'manual'
+                    'capture_method' => 'automatic'
                 ])
             ]);
 
@@ -160,7 +159,7 @@ class AutomaticPaymentService
                 'guest_id' => $guestId,
                 'type' => 'buy',
                 'amount' => $requiredAmountInPoints,
-                'description' => "延長時間の自動支払い - 予約{$reservationId}",
+                'description' => "延長時間の即時支払い - 予約{$reservationId}",
                 'reservation_id' => $reservationId,
                 'payment_id' => $payment->id
             ]);
@@ -170,7 +169,7 @@ class AutomaticPaymentService
                 'guest_id' => $guestId,
                 'type' => 'exceeded_pending',
                 'amount' => -$requiredAmountInPoints, // Negative amount for deduction
-                'description' => "延長時間の自動控除 - カード支払い済み (支払いID: {$payment->id})",
+                'description' => "延長時間の即時控除 - カード支払い済み (支払いID: {$payment->id})",
                 'reservation_id' => $reservationId,
                 'payment_id' => $payment->id
             ]);
@@ -203,8 +202,8 @@ class AutomaticPaymentService
                 'points_added' => $requiredAmountInPoints,
                 'new_balance' => $newPoints,
                 'stripe_payment_intent_id' => $paymentIntentId,
-                'status' => 'pending',
-                'scheduled_capture_at' => now()->addDays(2)->toISOString()
+                'status' => 'paid',
+                'captured_at' => now()->toISOString()
             ];
 
         } catch (\Exception $e) {
@@ -326,7 +325,7 @@ class AutomaticPaymentService
                     'user_type' => 'guest',
                     'description' => $description,
                     'payment_method_type' => 'card',
-                    'capture_method' => 'manual',
+                    'capture_method' => 'automatic', // Use immediate capture for exceeded time
                     'payment_method' => $paymentMethod['id'], // Use specific payment method
                     'metadata' => [
                         'automatic_payment' => true,
@@ -334,7 +333,7 @@ class AutomaticPaymentService
                         'conversion_rate' => $yenPerPoint,
                         'original_points_requested' => $requiredAmountInPoints,
                         'deduction_type' => 'exceeded_time_shortfall',
-                        'scheduled_capture_at' => now()->addDays(2)->toISOString(),
+                        'captured_immediately' => true,
                         'base_amount_yen' => $baseAmountInYen,
                         'tax_amount' => $amountInYen - $baseAmountInYen,
                         'consumption_tax_applied' => true,
@@ -343,41 +342,86 @@ class AutomaticPaymentService
                     ]
                 ];
 
-                $result = $this->stripeService->processPaymentWithManualCapture($paymentData);
+                $result = $this->stripeService->processPayment($paymentData);
 
                 if ($result['success']) {
                     Log::info('Payment succeeded with card', [
                         'guest_id' => $guestId,
                         'payment_method_id' => $paymentMethod['id'],
                         'card_last4' => $paymentMethod['card']['last4'] ?? 'unknown',
-                        'attempt' => $index + 1
+                        'card_brand' => $paymentMethod['card']['brand'] ?? 'unknown',
+                        'attempt' => $index + 1,
+                        'total_payment_methods' => count($paymentMethods['data']),
+                        'success_rate' => round((1 / count($paymentMethods['data'])) * 100, 2) . '%'
                     ]);
 
                     return [
                         'success' => true,
                         'payment_intent' => $result['payment_intent'],
                         'payment_method_used' => $paymentMethod['id'],
-                        'attempt_number' => $index + 1
+                        'attempt_number' => $index + 1,
+                        'card_brand' => $paymentMethod['card']['brand'] ?? 'unknown',
+                        'card_last4' => $paymentMethod['card']['last4'] ?? 'unknown'
                     ];
                 } else {
-                    $error = "Card ending in " . ($paymentMethod['card']['last4'] ?? 'unknown') . ": " . $result['error'];
+                    // Handle different types of payment failures
+                    $cardLast4 = $paymentMethod['card']['last4'] ?? 'unknown';
+                    $stripeError = $result['error'] ?? 'Unknown error';
+
+                    // Check for specific failure types
+                    if ($result['requires_action'] ?? false) {
+                        $error = "カード末尾{$cardLast4}: 3D Secure認証が必要です";
+                    } elseif (strpos($stripeError, 'card_declined') !== false) {
+                        $error = "カード末尾{$cardLast4}: カードが拒否されました";
+                    } elseif (strpos($stripeError, 'insufficient_funds') !== false) {
+                        $error = "カード末尾{$cardLast4}: 残高不足です";
+                    } elseif (strpos($stripeError, 'expired_card') !== false) {
+                        $error = "カード末尾{$cardLast4}: カードの有効期限が切れています";
+                    } else {
+                        $error = "カード末尾{$cardLast4}: " . $stripeError;
+                    }
+
                     $errors[] = $error;
                     $lastPaymentIntentId = $result['payment_intent_id'] ?? null;
 
                     Log::warning('Payment failed with card', [
                         'guest_id' => $guestId,
                         'payment_method_id' => $paymentMethod['id'],
-                        'card_last4' => $paymentMethod['card']['last4'] ?? 'unknown',
-                        'error' => $result['error'],
-                        'attempt' => $index + 1
+                        'card_last4' => $cardLast4,
+                        'stripe_error' => $stripeError,
+                        'requires_action' => $result['requires_action'] ?? false,
+                        'attempt' => $index + 1,
+                        'payment_intent_id' => $lastPaymentIntentId
                     ]);
                 }
             }
 
+            // Log comprehensive failure summary
+            Log::error('All payment methods failed for guest', [
+                'guest_id' => $guestId,
+                'total_payment_methods' => count($paymentMethods['data']),
+                'total_attempts' => count($paymentMethods['data']),
+                'failure_reasons' => $errors,
+                'last_payment_intent_id' => $lastPaymentIntentId,
+                'payment_methods_tried' => array_map(function($pm) {
+                    return [
+                        'id' => $pm['id'],
+                        'brand' => $pm['card']['brand'] ?? 'unknown',
+                        'last4' => $pm['card']['last4'] ?? 'unknown'
+                    ];
+                }, $paymentMethods['data'])
+            ]);
+
             return [
                 'success' => false,
                 'errors' => $errors,
-                'last_payment_intent_id' => $lastPaymentIntentId
+                'last_payment_intent_id' => $lastPaymentIntentId,
+                'total_attempts' => count($paymentMethods['data']),
+                'failure_summary' => [
+                    'total_cards' => count($paymentMethods['data']),
+                    'failed_cards' => count($errors),
+                    'success_rate' => '0%'
+                ]
             ];
 
         } catch (\Exception $e) {
