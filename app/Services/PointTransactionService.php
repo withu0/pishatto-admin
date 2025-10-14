@@ -857,10 +857,23 @@ class PointTransactionService
                             'amount' => $totalPoints,
                             'description' => "ピシャットコール延長時間 - 予約{$reservation->id} (自動支払い済み)",
                         ]);
+
+                        Log::info('Automatic payment succeeded for reservation completion', [
+                            'reservation_id' => $reservation->id,
+                            'guest_id' => $guest->id,
+                            'cast_id' => $cast->id,
+                            'points_added' => $paymentResult['points_added'],
+                            'total_points_used' => $totalPoints,
+                            'payment_method_attempt' => $paymentResult['attempt_number'] ?? 1
+                        ]);
                     } else {
-                        // Payment failed - deduct available points only
+                        // Payment failed (no methods or all cards failed) - deduct only available points
                         $guest->points = 0;
                         $guest->save();
+
+                        // Determine the failure reason for description
+                        $isNoPaymentMethods = $paymentResult['requires_card_registration'] ?? false;
+                        $failureReason = $isNoPaymentMethods ? '支払い方法未登録' : '全支払い方法失敗';
 
                         // Create exceeded_pending transaction for available points only
                         $this->createExceededPendingTransaction([
@@ -868,7 +881,19 @@ class PointTransactionService
                             'cast_id' => $cast->id,
                             'reservation_id' => $reservation->id,
                             'amount' => $guestAvailablePoints,
-                            'description' => "ピシャットコール延長時間 - 予約{$reservation->id} (ポイント不足、支払い方法なし)",
+                            'description' => "ピシャットコール延長時間 - 予約{$reservation->id} ({$failureReason}、利用可能ポイントのみ)",
+                        ]);
+
+                        Log::warning('Automatic payment failed for reservation completion', [
+                            'reservation_id' => $reservation->id,
+                            'guest_id' => $guest->id,
+                            'cast_id' => $cast->id,
+                            'guest_available_points' => $guestAvailablePoints,
+                            'required_points' => $totalShortfall,
+                            'payment_errors' => $paymentResult['error'] ?? 'Unknown error',
+                            'all_cards_failed' => $paymentResult['all_cards_failed'] ?? false,
+                            'no_payment_methods' => $isNoPaymentMethods,
+                            'failure_reason' => $failureReason
                         ]);
                     }
                 }

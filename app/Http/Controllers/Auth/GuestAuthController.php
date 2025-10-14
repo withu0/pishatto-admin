@@ -754,7 +754,19 @@ class GuestAuthController extends Controller
 
     public function listReservations($guest_id)
     {
-        $reservations = Reservation::where('guest_id', $guest_id)->orderBy('scheduled_at', 'desc')->get();
+        $reservations = Reservation::where('guest_id', $guest_id)
+            ->with(['feedback' => function($query) use ($guest_id) {
+                $query->where('guest_id', $guest_id);
+            }])
+            ->orderBy('scheduled_at', 'desc')
+            ->get();
+
+        // Add feedback status to each reservation
+        $reservations->each(function($reservation) {
+            $reservation->has_feedback = $reservation->feedback->count() > 0;
+            $reservation->feedback_count = $reservation->feedback->count();
+        });
+
         return response()->json(['reservations' => $reservations]);
     }
 
