@@ -792,7 +792,7 @@ class GuestAuthController extends Controller
     public function getUserChats($userType, $userId)
     {
         if ($userType === 'guest') {
-            $chats = Chat::where('guest_id', $userId)->with(['cast', 'messages', 'group'])->get();
+            $chats = Chat::where('guest_id', $userId)->with(['cast', 'reservation', 'messages', 'group'])->get();
 
             // Group chats by group_id
             $groupedChats = $chats->groupBy('group_id');
@@ -843,6 +843,8 @@ class GuestAuthController extends Controller
                             ($casts->count() > 1 ?
                                 $group->name ?? 'Group Chat' :
                                 ($casts->first() ? $casts->first()->nickname : 'Unknown')),
+                        'reservation_name' => $firstChat->reservation ? $firstChat->reservation->reservation_name : null,
+                        'meeting_location' => $firstChat->reservation ? $firstChat->reservation->meeting_location : null,
                         'last_message' => $allMessages->last() ? $allMessages->last()->message : '',
                         'updated_at' => $this->formatTimestamp($allMessages->last() ? $allMessages->last()->created_at : $firstChat->created_at),
                         'created_at' => $this->formatTimestamp($firstChat->created_at),
@@ -862,6 +864,8 @@ class GuestAuthController extends Controller
                             'avatar' => $chat->cast ? $chat->cast->avatar : null,
                             'cast_id' => $chat->cast ? $chat->cast->id : null,
                             'cast_nickname' => $chat->cast ? $chat->cast->nickname : null,
+                            'reservation_name' => $chat->reservation ? $chat->reservation->reservation_name : null,
+                            'meeting_location' => $chat->reservation ? $chat->reservation->meeting_location : null,
                             'last_message' => $chat->messages->last() ? $chat->messages->last()->message : '',
                             'updated_at' => $this->formatTimestamp($chat->messages->last() ? $chat->messages->last()->created_at : $chat->created_at),
                             'created_at' => $this->formatTimestamp($chat->created_at),
@@ -1005,6 +1009,8 @@ class GuestAuthController extends Controller
                     'guest_nickname' => $guests->count() > 1 ?
                         ($group->name ?? 'Group Chat') :
                         ($guests->first() ? $guests->first()->nickname : 'Unknown Guest'),
+                    'reservation_name' => $firstChat->reservation ? $firstChat->reservation->reservation_name : null,
+                    'meeting_location' => $firstChat->reservation ? $firstChat->reservation->meeting_location : null,
                     'last_message' => $allMessages->last() ? $allMessages->last()->message : '',
                     'updated_at' => $this->formatTimestamp($allMessages->last() ? $allMessages->last()->created_at : $firstChat->created_at),
                     'created_at' => $this->formatTimestamp($firstChat->created_at),
@@ -1024,6 +1030,8 @@ class GuestAuthController extends Controller
                         'avatar' => $chat->guest ? $chat->guest->avatar : null,
                         'guest_id' => $chat->guest ? $chat->guest->id : null,
                         'guest_nickname' => $chat->guest ? $chat->guest->nickname : null,
+                        'reservation_name' => $chat->reservation ? $chat->reservation->reservation_name : null,
+                        'meeting_location' => $chat->reservation ? $chat->reservation->meeting_location : null,
                         'last_message' => $chat->messages->last() ? $chat->messages->last()->message : '',
                         'updated_at' => $this->formatTimestamp($chat->messages->last() ? $chat->messages->last()->created_at : $chat->created_at),
                         'created_at' => $this->formatTimestamp($chat->created_at),
