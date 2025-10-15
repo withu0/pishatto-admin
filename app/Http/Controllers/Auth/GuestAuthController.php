@@ -27,6 +27,16 @@ use App\Services\GradeService;
 
 class GuestAuthController extends Controller
 {
+    /**
+     * Convert timestamp to Asia/Tokyo timezone and return as ISO string
+     */
+    private function formatTimestamp($timestamp)
+    {
+        if (!$timestamp) {
+            return null;
+        }
+        return \Carbon\Carbon::parse($timestamp)->setTimezone('Asia/Tokyo')->toISOString();
+    }
     protected $pointTransactionService;
     protected $infobipService;
     protected $gradeService;
@@ -834,8 +844,8 @@ class GuestAuthController extends Controller
                                 $group->name ?? 'Group Chat' :
                                 ($casts->first() ? $casts->first()->nickname : 'Unknown')),
                         'last_message' => $allMessages->last() ? $allMessages->last()->message : '',
-                        'updated_at' => $allMessages->last() ? $allMessages->last()->created_at : $firstChat->created_at,
-                        'created_at' => $firstChat->created_at,
+                        'updated_at' => $this->formatTimestamp($allMessages->last() ? $allMessages->last()->created_at : $firstChat->created_at),
+                        'created_at' => $this->formatTimestamp($firstChat->created_at),
                         'unread' => $unread,
                     ];
                 } else {
@@ -853,8 +863,8 @@ class GuestAuthController extends Controller
                             'cast_id' => $chat->cast ? $chat->cast->id : null,
                             'cast_nickname' => $chat->cast ? $chat->cast->nickname : null,
                             'last_message' => $chat->messages->last() ? $chat->messages->last()->message : '',
-                            'updated_at' => $chat->messages->last() ? $chat->messages->last()->created_at : $chat->created_at,
-                            'created_at' => $chat->created_at,
+                            'updated_at' => $this->formatTimestamp($chat->messages->last() ? $chat->messages->last()->created_at : $chat->created_at),
+                            'created_at' => $this->formatTimestamp($chat->created_at),
                             'unread' => $unread,
                         ];
                     }
@@ -909,8 +919,8 @@ class GuestAuthController extends Controller
                         'guest_nickname' => $guest ? $guest->nickname : null,
                         'guest_age' => $guest ? $guest->birth_year : null,
                         'last_message' => $allMessages->last() ? $allMessages->last()->message : '',
-                        'updated_at' => $allMessages->last() ? $allMessages->last()->created_at : $firstChat->created_at,
-                        'created_at' => $firstChat->created_at,
+                        'updated_at' => $this->formatTimestamp($allMessages->last() ? $allMessages->last()->created_at : $firstChat->created_at),
+                        'created_at' => $this->formatTimestamp($firstChat->created_at),
                         'unread' => $unread,
                     ];
                 } else {
@@ -934,8 +944,8 @@ class GuestAuthController extends Controller
                             'guest_nickname' => $guest ? $guest->nickname : null,
                             'guest_age' => $guest ? $guest->birth_year : null,
                             'last_message' => $chat->messages->last() ? $chat->messages->last()->message : '',
-                            'updated_at' => $chat->messages->last() ? $chat->messages->last()->created_at : $chat->created_at,
-                            'created_at' => $chat->created_at,
+                            'updated_at' => $this->formatTimestamp($chat->messages->last() ? $chat->messages->last()->created_at : $chat->created_at),
+                            'created_at' => $this->formatTimestamp($chat->created_at),
                             'unread' => $unread,
                         ];
                     }
@@ -996,8 +1006,8 @@ class GuestAuthController extends Controller
                         ($group->name ?? 'Group Chat') :
                         ($guests->first() ? $guests->first()->nickname : 'Unknown Guest'),
                     'last_message' => $allMessages->last() ? $allMessages->last()->message : '',
-                    'updated_at' => $allMessages->last() ? $allMessages->last()->created_at : $firstChat->created_at,
-                    'created_at' => $firstChat->created_at,
+                    'updated_at' => $this->formatTimestamp($allMessages->last() ? $allMessages->last()->created_at : $firstChat->created_at),
+                    'created_at' => $this->formatTimestamp($firstChat->created_at),
                     'unread' => $unread,
                 ];
             } else {
@@ -1015,8 +1025,8 @@ class GuestAuthController extends Controller
                         'guest_id' => $chat->guest ? $chat->guest->id : null,
                         'guest_nickname' => $chat->guest ? $chat->guest->nickname : null,
                         'last_message' => $chat->messages->last() ? $chat->messages->last()->message : '',
-                        'updated_at' => $chat->messages->last() ? $chat->messages->last()->created_at : $chat->created_at,
-                        'created_at' => $chat->created_at,
+                        'updated_at' => $this->formatTimestamp($chat->messages->last() ? $chat->messages->last()->created_at : $chat->created_at),
+                        'created_at' => $this->formatTimestamp($chat->created_at),
                         'unread' => $unread,
                     ];
                 }

@@ -496,15 +496,31 @@ class AutomaticPaymentService
             $guestAvailablePoints = $guest->points ?? 0;
 
             // Find the chat for this reservation
-            $chat = \App\Models\Chat::where('guest_id', $guest->id)
+            $chat = \App\Models\Chat::where('reservation_id', $reservation->id)
+                ->where('guest_id', $guest->id)
                 ->where('cast_id', $reservation->cast_id)
                 ->first();
+
+            // Fallback: if no chat found with cast_id, try to find any chat for this reservation
+            if (!$chat) {
+                $chat = \App\Models\Chat::where('reservation_id', $reservation->id)
+                    ->where('guest_id', $guest->id)
+                    ->first();
+            }
+
+            // Final fallback: find any chat for this guest and cast combination
+            if (!$chat) {
+                $chat = \App\Models\Chat::where('guest_id', $guest->id)
+                    ->where('cast_id', $reservation->cast_id)
+                    ->first();
+            }
 
             if (!$chat) {
                 Log::warning('No chat found for payment failure notification', [
                     'guest_id' => $guest->id,
                     'cast_id' => $reservation->cast_id,
-                    'reservation_id' => $reservation->id
+                    'reservation_id' => $reservation->id,
+                    'search_attempts' => 'tried reservation_id + guest_id + cast_id, then reservation_id + guest_id, then guest_id + cast_id'
                 ]);
                 return;
             }
@@ -539,7 +555,7 @@ class AutomaticPaymentService
             }
 
             // Send guest message
-            \App\Models\Message::create([
+            $guestMessageRecord = \App\Models\Message::create([
                 'chat_id' => $chat->id,
                 'sender_guest_id' => $guest->id,
                 'recipient_type' => 'both',
@@ -548,11 +564,12 @@ class AutomaticPaymentService
                     'target' => 'guest',
                     'text' => $guestMessage
                 ]),
-                'is_read' => 0
+                'is_read' => 0,
+                'created_at' => now()
             ]);
 
             // Send cast message
-            \App\Models\Message::create([
+            $castMessageRecord = \App\Models\Message::create([
                 'chat_id' => $chat->id,
                 'sender_cast_id' => $reservation->cast_id,
                 'recipient_type' => 'both',
@@ -561,17 +578,13 @@ class AutomaticPaymentService
                     'target' => 'cast',
                     'text' => $castMessage
                 ]),
-                'is_read' => 0
+                'is_read' => 0,
+                'created_at' => now()
             ]);
 
-            // Broadcast the messages
-            $lastMessage = \App\Models\Message::where('chat_id', $chat->id)
-                ->orderBy('created_at', 'desc')
-                ->first();
-
-            if ($lastMessage) {
-                event(new \App\Events\MessageSent($lastMessage));
-            }
+            // Broadcast both messages that were just created
+            event(new \App\Events\MessageSent($guestMessageRecord));
+            event(new \App\Events\MessageSent($castMessageRecord));
 
             Log::info('Chat notifications sent for payment failure', [
                 'guest_id' => $guest->id,

@@ -1594,11 +1594,26 @@ class PointTransactionService
                 ->where('cast_id', $cast->id)
                 ->first();
 
+            // Fallback: if no chat found with cast_id, try to find any chat for this reservation
+            if (!$chat) {
+                $chat = \App\Models\Chat::where('reservation_id', $reservation->id)
+                    ->where('guest_id', $guest->id)
+                    ->first();
+            }
+
+            // Final fallback: find any chat for this guest and cast combination
+            if (!$chat) {
+                $chat = \App\Models\Chat::where('guest_id', $guest->id)
+                    ->where('cast_id', $cast->id)
+                    ->first();
+            }
+
             if (!$chat) {
                 Log::warning('No chat found for reservation', [
                     'reservation_id' => $reservation->id,
                     'guest_id' => $guest->id,
-                    'cast_id' => $cast->id
+                    'cast_id' => $cast->id,
+                    'search_attempts' => 'tried reservation_id + guest_id + cast_id, then reservation_id + guest_id, then guest_id + cast_id'
                 ]);
                 return;
             }
@@ -1613,7 +1628,7 @@ class PointTransactionService
             $castMessage = "解散しました。お疲れ様でした！\n\n📊 セッション詳細:\n⏱️ 利用時間: {$sessionTimeText}\n💰 獲得ポイント: {$totalPoints}pt (キャスト: {$totalPoints}pt, ゲスト: {$guestRefundPoints}pt)\n📅 予約ID: {$reservation->id}";
 
             // Send guest message
-            \App\Models\Message::create([
+            $guestMessageRecord = \App\Models\Message::create([
                 'chat_id' => $chat->id,
                 'sender_cast_id' => $cast->id,
                 'recipient_type' => 'both',
@@ -1622,11 +1637,12 @@ class PointTransactionService
                     'target' => 'guest',
                     'text' => $guestMessage
                 ]),
-                'is_read' => 0
+                'is_read' => 0,
+                'created_at' => now()
             ]);
 
             // Send cast message
-            \App\Models\Message::create([
+            $castMessageRecord = \App\Models\Message::create([
                 'chat_id' => $chat->id,
                 'sender_cast_id' => $cast->id,
                 'recipient_type' => 'both',
@@ -1635,18 +1651,13 @@ class PointTransactionService
                     'target' => 'cast',
                     'text' => $castMessage
                 ]),
-                'is_read' => 0
+                'is_read' => 0,
+                'created_at' => now()
             ]);
 
-            // Broadcast the messages (get the last created message)
-            $lastMessage = \App\Models\Message::where('chat_id', $chat->id)
-                ->where('sender_cast_id', $cast->id)
-                ->orderBy('created_at', 'desc')
-                ->first();
-
-            if ($lastMessage) {
-                event(new \App\Events\MessageSent($lastMessage));
-            }
+            // Broadcast both messages that were just created
+            event(new \App\Events\MessageSent($guestMessageRecord));
+            event(new \App\Events\MessageSent($castMessageRecord));
 
             Log::info('Chat completion messages sent', [
                 'reservation_id' => $reservation->id,
