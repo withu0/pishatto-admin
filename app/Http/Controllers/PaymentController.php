@@ -1055,6 +1055,16 @@ class PaymentController extends Controller
                 ], 404);
             }
 
+            // Check if user has any active reservations before allowing card deletion
+            $activeReservations = $this->checkActiveReservations($userId, $userType);
+            if ($activeReservations['has_active']) {
+                return response()->json([
+                    'success' => false,
+                    'error' => $activeReservations['message'],
+                    'active_reservations' => $activeReservations['reservations']
+                ], 400);
+            }
+
             // If user has a Stripe customer ID, try to delete the card from Stripe
             if ($model->stripe_customer_id) {
                 try {
@@ -1591,6 +1601,132 @@ class PaymentController extends Controller
                 'message' => 'Failed to get reservation payments',
                 'error' => $e->getMessage()
             ], 500);
+        }
+    }
+
+    /**
+     * Check if user has any active reservations
+     *
+     * @param int $userId
+     * @param string $userType
+     * @return array
+     */
+    private function checkActiveReservations($userId, $userType)
+    {
+        try {
+            $now = now();
+
+            if ($userType === 'guest') {
+                // Check for guest reservations that are truly active (started but not ended) or future
+                $activeReservations = \App\Models\Reservation::where('guest_id', $userId)
+                    ->where('active', true)
+                    ->where(function ($query) use ($now) {
+                        $query->where(function ($subQuery) {
+                            // Started but not ended (truly active)
+                            $subQuery->whereNotNull('started_at')
+                                ->whereNull('ended_at');
+                        })->orWhere(function ($subQuery) use ($now) {
+                            // Future reservations (not started yet)
+                            $subQuery->whereNull('started_at')
+                                ->whereNull('ended_at')
+                                ->where('scheduled_at', '>', $now);
+                        });
+                    })
+                    ->get();
+
+                if ($activeReservations->count() > 0) {
+                    $reservationDetails = $activeReservations->map(function ($reservation) {
+                        $status = '予約済み';
+                        if ($reservation->started_at && !$reservation->ended_at) {
+                            $status = '進行中';
+                        } elseif ($reservation->scheduled_at && $reservation->scheduled_at > now()) {
+                            $status = '予定済み';
+                        }
+
+                        return [
+                            'id' => $reservation->id,
+                            'type' => $reservation->type,
+                            'scheduled_at' => $reservation->scheduled_at,
+                            'started_at' => $reservation->started_at,
+                            'ended_at' => $reservation->ended_at,
+                            'status' => $status
+                        ];
+                    });
+
+                    return [
+                        'has_active' => true,
+                        'message' => '進行中または予定されている予約があるため、カードを削除できません。予約が完了してから再度お試しください。',
+                        'reservations' => $reservationDetails
+                    ];
+                }
+            } else {
+                // Check for cast reservations (as cast_id or in cast_ids array) that are truly active
+                $activeReservations = \App\Models\Reservation::where(function ($query) use ($userId) {
+                    $query->where('cast_id', $userId)
+                        ->orWhereJsonContains('cast_ids', $userId);
+                })
+                ->where('active', true)
+                ->where(function ($query) use ($now) {
+                    $query->where(function ($subQuery) {
+                        // Started but not ended (truly active)
+                        $subQuery->whereNotNull('started_at')
+                            ->whereNull('ended_at');
+                    })->orWhere(function ($subQuery) use ($now) {
+                        // Future reservations (not started yet)
+                        $subQuery->whereNull('started_at')
+                            ->whereNull('ended_at')
+                            ->where('scheduled_at', '>', $now);
+                    });
+                })
+                ->get();
+
+                if ($activeReservations->count() > 0) {
+                    $reservationDetails = $activeReservations->map(function ($reservation) {
+                        $status = '予約済み';
+                        if ($reservation->started_at && !$reservation->ended_at) {
+                            $status = '進行中';
+                        } elseif ($reservation->scheduled_at && $reservation->scheduled_at > now()) {
+                            $status = '予定済み';
+                        }
+
+                        return [
+                            'id' => $reservation->id,
+                            'type' => $reservation->type,
+                            'scheduled_at' => $reservation->scheduled_at,
+                            'started_at' => $reservation->started_at,
+                            'ended_at' => $reservation->ended_at,
+                            'status' => $status
+                        ];
+                    });
+
+                    return [
+                        'has_active' => true,
+                        'message' => '進行中または予定されている予約があるため、カードを削除できません。予約が完了してから再度お試しください。',
+                        'reservations' => $reservationDetails
+                    ];
+                }
+            }
+
+            return [
+                'has_active' => false,
+                'message' => '',
+                'reservations' => []
+            ];
+
+        } catch (\Exception $e) {
+            Log::error('Failed to check active reservations', [
+                'user_id' => $userId,
+                'user_type' => $userType,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+
+            // If we can't check reservations, allow deletion to avoid blocking users
+            return [
+                'has_active' => false,
+                'message' => '',
+                'reservations' => []
+            ];
         }
     }
 }

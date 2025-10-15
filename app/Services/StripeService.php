@@ -613,7 +613,40 @@ class StripeService
             ]);
 
             // Handle different payment intent statuses
-            if ($paymentIntent->status === 'requires_confirmation' && isset($paymentIntentData['payment_method'])) {
+            if ($paymentIntent->status === 'requires_action') {
+                // 3D Secure authentication required - cannot be handled automatically
+                Log::warning('Payment requires 3D Secure authentication', [
+                    'payment_intent_id' => $paymentIntent->id,
+                    'status' => $paymentIntent->status,
+                    'next_action' => $paymentIntent->next_action
+                ]);
+
+                // Create payment record with failed status for 3DS
+                $payment = \App\Models\Payment::create([
+                    'user_id' => $paymentData['user_id'],
+                    'user_type' => $paymentData['user_type'],
+                    'amount' => $paymentData['amount'],
+                    'payment_method' => $paymentData['payment_method_type'] ?? 'card',
+                    'status' => 'failed',
+                    'description' => $paymentData['description'] ?? 'Payment',
+                    'stripe_payment_intent_id' => $paymentIntent->id,
+                    'stripe_customer_id' => $paymentData['customer_id'] ?? null,
+                    'metadata' => array_merge($paymentData['metadata'] ?? [], [
+                        'requires_3ds' => true,
+                        'failure_reason' => '3D Secure authentication required'
+                    ]),
+                    'paid_at' => null,
+                ]);
+
+                return [
+                    'success' => false,
+                    'error' => 'Card requires 3D Secure authentication',
+                    'requires_action' => true,
+                    'payment_intent' => $paymentIntent->toArray(),
+                    'payment' => $payment
+                ];
+
+            } elseif ($paymentIntent->status === 'requires_confirmation' && isset($paymentIntentData['payment_method'])) {
                 try {
                     $paymentIntent->confirm(['payment_method' => $paymentIntentData['payment_method']]);
                     Log::info('Payment intent confirmed', [
@@ -644,8 +677,9 @@ class StripeService
                 }
             }
 
-            // Check if payment was successful
-            $isPaymentSuccessful = $paymentIntent->status === 'succeeded';
+            // Validate payment intent status
+            $statusInfo = $this->validatePaymentIntentStatus($paymentIntent);
+            $isPaymentSuccessful = $statusInfo['is_successful'];
 
             // Create payment record in database
             $payment = \App\Models\Payment::create([
@@ -662,7 +696,7 @@ class StripeService
             ]);
 
             return [
-                'success' => true,
+                'success' => $isPaymentSuccessful,
                 'payment' => $payment,
                 'payment_intent' => $paymentIntent->toArray(),
             ];
@@ -845,6 +879,101 @@ class StripeService
                 'success' => false,
                 'error' => $e->getMessage(),
             ];
+        }
+    }
+
+    /**
+     * Get user-friendly error message for Stripe errors
+     */
+    private function getUserFriendlyErrorMessage($stripeError)
+    {
+        $errorMap = [
+            'card_declined' => 'カードが拒否されました',
+            'insufficient_funds' => '残高不足です',
+            'expired_card' => 'カードの有効期限が切れています',
+            'incorrect_cvc' => 'セキュリティコードが正しくありません',
+            'processing_error' => '支払い処理中にエラーが発生しました',
+            'authentication_required' => '3D Secure認証が必要です',
+            'card_not_supported' => 'このカードはサポートされていません',
+            'currency_not_supported' => 'この通貨はサポートされていません',
+            'duplicate_transaction' => '重複した取引です',
+            'generic_decline' => 'カードが拒否されました',
+            'lost_card' => 'カードが紛失・盗難されています',
+            'merchant_blacklist' => 'このカードは使用できません',
+            'new_account_information_available' => 'カード情報を更新してください',
+            'no_action_taken' => '取引が完了しませんでした',
+            'not_permitted' => 'この取引は許可されていません',
+            'pickup_card' => 'カードを回収してください',
+            'pin_try_exceeded' => 'PIN試行回数が超過しました',
+            'restricted_card' => 'カードの使用が制限されています',
+            'revocation_of_all_authorizations' => 'すべての認証が取り消されました',
+            'security_violation' => 'セキュリティ違反が検出されました',
+            'service_not_allowed' => 'サービスが許可されていません',
+            'stolen_card' => 'カードが盗難されています',
+            'stop_payment_order' => '支払い停止命令が発行されています',
+            'testmode_decline' => 'テストモードで拒否されました',
+            'transaction_not_allowed' => 'この取引は許可されていません',
+            'try_again_later' => 'しばらくしてから再試行してください',
+            'withdrawal_count_limit_exceeded' => '引き出し回数制限を超過しました'
+        ];
+
+        return $errorMap[$stripeError] ?? '支払い処理中にエラーが発生しました';
+    }
+
+    /**
+     * Validate and handle payment intent status
+     */
+    private function validatePaymentIntentStatus($paymentIntent)
+    {
+        $status = $paymentIntent->status;
+
+        // Define status categories
+        $successStatuses = ['succeeded'];
+        $pendingStatuses = ['processing', 'requires_capture'];
+        $problematicStatuses = ['requires_action', 'requires_payment_method', 'requires_confirmation'];
+        $failureStatuses = ['canceled', 'payment_failed'];
+
+        $statusInfo = [
+            'status' => $status,
+            'is_successful' => in_array($status, $successStatuses),
+            'is_pending' => in_array($status, $pendingStatuses),
+            'is_problematic' => in_array($status, $problematicStatuses),
+            'is_failed' => in_array($status, $failureStatuses),
+            'category' => $this->getStatusCategory($status)
+        ];
+
+        // Log status validation
+        Log::info('Payment intent status validation', [
+            'payment_intent_id' => $paymentIntent->id,
+            'status_info' => $statusInfo,
+            'next_action' => $paymentIntent->next_action ?? null,
+            'client_secret' => $paymentIntent->client_secret ?? null
+        ]);
+
+        return $statusInfo;
+    }
+
+    /**
+     * Get status category for payment intent
+     */
+    private function getStatusCategory($status)
+    {
+        switch ($status) {
+            case 'succeeded':
+                return 'success';
+            case 'processing':
+            case 'requires_capture':
+                return 'pending';
+            case 'requires_action':
+                return '3ds_required';
+            case 'requires_payment_method':
+            case 'requires_confirmation':
+                return 'needs_setup';
+            case 'canceled':
+            case 'payment_failed':
+                return 'failed';
+            default:
+                return 'unknown';
         }
     }
 }

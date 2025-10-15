@@ -40,10 +40,20 @@ class AutomaticPaymentService
 
             // Check if guest has a registered payment method
             if (!$guest->stripe_customer_id) {
+                Log::warning('Guest has no registered payment method', [
+                    'guest_id' => $guestId,
+                    'required_points' => $requiredAmountInPoints,
+                    'reservation_id' => $reservationId
+                ]);
+
+                // Send notifications about no payment method (same as all cards fail)
+                $this->sendPaymentFailureNotifications($guest, $reservationId, $requiredAmountInPoints, ['No registered payment method found']);
+
                 return [
                     'success' => false,
                     'error' => 'No registered payment method found',
-                    'requires_card_registration' => true
+                    'requires_card_registration' => true,
+                    'all_cards_failed' => true // Mark as all cards failed for consistent handling
                 ];
             }
 
@@ -91,69 +101,50 @@ class AutomaticPaymentService
                 ]
             ]);
 
-            // Process payment using Stripe with manual capture (pending for 2 days)
-            $paymentData = [
-                'customer_id' => $guest->stripe_customer_id,
-                'amount' => $amountInYen,
-                'currency' => 'jpy',
-                'user_id' => $guestId,
-                'user_type' => 'guest',
-                'description' => $description,
-                'payment_method_type' => 'card',
-                'capture_method' => 'manual', // Use manual capture for delayed processing
-                'metadata' => [
-                    'automatic_payment' => true,
-                    'required_points' => $requiredAmountInPoints,
-                    'conversion_rate' => $yenPerPoint,
-                    'original_points_requested' => $requiredAmountInPoints,
-                    'deduction_type' => 'exceeded_time_shortfall',
-                    'scheduled_capture_at' => now()->addDays(2)->toISOString(),
-                    'base_amount_yen' => $baseAmountInYen,
-                    'tax_amount' => $amountInYen - $baseAmountInYen,
-                    'consumption_tax_applied' => true
-                ]
-            ];
-
-            $result = $this->stripeService->processPaymentWithManualCapture($paymentData);
+            // Try payment with retry logic for all registered cards
+            $result = $this->processPaymentWithRetry($guest, $amountInYen, $guestId, $description, $requiredAmountInPoints, $baseAmountInYen, $yenPerPoint, $reservationId);
 
             if (!$result['success']) {
-                Log::error('Automatic payment failed', [
+                Log::error('All automatic payment attempts failed', [
                     'guest_id' => $guestId,
                     'amount_yen' => $amountInYen,
-                    'error' => $result['error'],
+                    'errors' => $result['errors'],
                     'reservation_id' => $reservationId
                 ]);
 
                 $payment->update([
                     'status' => 'failed',
-                    'stripe_payment_intent_id' => $result['payment_intent_id'] ?? null,
-                    'error_message' => $result['error']
+                    'stripe_payment_intent_id' => $result['last_payment_intent_id'] ?? null,
+                    'error_message' => implode('; ', $result['errors'])
                 ]);
 
                 DB::rollBack();
 
+                // Send notifications about payment failure
+                $this->sendPaymentFailureNotifications($guest, $reservationId, $requiredAmountInPoints, $result['errors']);
+
                 return [
                     'success' => false,
-                    'error' => $result['error'],
+                    'error' => 'All payment methods failed: ' . implode('; ', $result['errors']),
                     'payment_id' => $payment->id,
-                    'requires_card_registration' => false
+                    'requires_card_registration' => false,
+                    'all_cards_failed' => true
                 ];
             }
 
-            // Update payment record with pending status (will be captured after 2 days)
+            // Update payment record with paid status (immediate capture)
             $paymentIntentId = $result['payment_intent']['id'] ?? null;
             $payment->update([
-                'status' => 'pending', // Payment is pending until captured
+                'status' => 'paid', // Payment is immediately captured
                 'stripe_payment_intent_id' => $paymentIntentId,
-                'paid_at' => null, // Will be set when payment is captured
+                'paid_at' => now(), // Set immediately since payment is captured
                 'metadata' => array_merge($payment->metadata ?? [], [
-                    'payment_authorized' => true,
+                    'payment_captured' => true,
                     'stripe_payment_intent_id' => $paymentIntentId,
-                    'authorized_at' => now()->toISOString(),
-                    'scheduled_capture_at' => now()->addDays(2)->toISOString(),
+                    'captured_at' => now()->toISOString(),
                     'deduction_amount_yen' => $amountInYen,
                     'deduction_amount_points' => $requiredAmountInPoints,
-                    'capture_method' => 'manual'
+                    'capture_method' => 'automatic'
                 ])
             ]);
 
@@ -168,7 +159,7 @@ class AutomaticPaymentService
                 'guest_id' => $guestId,
                 'type' => 'buy',
                 'amount' => $requiredAmountInPoints,
-                'description' => "延長時間の自動支払い - 予約{$reservationId}",
+                'description' => "延長時間の即時支払い - 予約{$reservationId}",
                 'reservation_id' => $reservationId,
                 'payment_id' => $payment->id
             ]);
@@ -178,7 +169,7 @@ class AutomaticPaymentService
                 'guest_id' => $guestId,
                 'type' => 'exceeded_pending',
                 'amount' => -$requiredAmountInPoints, // Negative amount for deduction
-                'description' => "延長時間の自動控除 - カード支払い済み (支払いID: {$payment->id})",
+                'description' => "延長時間の即時控除 - カード支払い済み (支払いID: {$payment->id})",
                 'reservation_id' => $reservationId,
                 'payment_id' => $payment->id
             ]);
@@ -211,8 +202,8 @@ class AutomaticPaymentService
                 'points_added' => $requiredAmountInPoints,
                 'new_balance' => $newPoints,
                 'stripe_payment_intent_id' => $paymentIntentId,
-                'status' => 'pending',
-                'scheduled_capture_at' => now()->addDays(2)->toISOString()
+                'status' => 'paid',
+                'captured_at' => now()->toISOString()
             ];
 
         } catch (\Exception $e) {
@@ -275,6 +266,477 @@ class AutomaticPaymentService
                 'error' => $e->getMessage()
             ]);
             return null;
+        }
+    }
+
+    /**
+     * Process payment with retry logic for all registered cards
+     *
+     * @param Guest $guest
+     * @param int $amountInYen
+     * @param int $guestId
+     * @param string $description
+     * @param int $requiredAmountInPoints
+     * @param int $baseAmountInYen
+     * @param float $yenPerPoint
+     * @param int|null $reservationId
+     * @return array
+     */
+    private function processPaymentWithRetry(
+        Guest $guest,
+        int $amountInYen,
+        int $guestId,
+        string $description,
+        int $requiredAmountInPoints,
+        int $baseAmountInYen,
+        float $yenPerPoint,
+        ?int $reservationId
+    ): array {
+        try {
+            // Get all payment methods for the customer
+            $paymentMethods = $this->stripeService->getCustomerPaymentMethods($guest->stripe_customer_id);
+
+            if (empty($paymentMethods['data'])) {
+                return [
+                    'success' => false,
+                    'errors' => ['No payment methods found'],
+                    'last_payment_intent_id' => null
+                ];
+            }
+
+            $errors = [];
+            $lastPaymentIntentId = null;
+
+            // Try each payment method
+            foreach ($paymentMethods['data'] as $index => $paymentMethod) {
+                Log::info('Attempting payment with card', [
+                    'guest_id' => $guestId,
+                    'payment_method_id' => $paymentMethod['id'],
+                    'card_last4' => $paymentMethod['card']['last4'] ?? 'unknown',
+                    'attempt' => $index + 1,
+                    'total_cards' => count($paymentMethods['data'])
+                ]);
+
+                $paymentData = [
+                    'customer_id' => $guest->stripe_customer_id,
+                    'amount' => $amountInYen,
+                    'currency' => 'jpy',
+                    'user_id' => $guestId,
+                    'user_type' => 'guest',
+                    'description' => $description,
+                    'payment_method_type' => 'card',
+                    'capture_method' => 'automatic', // Use immediate capture for exceeded time
+                    'payment_method' => $paymentMethod['id'], // Use specific payment method
+                    'metadata' => [
+                        'automatic_payment' => true,
+                        'required_points' => $requiredAmountInPoints,
+                        'conversion_rate' => $yenPerPoint,
+                        'original_points_requested' => $requiredAmountInPoints,
+                        'deduction_type' => 'exceeded_time_shortfall',
+                        'captured_immediately' => true,
+                        'base_amount_yen' => $baseAmountInYen,
+                        'tax_amount' => $amountInYen - $baseAmountInYen,
+                        'consumption_tax_applied' => true,
+                        'payment_method_attempt' => $index + 1,
+                        'total_payment_methods' => count($paymentMethods['data'])
+                    ]
+                ];
+
+                $result = $this->stripeService->processPayment($paymentData);
+
+                if ($result['success']) {
+                    Log::info('Payment succeeded with card', [
+                        'guest_id' => $guestId,
+                        'payment_method_id' => $paymentMethod['id'],
+                        'card_last4' => $paymentMethod['card']['last4'] ?? 'unknown',
+                        'card_brand' => $paymentMethod['card']['brand'] ?? 'unknown',
+                        'attempt' => $index + 1,
+                        'total_payment_methods' => count($paymentMethods['data']),
+                        'success_rate' => round((1 / count($paymentMethods['data'])) * 100, 2) . '%'
+                    ]);
+
+                    return [
+                        'success' => true,
+                        'payment_intent' => $result['payment_intent'],
+                        'payment_method_used' => $paymentMethod['id'],
+                        'attempt_number' => $index + 1,
+                        'card_brand' => $paymentMethod['card']['brand'] ?? 'unknown',
+                        'card_last4' => $paymentMethod['card']['last4'] ?? 'unknown'
+                    ];
+                } else {
+                    // Handle different types of payment failures
+                    $cardLast4 = $paymentMethod['card']['last4'] ?? 'unknown';
+                    $stripeError = $result['error'] ?? 'Unknown error';
+
+                    // Check for specific failure types
+                    if ($result['requires_action'] ?? false) {
+                        $error = "カード末尾{$cardLast4}: 3D Secure認証が必要です";
+                    } elseif (strpos($stripeError, 'card_declined') !== false) {
+                        $error = "カード末尾{$cardLast4}: カードが拒否されました";
+                    } elseif (strpos($stripeError, 'insufficient_funds') !== false) {
+                        $error = "カード末尾{$cardLast4}: 残高不足です";
+                    } elseif (strpos($stripeError, 'expired_card') !== false) {
+                        $error = "カード末尾{$cardLast4}: カードの有効期限が切れています";
+                    } else {
+                        $error = "カード末尾{$cardLast4}: " . $stripeError;
+                    }
+
+                    $errors[] = $error;
+                    $lastPaymentIntentId = $result['payment_intent_id'] ?? null;
+
+                    Log::warning('Payment failed with card', [
+                        'guest_id' => $guestId,
+                        'payment_method_id' => $paymentMethod['id'],
+                        'card_last4' => $cardLast4,
+                        'stripe_error' => $stripeError,
+                        'requires_action' => $result['requires_action'] ?? false,
+                        'attempt' => $index + 1,
+                        'payment_intent_id' => $lastPaymentIntentId
+                    ]);
+                }
+            }
+
+            // Log comprehensive failure summary
+            Log::error('All payment methods failed for guest', [
+                'guest_id' => $guestId,
+                'total_payment_methods' => count($paymentMethods['data']),
+                'total_attempts' => count($paymentMethods['data']),
+                'failure_reasons' => $errors,
+                'last_payment_intent_id' => $lastPaymentIntentId,
+                'payment_methods_tried' => array_map(function($pm) {
+                    return [
+                        'id' => $pm['id'],
+                        'brand' => $pm['card']['brand'] ?? 'unknown',
+                        'last4' => $pm['card']['last4'] ?? 'unknown'
+                    ];
+                }, $paymentMethods['data'])
+            ]);
+
+            return [
+                'success' => false,
+                'errors' => $errors,
+                'last_payment_intent_id' => $lastPaymentIntentId,
+                'total_attempts' => count($paymentMethods['data']),
+                'failure_summary' => [
+                    'total_cards' => count($paymentMethods['data']),
+                    'failed_cards' => count($errors),
+                    'success_rate' => '0%'
+                ]
+            ];
+
+        } catch (\Exception $e) {
+            Log::error('Payment retry logic failed', [
+                'guest_id' => $guestId,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+
+            return [
+                'success' => false,
+                'errors' => ['Payment retry system error: ' . $e->getMessage()],
+                'last_payment_intent_id' => null
+            ];
+        }
+    }
+
+    /**
+     * Send notifications when all payment methods fail
+     *
+     * @param Guest $guest
+     * @param int|null $reservationId
+     * @param int $requiredAmountInPoints
+     * @param array $errors
+     * @return void
+     */
+    private function sendPaymentFailureNotifications(Guest $guest, ?int $reservationId, int $requiredAmountInPoints, array $errors): void
+    {
+        try {
+            // Get reservation details
+            $reservation = null;
+            if ($reservationId) {
+                $reservation = \App\Models\Reservation::find($reservationId);
+            }
+
+            // Send chat notifications
+            $this->sendChatNotifications($guest, $reservation, $requiredAmountInPoints, $errors);
+
+            // Send cast notifications
+            $this->sendCastNotifications($guest, $reservation, $requiredAmountInPoints, $errors);
+
+            // Send guest notifications
+            $this->sendGuestNotifications($guest, $reservation, $requiredAmountInPoints, $errors);
+
+        } catch (\Exception $e) {
+            Log::error('Failed to send payment failure notifications', [
+                'guest_id' => $guest->id,
+                'reservation_id' => $reservationId,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+        }
+    }
+
+    /**
+     * Send chat notifications for payment failure
+     *
+     * @param Guest $guest
+     * @param \App\Models\Reservation|null $reservation
+     * @param int $requiredAmountInPoints
+     * @param array $errors
+     * @return void
+     */
+    private function sendChatNotifications(Guest $guest, ?\App\Models\Reservation $reservation, int $requiredAmountInPoints, array $errors): void
+    {
+        if (!$reservation) {
+            return;
+        }
+
+        try {
+            $errorMessage = implode('; ', $errors);
+            $guestAvailablePoints = $guest->points ?? 0;
+
+            // Find the chat for this reservation
+            $chat = \App\Models\Chat::where('reservation_id', $reservation->id)
+                ->where('guest_id', $guest->id)
+                ->where('cast_id', $reservation->cast_id)
+                ->first();
+
+            // Fallback: if no chat found with cast_id, try to find any chat for this reservation
+            if (!$chat) {
+                $chat = \App\Models\Chat::where('reservation_id', $reservation->id)
+                    ->where('guest_id', $guest->id)
+                    ->first();
+            }
+
+            // Final fallback: find any chat for this guest and cast combination
+            if (!$chat) {
+                $chat = \App\Models\Chat::where('guest_id', $guest->id)
+                    ->where('cast_id', $reservation->cast_id)
+                    ->first();
+            }
+
+            if (!$chat) {
+                Log::warning('No chat found for payment failure notification', [
+                    'guest_id' => $guest->id,
+                    'cast_id' => $reservation->cast_id,
+                    'reservation_id' => $reservation->id,
+                    'search_attempts' => 'tried reservation_id + guest_id + cast_id, then reservation_id + guest_id, then guest_id + cast_id'
+                ]);
+                return;
+            }
+
+            // Determine if it's no payment methods or all cards failed
+            $isNoPaymentMethods = in_array('No registered payment method found', $errors);
+            $failureType = $isNoPaymentMethods ? '支払い方法が未登録' : '全支払い方法が失敗';
+
+            // Message for guest
+            $guestMessage = "⚠️ 延長時間の自動支払いが失敗しました。\n";
+            $guestMessage .= "理由: {$failureType}\n";
+            $guestMessage .= "必要なポイント: {$requiredAmountInPoints}pt\n";
+            $guestMessage .= "利用可能ポイント: {$guestAvailablePoints}pt\n";
+            if (!$isNoPaymentMethods) {
+                $guestMessage .= "エラー: {$errorMessage}\n";
+            }
+            $guestMessage .= "手動での支払いが必要です。\n";
+            if ($isNoPaymentMethods) {
+                $guestMessage .= "支払い方法を登録してください。";
+            } else {
+                $guestMessage .= "支払い方法を確認し、再度お支払いください。";
+            }
+
+            // Message for cast
+            $castMessage = "⚠️ ゲストの延長時間支払いが失敗しました。\n";
+            $castMessage .= "理由: {$failureType}\n";
+            $castMessage .= "ゲストが利用可能だったポイント: {$guestAvailablePoints}pt\n";
+            $castMessage .= "必要なポイント: {$requiredAmountInPoints}pt\n";
+            $castMessage .= "キャストは利用可能だったポイント分のみ受け取ります。";
+            if (!$isNoPaymentMethods) {
+                $castMessage .= "\nエラー: {$errorMessage}";
+            }
+
+            // Send guest message
+            $guestMessageRecord = \App\Models\Message::create([
+                'chat_id' => $chat->id,
+                'sender_guest_id' => $guest->id,
+                'recipient_type' => 'both',
+                'message' => json_encode([
+                    'type' => 'system',
+                    'target' => 'guest',
+                    'text' => $guestMessage
+                ]),
+                'is_read' => 0,
+                'created_at' => now()
+            ]);
+
+            // Send cast message
+            $castMessageRecord = \App\Models\Message::create([
+                'chat_id' => $chat->id,
+                'sender_cast_id' => $reservation->cast_id,
+                'recipient_type' => 'both',
+                'message' => json_encode([
+                    'type' => 'system',
+                    'target' => 'cast',
+                    'text' => $castMessage
+                ]),
+                'is_read' => 0,
+                'created_at' => now()
+            ]);
+
+            // Broadcast both messages that were just created
+            event(new \App\Events\MessageSent($guestMessageRecord));
+            event(new \App\Events\MessageSent($castMessageRecord));
+
+            Log::info('Chat notifications sent for payment failure', [
+                'guest_id' => $guest->id,
+                'reservation_id' => $reservation->id,
+                'cast_id' => $reservation->cast_id,
+                'chat_id' => $chat->id,
+                'guest_available_points' => $guestAvailablePoints,
+                'required_points' => $requiredAmountInPoints
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('Failed to send chat notifications', [
+                'guest_id' => $guest->id,
+                'reservation_id' => $reservation->id,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+        }
+    }
+
+    /**
+     * Send cast notifications about payment failure and reduced earnings
+     *
+     * @param Guest $guest
+     * @param \App\Models\Reservation|null $reservation
+     * @param int $requiredAmountInPoints
+     * @param array $errors
+     * @return void
+     */
+    private function sendCastNotifications(Guest $guest, ?\App\Models\Reservation $reservation, int $requiredAmountInPoints, array $errors): void
+    {
+        if (!$reservation) {
+            return;
+        }
+
+        try {
+            $cast = \App\Models\Cast::find($reservation->cast_id);
+            if (!$cast) {
+                return;
+            }
+
+            $guestAvailablePoints = $guest->points ?? 0;
+            $errorMessage = implode('; ', $errors);
+            $isNoPaymentMethods = in_array('No registered payment method found', $errors);
+            $failureType = $isNoPaymentMethods ? '支払い方法が未登録' : '全支払い方法が失敗';
+
+            $message = "⚠️ ゲストの延長時間支払いが失敗しました。\n";
+            $message .= "理由: {$failureType}\n";
+            $message .= "ゲストが利用可能だったポイント: {$guestAvailablePoints}pt\n";
+            $message .= "必要なポイント: {$requiredAmountInPoints}pt\n";
+            $message .= "キャストは利用可能だったポイント分のみ受け取ります。";
+            if (!$isNoPaymentMethods) {
+                $message .= "\nエラー: {$errorMessage}";
+            }
+
+            // Send notification to cast using the notification service
+            $notification = \App\Services\NotificationService::sendNotificationIfEnabled(
+                $cast->id,
+                'cast',
+                'payments',
+                'payment_failure',
+                $message,
+                $reservation->id,
+                $cast->id
+            );
+
+            if ($notification) {
+                // Broadcast the notification
+                event(new \App\Events\NotificationSent($notification));
+            }
+
+            Log::info('Cast notification sent for payment failure', [
+                'cast_id' => $cast->id,
+                'guest_id' => $guest->id,
+                'reservation_id' => $reservation->id,
+                'guest_available_points' => $guestAvailablePoints,
+                'required_points' => $requiredAmountInPoints,
+                'notification_id' => $notification?->id
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('Failed to send cast notifications', [
+                'guest_id' => $guest->id,
+                'reservation_id' => $reservation->id,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+        }
+    }
+
+    /**
+     * Send guest notifications about payment failure
+     *
+     * @param Guest $guest
+     * @param \App\Models\Reservation|null $reservation
+     * @param int $requiredAmountInPoints
+     * @param array $errors
+     * @return void
+     */
+    private function sendGuestNotifications(Guest $guest, ?\App\Models\Reservation $reservation, int $requiredAmountInPoints, array $errors): void
+    {
+        try {
+            $errorMessage = implode('; ', $errors);
+            $guestAvailablePoints = $guest->points ?? 0;
+            $isNoPaymentMethods = in_array('No registered payment method found', $errors);
+            $failureType = $isNoPaymentMethods ? '支払い方法が未登録' : '全支払い方法が失敗';
+
+            $message = "⚠️ 延長時間の自動支払いが失敗しました。\n";
+            $message .= "理由: {$failureType}\n";
+            $message .= "必要なポイント: {$requiredAmountInPoints}pt\n";
+            $message .= "利用可能ポイント: {$guestAvailablePoints}pt\n";
+            if (!$isNoPaymentMethods) {
+                $message .= "エラー: {$errorMessage}\n";
+            }
+            $message .= "手動での支払いが必要です。\n";
+            if ($isNoPaymentMethods) {
+                $message .= "支払い方法を登録してください。";
+            } else {
+                $message .= "支払い方法を確認し、再度お支払いください。";
+            }
+
+            // Send notification to guest using the notification service
+            $notification = \App\Services\NotificationService::sendNotificationIfEnabled(
+                $guest->id,
+                'guest',
+                'payments',
+                'payment_failure',
+                $message,
+                $reservation?->id,
+                $reservation?->cast_id
+            );
+
+            if ($notification) {
+                // Broadcast the notification
+                event(new \App\Events\NotificationSent($notification));
+            }
+
+            Log::info('Guest notification sent for payment failure', [
+                'guest_id' => $guest->id,
+                'reservation_id' => $reservation?->id,
+                'required_points' => $requiredAmountInPoints,
+                'guest_available_points' => $guestAvailablePoints,
+                'notification_id' => $notification?->id
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('Failed to send guest notifications', [
+                'guest_id' => $guest->id,
+                'reservation_id' => $reservation?->id,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
         }
     }
 }
