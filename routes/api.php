@@ -75,6 +75,7 @@ Route::get('/chats/all', [GuestAuthController::class, 'allChats']);
 Route::get('/chats', [ChatController::class, 'index']);
 Route::post('/messages', [ChatController::class, 'store']);
 Route::get('/reservations/{id}', [GuestAuthController::class, 'getReservationById']);
+Route::get('/reservations/{id}/details', [GuestAuthController::class, 'getReservationDetails']);
 Route::put('/reservations/{id}', [GuestAuthController::class, 'updateReservation']);
 Route::post('/reservations/{id}/complete', [GuestAuthController::class, 'completeReservation']);
 Route::post('/reservations/{id}/cancel', [GuestAuthController::class, 'cancelReservation']);

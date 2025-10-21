@@ -1068,6 +1068,65 @@ class GuestAuthController extends Controller
         return response()->json(['reservation' => $reservation]);
     }
 
+    public function getReservationDetails($id)
+    {
+        $reservation = Reservation::with([
+            'guest:id,nickname,avatar',
+            'cast:id,nickname,avatar',
+            'castSessions.cast:id,nickname,avatar'
+        ])->find($id);
+
+        if (!$reservation) {
+            return response()->json(['message' => 'Reservation not found'], 404);
+        }
+
+        // Format the response for the details modal
+        $details = [
+            'id' => $reservation->id,
+            'type' => $reservation->type,
+            'status' => $reservation->status,
+            'scheduled_at' => $reservation->scheduled_at,
+            'started_at' => $reservation->started_at,
+            'ended_at' => $reservation->ended_at,
+            'duration' => $reservation->duration,
+            'points_earned' => $reservation->points_earned,
+            'location' => $reservation->location,
+            'meeting_location' => $reservation->meeting_location,
+            'notes' => $reservation->details,
+        ];
+
+        // Add guest information
+        if ($reservation->guest) {
+            $details['guest'] = [
+                'id' => $reservation->guest->id,
+                'nickname' => $reservation->guest->nickname,
+                'avatar' => $reservation->guest->avatar
+            ];
+        }
+
+        // Add cast information (for individual calls)
+        if ($reservation->cast) {
+            $details['cast'] = [
+                'id' => $reservation->cast->id,
+                'nickname' => $reservation->cast->nickname,
+                'avatar' => $reservation->cast->avatar
+            ];
+        }
+
+        // Add casts information (for group calls)
+        if ($reservation->type === 'free' && $reservation->castSessions) {
+            $details['casts'] = $reservation->castSessions->map(function ($session) {
+                return [
+                    'id' => $session->cast->id,
+                    'nickname' => $session->cast->nickname,
+                    'avatar' => $session->cast->avatar
+                ];
+            })->toArray();
+        }
+
+        return response()->json(['reservation' => $details]);
+    }
+
     public function repeatGuests(Request $request)
     {
         $guests = Guest::withCount('reservations')
