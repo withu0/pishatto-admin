@@ -101,7 +101,7 @@ class AutomaticPaymentService
                 ]
             ]);
 
-            // Try payment with retry logic for all registered cards
+            // Try payment with retry logic for all registered cards (using pending payment with 2-day expiration)
             $result = $this->processPaymentWithRetry($guest, $amountInYen, $guestId, $description, $requiredAmountInPoints, $baseAmountInYen, $yenPerPoint, $reservationId);
 
             if (!$result['success']) {
@@ -132,19 +132,24 @@ class AutomaticPaymentService
                 ];
             }
 
-            // Update payment record with paid status (immediate capture)
+            // Update payment record with pending status (2-day + buffer expiration with automatic capture)
             $paymentIntentId = $result['payment_intent']['id'] ?? null;
+            // Set expiration slightly beyond 2 days to account for hourly scheduler drift
+            $expiresAt = now()->addDays(2)->addHour(); // 2 days + 1 hour buffer
             $payment->update([
-                'status' => 'paid', // Payment is immediately captured
+                'status' => 'pending', // Payment is pending capture
                 'stripe_payment_intent_id' => $paymentIntentId,
-                'paid_at' => now(), // Set immediately since payment is captured
+                'paid_at' => null, // Will be set when captured
+                'expires_at' => $expiresAt, // pending capture deadline
                 'metadata' => array_merge($payment->metadata ?? [], [
-                    'payment_captured' => true,
+                    'payment_authorized' => true,
                     'stripe_payment_intent_id' => $paymentIntentId,
-                    'captured_at' => now()->toISOString(),
+                    'authorized_at' => now()->toISOString(),
+                    'expires_at' => $expiresAt->toISOString(),
                     'deduction_amount_yen' => $amountInYen,
                     'deduction_amount_points' => $requiredAmountInPoints,
-                    'capture_method' => 'automatic'
+                    'capture_method' => 'manual',
+                    'auto_capture_after' => '2_days'
                 ])
             ]);
 
@@ -159,7 +164,7 @@ class AutomaticPaymentService
                 'guest_id' => $guestId,
                 'type' => 'buy',
                 'amount' => $requiredAmountInPoints,
-                'description' => "延長時間の即時支払い - 予約{$reservationId}",
+                'description' => "延長時間の2日後自動支払い予定 - 予約{$reservationId}",
                 'reservation_id' => $reservationId,
                 'payment_id' => $payment->id
             ]);
@@ -169,7 +174,7 @@ class AutomaticPaymentService
                 'guest_id' => $guestId,
                 'type' => 'exceeded_pending',
                 'amount' => -$requiredAmountInPoints, // Negative amount for deduction
-                'description' => "延長時間の即時控除 - カード支払い済み (支払いID: {$payment->id})",
+                'description' => "延長時間の2日後自動控除予定 - カード支払い予定 (支払いID: {$payment->id})",
                 'reservation_id' => $reservationId,
                 'payment_id' => $payment->id
             ]);
@@ -325,7 +330,7 @@ class AutomaticPaymentService
                     'user_type' => 'guest',
                     'description' => $description,
                     'payment_method_type' => 'card',
-                    'capture_method' => 'automatic', // Use immediate capture for exceeded time
+                    'capture_method' => 'manual', // Use manual capture with 2-day expiration
                     'payment_method' => $paymentMethod['id'], // Use specific payment method
                     'metadata' => [
                         'automatic_payment' => true,
@@ -333,7 +338,7 @@ class AutomaticPaymentService
                         'conversion_rate' => $yenPerPoint,
                         'original_points_requested' => $requiredAmountInPoints,
                         'deduction_type' => 'exceeded_time_shortfall',
-                        'captured_immediately' => true,
+                        'pending_capture' => true,
                         'base_amount_yen' => $baseAmountInYen,
                         'tax_amount' => $amountInYen - $baseAmountInYen,
                         'consumption_tax_applied' => true,
@@ -559,11 +564,7 @@ class AutomaticPaymentService
                 'chat_id' => $chat->id,
                 'sender_guest_id' => $guest->id,
                 'recipient_type' => 'both',
-                'message' => json_encode([
-                    'type' => 'system',
-                    'target' => 'guest',
-                    'text' => $guestMessage
-                ]),
+                'message' => $guestMessage,
                 'is_read' => 0,
                 'created_at' => now()
             ]);
@@ -573,11 +574,7 @@ class AutomaticPaymentService
                 'chat_id' => $chat->id,
                 'sender_cast_id' => $reservation->cast_id,
                 'recipient_type' => 'both',
-                'message' => json_encode([
-                    'type' => 'system',
-                    'target' => 'cast',
-                    'text' => $castMessage
-                ]),
+                'message' => $castMessage,
                 'is_read' => 0,
                 'created_at' => now()
             ]);

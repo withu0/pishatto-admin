@@ -8,6 +8,7 @@ use App\Models\Reservation;
 use App\Models\CastSession;
 use App\Models\PointTransaction;
 use App\Services\GradeService;
+use App\Events\GroupMessageSent;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
@@ -675,6 +676,60 @@ class PointTransactionService
                 return false;
             }
 
+            // For group calls (free type), individual cast earnings are already processed
+            // We only need to handle guest refunds and send completion messages
+            if ($reservation->type === 'free') {
+                Log::info('Processing group call completion', [
+                    'reservation_id' => $reservation->id,
+                    'type' => 'free'
+                ]);
+
+                // Calculate total points earned by all casts
+                $totalCastEarnings = (int) PointTransaction::where('reservation_id', $reservation->id)
+                    ->where('type', 'transfer')
+                    ->whereNotNull('cast_id')
+                    ->sum('amount');
+
+                // Calculate reserved points
+                $reservedPoints = (int) PointTransaction::where('reservation_id', $reservation->id)
+                    ->where('type', 'pending')
+                    ->sum('amount');
+
+                // Calculate refund amount (reserved points - total cast earnings)
+                $refundAmount = max(0, $reservedPoints - $totalCastEarnings);
+
+                Log::info('Group call completion calculation', [
+                    'reservation_id' => $reservation->id,
+                    'total_cast_earnings' => $totalCastEarnings,
+                    'reserved_points' => $reservedPoints,
+                    'refund_amount' => $refundAmount
+                ]);
+
+                // Refund unused points to guest
+                if ($refundAmount > 0) {
+                    $this->createRefundTransaction([
+                        'guest_id' => $guest->id,
+                        'reservation_id' => $reservation->id,
+                        'amount' => $refundAmount,
+                        'description' => "フリーコール完了 - 未使用ポイント返金 - 予約{$reservation->id}",
+                    ]);
+
+                    // Reduce grade_points by refunded amount
+                    $guest->grade_points = max(0, (int) $guest->grade_points - $refundAmount);
+                    $guest->save();
+                }
+
+                // Set points_earned to total cast earnings for logging purposes
+                $reservation->points_earned = $totalCastEarnings;
+                $reservation->save();
+
+                // Send session completion messages to group chat
+                $this->sendGroupCallCompletionMessages($reservation, $guest, $totalCastEarnings, $refundAmount);
+
+                DB::commit();
+                return true;
+            }
+
             // For reservations without cast_id (e.g., free calls with no accepted casts),
             // we can still process refunds but not transfers
             if (!$reservation->cast_id) {
@@ -816,12 +871,13 @@ class PointTransactionService
                 if (!$existingPayment) {
                     try {
                         // Process automatic payment for the shortfall
+                        // 超過時間分の自動支払いを処理する
                         $automaticPaymentService = app(\App\Services\AutomaticPaymentService::class);
                         $paymentResult = $automaticPaymentService->processAutomaticPaymentForInsufficientPoints(
                             $guest->id,
                             $totalShortfall,
                             $reservation->id,
-                            "Automatic payment for exceeded time - reservation {$reservation->id}"
+                            "延長時間の自動支払い - 予約{$reservation->id}"
                         );
                     } catch (\Exception $e) {
                         Log::error('Automatic payment failed', [
@@ -1141,6 +1197,8 @@ class PointTransactionService
             $exceededPendingTransactions = PointTransaction::where('type', 'exceeded_pending')
                 ->where('created_at', '<=', now()->subDays(2))
                 ->where('description', 'not like', '%(2日後自動転送済み)%')
+                // Skip ones explicitly cancelled
+                ->where('description', 'not like', '%(キャンセル)%')
                 ->get();
 
             foreach ($exceededPendingTransactions as $transaction) {
@@ -1583,6 +1641,118 @@ class PointTransactionService
     }
 
     /**
+     * Format session time in a human-readable format
+     */
+    private function formatSessionTime(int $elapsedSeconds): string
+    {
+        $hours = floor($elapsedSeconds / 3600);
+        $minutes = floor(($elapsedSeconds % 3600) / 60);
+        $seconds = $elapsedSeconds % 60;
+
+        if ($hours > 0) {
+            return "{$hours}時間{$minutes}分{$seconds}秒";
+        } elseif ($minutes > 0) {
+            return "{$minutes}分{$seconds}秒";
+        } else {
+            return "{$seconds}秒";
+        }
+    }
+
+    /**
+     * Send group call completion messages to group chat
+     */
+    private function sendGroupCallCompletionMessages(Reservation $reservation, Guest $guest, int $totalCastEarnings, int $refundAmount): void
+    {
+        try {
+            // Find the group chat for this reservation
+            $chat = \App\Models\Chat::where('reservation_id', $reservation->id)
+                ->where('guest_id', $guest->id)
+                ->whereNotNull('group_id')
+                ->first();
+
+            if (!$chat) {
+                Log::warning('No group chat found for group call completion', [
+                    'reservation_id' => $reservation->id,
+                    'guest_id' => $guest->id
+                ]);
+                return;
+            }
+
+            // Calculate session time based on actual cast sessions
+            // Use the same calculation method as individual cast stop messages for consistency
+            $totalElapsedSeconds = 0;
+            $castSessions = \App\Models\CastSession::where('reservation_id', $reservation->id)
+                ->where('status', 'completed')
+                ->get();
+
+            foreach ($castSessions as $session) {
+                // Use frontend-calculated time if available for consistency with individual messages
+                if ($session->frontend_elapsed_time !== null) {
+                    $totalElapsedSeconds += $session->frontend_elapsed_time;
+                } elseif ($session->started_at && $session->ended_at) {
+                    // Fallback to backend calculation if frontend time not available
+                    $startedAt = \Carbon\Carbon::parse($session->started_at);
+                    $endedAt = \Carbon\Carbon::parse($session->ended_at);
+                    $totalElapsedSeconds += $startedAt->diffInSeconds($endedAt);
+                } else {
+                    // Final fallback to the attribute method if timestamps are missing
+                    $totalElapsedSeconds += $session->getElapsedTimeAttribute();
+                }
+            }
+
+            $sessionTimeText = $this->formatSessionTime($totalElapsedSeconds);
+
+            // Calculate scheduled duration for display
+            $duration = is_numeric($reservation->duration) ? (float)$reservation->duration : 0;
+            $scheduledMinutes = (int) ($duration * 60);
+            $scheduledHours = floor($scheduledMinutes / 60);
+            $scheduledMinutesRemainder = $scheduledMinutes % 60;
+
+            if ($scheduledHours > 0) {
+                $scheduledTimeText = "{$scheduledHours}時間{$scheduledMinutesRemainder}分";
+            } else {
+                $scheduledTimeText = "{$scheduledMinutes}分";
+            }
+
+            // Create group message with duration comparison
+            $groupMessage = "セッションが終了しました。お疲れ様でした！\n\n📊 セッション詳細:\n📅 予約時間: {$scheduledTimeText}\n⏱️ 利用時間: {$sessionTimeText}\n";//💰 総獲得ポイント: {$totalCastEarnings}pt";
+
+            // if ($refundAmount > 0) {
+            //     $groupMessage .= "\n💸 返金ポイント: {$refundAmount}pt";
+            // }
+
+            $groupMessage .= "\n📅 予約ID: {$reservation->id}";
+
+            // Send group message
+            $groupMessageRecord = \App\Models\Message::create([
+                'chat_id' => $chat->id,
+                'sender_cast_id' => null, // System message
+                'recipient_type' => 'both',
+                'message' => $groupMessage,
+                'is_read' => 0,
+                'created_at' => now()
+            ]);
+
+            // Broadcast the group message using GroupMessageSent for group chats
+            event(new GroupMessageSent($groupMessageRecord, $chat->group_id));
+
+            Log::info('Group call completion messages sent', [
+                'reservation_id' => $reservation->id,
+                'chat_id' => $chat->id,
+                'total_cast_earnings' => $totalCastEarnings,
+                'refund_amount' => $refundAmount
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('Failed to send group call completion messages', [
+                'reservation_id' => $reservation->id,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+        }
+    }
+
+    /**
      * Send session completion messages to chat
      */
     private function sendChatCompletionMessages(Reservation $reservation, Guest $guest, Cast $cast, int $totalPoints, int $reservedPoints, string $sessionTimeText): void
@@ -1598,6 +1768,14 @@ class PointTransactionService
             if (!$chat) {
                 $chat = \App\Models\Chat::where('reservation_id', $reservation->id)
                     ->where('guest_id', $guest->id)
+                    ->first();
+            }
+
+            // For group calls (free calls), look for group chat
+            if (!$chat && $reservation->type === 'free') {
+                $chat = \App\Models\Chat::where('reservation_id', $reservation->id)
+                    ->where('guest_id', $guest->id)
+                    ->whereNotNull('group_id')
                     ->first();
             }
 
@@ -1621,43 +1799,52 @@ class PointTransactionService
             // Calculate guest refund points
             $guestRefundPoints = max(0, $reservedPoints - $totalPoints);
 
-            // Message for guest
-            $guestMessage = "キャストが解散しました。お疲れ様でした！\n\n📊 セッション詳細:\n⏱️ 利用時間: {$sessionTimeText}\n💰 獲得ポイント: {$totalPoints}pt\n📅 予約ID: {$reservation->id}";
+            // For group calls, send a single message to the group chat
+            if ($reservation->type === 'free' && $chat->group_id) {
+                $groupMessage = "セッションが終了しました。お疲れ様でした！\n\n📊 セッション詳細:\n⏱️ 利用時間: {$sessionTimeText}\n💰 獲得ポイント: {$totalPoints}pt\n📅 予約ID: {$reservation->id}";
 
-            // Message for cast
-            $castMessage = "解散しました。お疲れ様でした！\n\n📊 セッション詳細:\n⏱️ 利用時間: {$sessionTimeText}\n💰 獲得ポイント: {$totalPoints}pt (キャスト: {$totalPoints}pt, ゲスト: {$guestRefundPoints}pt)\n📅 予約ID: {$reservation->id}";
+                // Send group message
+                $groupMessageRecord = \App\Models\Message::create([
+                    'chat_id' => $chat->id,
+                    'sender_cast_id' => $cast->id,
+                    'recipient_type' => 'both',
+                    'message' => $groupMessage,
+                    'is_read' => 0,
+                    'created_at' => now()
+                ]);
 
-            // Send guest message
-            $guestMessageRecord = \App\Models\Message::create([
-                'chat_id' => $chat->id,
-                'sender_cast_id' => $cast->id,
-                'recipient_type' => 'both',
-                'message' => json_encode([
-                    'type' => 'system',
-                    'target' => 'guest',
-                    'text' => $guestMessage
-                ]),
-                'is_read' => 0,
-                'created_at' => now()
-            ]);
+                // Broadcast the group message using GroupMessageSent for group chats
+                event(new GroupMessageSent($groupMessageRecord, $chat->group_id));
+            } else {
+                // For individual calls, send separate messages for guest and cast
+                $guestMessage = "キャストが解散しました。お疲れ様でした！\n\n📊 セッション詳細:\n⏱️ 利用時間: {$sessionTimeText}\n💰 獲得ポイント: {$totalPoints}pt\n📅 予約ID: {$reservation->id}";
 
-            // Send cast message
-            $castMessageRecord = \App\Models\Message::create([
-                'chat_id' => $chat->id,
-                'sender_cast_id' => $cast->id,
-                'recipient_type' => 'both',
-                'message' => json_encode([
-                    'type' => 'system',
-                    'target' => 'cast',
-                    'text' => $castMessage
-                ]),
-                'is_read' => 0,
-                'created_at' => now()
-            ]);
+                $castMessage = "解散しました。お疲れ様でした！\n\n📊 セッション詳細:\n⏱️ 利用時間: {$sessionTimeText}\n💰 獲得ポイント: {$totalPoints}pt (キャスト: {$totalPoints}pt, ゲスト: {$guestRefundPoints}pt)\n📅 予約ID: {$reservation->id}";
 
-            // Broadcast both messages that were just created
-            event(new \App\Events\MessageSent($guestMessageRecord));
-            event(new \App\Events\MessageSent($castMessageRecord));
+                // Send guest message
+                $guestMessageRecord = \App\Models\Message::create([
+                    'chat_id' => $chat->id,
+                    'sender_cast_id' => $cast->id,
+                    'recipient_type' => 'both',
+                    'message' => $guestMessage,
+                    'is_read' => 0,
+                    'created_at' => now()
+                ]);
+
+                // Send cast message
+                $castMessageRecord = \App\Models\Message::create([
+                    'chat_id' => $chat->id,
+                    'sender_cast_id' => $cast->id,
+                    'recipient_type' => 'both',
+                    'message' => $castMessage,
+                    'is_read' => 0,
+                    'created_at' => now()
+                ]);
+
+                // Broadcast both messages that were just created
+                event(new \App\Events\MessageSent($guestMessageRecord));
+                event(new \App\Events\MessageSent($castMessageRecord));
+            }
 
             Log::info('Chat completion messages sent', [
                 'reservation_id' => $reservation->id,

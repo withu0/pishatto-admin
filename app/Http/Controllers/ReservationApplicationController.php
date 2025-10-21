@@ -153,6 +153,9 @@ class ReservationApplicationController extends Controller
                 'group_id' => $chatGroup->id,
             ]);
 
+            // Broadcast chat creation in real-time
+            event(new \App\Events\ChatCreated($chat));
+
             // Send automatic matching information message
             $matchingMessageService = app(MatchingMessageService::class);
             $matchingMessageService->sendMatchingMessage($reservation, $application->cast_id, $chat->id, $chatGroup->id);

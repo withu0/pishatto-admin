@@ -22,8 +22,8 @@ class Kernel extends ConsoleKernel
         $schedule->command('points:reset-quarterly')->cron('1 0 1 1,4,7,10 *');
         // Process exceeded pending transfers every hour
         $schedule->command('points:process-exceeded-pending')->hourly();
-        // Capture pending payments every hour (for 2-day delayed capture)
-        $schedule->command('payments:capture-pending')->hourly();
+        // Process pending payments every hour (for 2-day delayed capture)
+        $schedule->command('payments:process-pending')->hourly();
     }
 
     /**

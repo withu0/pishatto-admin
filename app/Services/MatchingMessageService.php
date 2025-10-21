@@ -117,13 +117,16 @@ class MatchingMessageService
         $targetChat = Chat::where('group_id', $groupId)->first();
 
         if ($targetChat) {
-            Message::create([
+            $messageRecord = Message::create([
                 'chat_id' => $targetChat->id,
                 'message' => $message,
                 'recipient_type' => $recipientType,
                 'created_at' => now(),
                 'is_read' => false,
             ]);
+
+            // Broadcast the message in real-time
+            event(new \App\Events\GroupMessageSent($messageRecord, $groupId));
         }
     }
 
@@ -225,13 +228,16 @@ class MatchingMessageService
      */
     private function sendToChat(int $chatId, string $message, string $recipientType = 'both'): void
     {
-        Message::create([
+        $messageRecord = Message::create([
             'chat_id' => $chatId,
             'message' => $message,
             'recipient_type' => $recipientType,
             'created_at' => now(),
             'is_read' => false,
         ]);
+
+        // Broadcast the message in real-time
+        event(new \App\Events\MessageSent($messageRecord));
     }
 
     /**

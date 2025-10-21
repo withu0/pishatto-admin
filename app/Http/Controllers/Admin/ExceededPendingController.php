@@ -162,7 +162,7 @@ class ExceededPendingController extends Controller
             $result = $stripeService->cancelPaymentIntent($payment->stripe_payment_intent_id);
 
             if ($result['success']) {
-                // Update payment status to refunded
+                // Update payment status to refunded (cancelled pending authorization)
                 $payment->update([
                     'status' => 'refunded',
                     'metadata' => array_merge($payment->metadata ?? [], [
@@ -172,30 +172,54 @@ class ExceededPendingController extends Controller
                     ])
                 ]);
 
-                // Refund the points to the guest
+                // Reverse the previously granted points to the guest (remove granted points)
                 if ($payment->user_type === 'guest' && $payment->user_id) {
                     $guest = \App\Models\Guest::find($payment->user_id);
                     if ($guest) {
-                        $pointsToRefund = $payment->amount / 1.2; // Convert yen back to points
-                        $guest->points += (int) $pointsToRefund;
+                        // Use configured conversion rate (yen per point) and round down to int
+                        $yenPerPoint = (float) (config('points.yen_per_point', 1.2));
+                        $pointsToReverse = (int) floor($payment->amount / max($yenPerPoint, 0.0001));
+
+                        // Decrease guest points but not below zero
+                        $guest->points = max(0, (int) $guest->points - $pointsToReverse);
                         $guest->save();
 
-                        // Create a refund transaction
+                        // Create a refund transaction (negative to represent removal of granted points)
                         \App\Models\PointTransaction::create([
                             'guest_id' => $guest->id,
                             'type' => 'refund',
-                            'amount' => (int) $pointsToRefund,
+                            'amount' => -$pointsToReverse,
                             'reservation_id' => $payment->reservation_id,
                             'payment_id' => $payment->id,
-                            'description' => "Payment cancelled - refunded {$pointsToRefund} points"
+                            'description' => "保留支払いキャンセル - 付与ポイント取り消し {$pointsToReverse}P"
                         ]);
+
+                        // Mark related exceeded_pending (negative placeholder) as cancelled to prevent auto-transfer
+                        $relatedExceeded = \App\Models\PointTransaction::where('payment_id', $payment->id)
+                            ->where('type', 'exceeded_pending')
+                            ->first();
+                        if ($relatedExceeded) {
+                            $relatedExceeded->update([
+                                'description' => trim((string) $relatedExceeded->description . ' (キャンセル)')
+                            ]);
+                        }
+
+                        // Optionally mark the related buy transaction as cancelled in description
+                        $relatedBuy = \App\Models\PointTransaction::where('payment_id', $payment->id)
+                            ->where('type', 'buy')
+                            ->first();
+                        if ($relatedBuy) {
+                            $relatedBuy->update([
+                                'description' => trim((string) $relatedBuy->description . ' (キャンセル)')
+                            ]);
+                        }
                     }
                 }
 
                 return response()->json([
                     'success' => true,
                     'message' => 'Payment cancelled successfully',
-                    'refunded_points' => (int) ($payment->amount / 1.2)
+                    'refunded_points' => 0
                 ]);
             } else {
                 return response()->json([

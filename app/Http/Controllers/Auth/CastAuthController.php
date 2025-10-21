@@ -752,6 +752,7 @@ class CastAuthController extends Controller
         $validator = Validator::make($request->all(), [
             'reservation_id' => 'required|exists:reservations,id',
             'cast_id' => 'required|exists:casts,id',
+            'frontend_elapsed_time' => 'nullable|numeric|min:0', // Accept frontend-calculated time
         ]);
         if ($validator->fails()) {
             return response()->json(['message' => 'Validation failed', 'errors' => $validator->errors()], 422);
@@ -761,7 +762,8 @@ class CastAuthController extends Controller
         $castId = $request->cast_id;
 
         // Find the cast session for this cast and reservation
-        $castSession = \App\Models\CastSession::where('reservation_id', $reservation->id)
+        $castSession = \App\Models\CastSession::with('cast')
+            ->where('reservation_id', $reservation->id)
             ->where('cast_id', $castId)
             ->where('status', 'active')
             ->first();
@@ -805,7 +807,56 @@ class CastAuthController extends Controller
 
         // For group calls (free type), calculate and process individual cast earnings
         if ($reservation->type === 'free') {
-            $this->processCastSessionCompletion($castSession, $reservation);
+            $this->processCastSessionCompletion($castSession, $reservation, $request->frontend_elapsed_time);
+
+            // Check if all cast sessions are completed for this reservation
+            $activeSessions = \App\Models\CastSession::where('reservation_id', $reservation->id)
+                ->where('status', 'active')
+                ->count();
+
+            // Get all cast sessions for debugging
+            $allSessions = \App\Models\CastSession::where('reservation_id', $reservation->id)->get();
+            $sessionStatuses = $allSessions->map(function($session) {
+                return [
+                    'id' => $session->id,
+                    'cast_id' => $session->cast_id,
+                    'status' => $session->status,
+                    'ended_at' => $session->ended_at
+                ];
+            })->toArray();
+
+            \Log::info('Free call completion check', [
+                'reservation_id' => $reservation->id,
+                'cast_session_id' => $castSession->id,
+                'active_sessions' => $activeSessions,
+                'reservation_ended_at' => $reservation->ended_at,
+                'all_sessions' => $sessionStatuses
+            ]);
+
+            // If no active sessions remain, process the overall reservation completion
+            if ($activeSessions === 0 && !$reservation->ended_at) {
+                \Log::info('All cast sessions completed, processing reservation completion', [
+                    'reservation_id' => $reservation->id
+                ]);
+
+                $reservation->ended_at = now();
+                $reservation->save();
+
+                // Process reservation completion for group calls
+                $pointService = app(\App\Services\PointTransactionService::class);
+                $success = $pointService->processReservationCompletion($reservation);
+
+                if (!$success) {
+                    return response()->json(['message' => 'Failed to process point transaction'], 500);
+                }
+            } else {
+                \Log::info('Reservation completion not triggered', [
+                    'reservation_id' => $reservation->id,
+                    'active_sessions' => $activeSessions,
+                    'reservation_ended_at' => $reservation->ended_at,
+                    'reason' => $activeSessions > 0 ? 'active_sessions_remain' : 'reservation_already_ended'
+                ]);
+            }
         }
 
         // Broadcast the reservation update event
@@ -820,7 +871,7 @@ class CastAuthController extends Controller
     /**
      * Process individual cast session completion for group calls
      */
-    private function processCastSessionCompletion(\App\Models\CastSession $castSession, Reservation $reservation)
+    private function processCastSessionCompletion(\App\Models\CastSession $castSession, Reservation $reservation, $frontendElapsedTime = null)
     {
         try {
             // Check if points have already been processed for this session
@@ -833,7 +884,21 @@ class CastAuthController extends Controller
             }
 
             // Calculate elapsed time for this cast
-            $elapsedTime = $castSession->getElapsedTimeAttribute();
+            // Use frontend-calculated time if available, otherwise use backend calculation
+            if ($frontendElapsedTime !== null) {
+                $elapsedTime = (int) $frontendElapsedTime; // Frontend sends time in seconds
+                \Log::info('Using frontend-calculated elapsed time', [
+                    'cast_session_id' => $castSession->id,
+                    'frontend_elapsed_time' => $frontendElapsedTime,
+                    'backend_elapsed_time' => $castSession->getElapsedTimeAttribute()
+                ]);
+            } else {
+                $elapsedTime = $castSession->getElapsedTimeAttribute();
+                \Log::info('Using backend-calculated elapsed time', [
+                    'cast_session_id' => $castSession->id,
+                    'backend_elapsed_time' => $elapsedTime
+                ]);
+            }
             $elapsedMinutes = $elapsedTime / 60;
 
             // Get cast profile for category points
@@ -884,18 +949,41 @@ class CastAuthController extends Controller
                 'total_points' => $points
             ]);
 
-            // Update cast session with earned points
+            // Update cast session with earned points and store frontend-calculated time
             $castSession->points_earned = $points;
+            // Store the frontend-calculated elapsed time for consistency
+            if ($frontendElapsedTime !== null) {
+                $castSession->frontend_elapsed_time = $frontendElapsedTime;
+            }
             $castSession->save();
 
-            // Create point transfer transaction
+            // Create separate transfer transactions for reserved and extension points
             $pointService = app(\App\Services\PointTransactionService::class);
-            $pointService->createTransferTransaction([
-                'cast_id' => $castSession->cast_id,
-                'amount' => $points,
-                'reservation_id' => $reservation->id,
-                'description' => "フリーコール決済 - 予約{$reservation->id}"
-            ]);
+
+            // 1. Create transfer for reserved points (scheduled time)
+            $reservedPoints = min($points, $scheduledMinutes * $perMinute);
+            if ($reservedPoints > 0) {
+                $pointService->createTransferTransaction([
+                    'cast_id' => $castSession->cast_id,
+                    'amount' => $reservedPoints,
+                    'reservation_id' => $reservation->id,
+                    'description' => "フリーコール決済 - 予約{$reservation->id}"
+                ]);
+            }
+
+            // 2. Create exceeded_pending for extension points (if any)
+            $extensionPoints = $points - $reservedPoints;
+            if ($extensionPoints > 0) {
+                $pointService->createExceededPendingTransaction([
+                    'cast_id' => $castSession->cast_id,
+                    'amount' => $extensionPoints,
+                    'reservation_id' => $reservation->id,
+                    'description' => "フリーコール延長時間料金 - キャスト{$castSession->cast_id} - " . round($elapsedMinutes - $scheduledMinutes, 2) . "分 (自動支払い済み) - 予約{$reservation->id}"
+                ]);
+            }
+
+            // Send individual cast stop message
+            $this->sendCastStopMessage($reservation, $castSession, $points, $elapsedMinutes, $elapsedTime);
 
             } catch (\Exception $e) {
             \Log::error('Failed to process cast session completion', [
@@ -1015,6 +1103,102 @@ class CastAuthController extends Controller
         $formattedNumber = '81' . ltrim($phoneNumber, '0');
 
         return $formattedNumber;
+    }
+
+    /**
+     * Send individual cast stop message to group chat
+     */
+    private function sendCastStopMessage(Reservation $reservation, \App\Models\CastSession $castSession, int $points, float $elapsedMinutes, int $elapsedSeconds): void
+    {
+        try {
+            // Find the group chat for this reservation
+            $chat = \App\Models\Chat::where('reservation_id', $reservation->id)
+                ->where('guest_id', $reservation->guest_id)
+                ->whereNotNull('group_id')
+                ->first();
+
+            if (!$chat) {
+                \Log::warning('No group chat found for cast stop message', [
+                    'reservation_id' => $reservation->id,
+                    'cast_session_id' => $castSession->id
+                ]);
+                return;
+            }
+
+            // Format elapsed time using the exact elapsed seconds
+            $hours = floor($elapsedSeconds / 3600);
+            $minutes = floor(($elapsedSeconds % 3600) / 60);
+            $seconds = $elapsedSeconds % 60;
+
+            if ($hours > 0) {
+                $timeText = "{$hours}時間{$minutes}分{$seconds}秒";
+            } elseif ($minutes > 0) {
+                $timeText = "{$minutes}分{$seconds}秒";
+            } else {
+                $timeText = "{$seconds}秒";
+            }
+
+            // Get cast name with fallback
+            $castName = $castSession->cast->name ?? $castSession->cast->nickname ?? 'キャスト';
+
+            // Calculate points breakdown
+            $duration = is_numeric($reservation->duration) ? (float)$reservation->duration : 0;
+            $scheduledMinutes = (int) ($duration * 60);
+            $cast = $castSession->cast;
+            $categoryPoints = $cast->category_points ?? 12000;
+            $perMinute = (int) floor($categoryPoints / 30);
+            $reservedPoints = min($points, $scheduledMinutes * $perMinute);
+            $extensionPoints = $points - $reservedPoints;
+
+            // Calculate scheduled duration for display
+            $duration = is_numeric($reservation->duration) ? (float)$reservation->duration : 0;
+            $scheduledMinutes = (int) ($duration * 60);
+            $scheduledHours = floor($scheduledMinutes / 60);
+            $scheduledMinutesRemainder = $scheduledMinutes % 60;
+
+            if ($scheduledHours > 0) {
+                $scheduledTimeText = "{$scheduledHours}時間{$scheduledMinutesRemainder}分";
+            } else {
+                $scheduledTimeText = "{$scheduledMinutes}分";
+            }
+
+            // Create individual cast stop message with duration comparison
+            $castMessage = "{$castName}さんがタイマーを停止しました。\n\n📊 セッション詳細:\n📅 予約時間: {$scheduledTimeText}\n⏱️ 利用時間: {$timeText}\n"; //💰 獲得ポイント: {$points}pt";
+
+            // if ($extensionPoints > 0) {
+            //     $castMessage .= "\n📋 内訳:\n• 基本料金: {$reservedPoints}pt\n• 延長時間料金: {$extensionPoints}pt";
+            // }
+
+            $castMessage .= "\n📅 予約ID: {$reservation->id}";
+
+            // Send message
+            $messageRecord = \App\Models\Message::create([
+                'chat_id' => $chat->id,
+                'sender_cast_id' => $castSession->cast_id,
+                'recipient_type' => 'both',
+                'message' => $castMessage,
+                'is_read' => 0,
+                'created_at' => now()
+            ]);
+
+            // Broadcast the message using GroupMessageSent for group chats
+            event(new \App\Events\GroupMessageSent($messageRecord, $chat->group_id));
+
+            \Log::info('Cast stop message sent', [
+                'reservation_id' => $reservation->id,
+                'cast_session_id' => $castSession->id,
+                'cast_id' => $castSession->cast_id,
+                'points' => $points,
+                'elapsed_minutes' => $elapsedMinutes
+            ]);
+
+        } catch (\Exception $e) {
+            \Log::error('Failed to send cast stop message', [
+                'reservation_id' => $reservation->id,
+                'cast_session_id' => $castSession->id,
+                'error' => $e->getMessage()
+            ]);
+        }
     }
 
     /**

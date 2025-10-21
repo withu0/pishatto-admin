@@ -532,11 +532,13 @@ class StripeService
     {
         try {
             // Create payment intent
+            $captureMethod = $paymentData['capture_method'] ?? 'automatic';
             $paymentIntentData = [
                 'amount' => $paymentData['amount'], // Amount in cents
                 'currency' => 'jpy',
                 'description' => $paymentData['description'] ?? 'Payment',
                 'metadata' => $paymentData['metadata'] ?? [],
+                'capture_method' => $captureMethod,
             ];
 
             // Add customer if provided
@@ -563,7 +565,7 @@ class StripeService
                             // Set payment method and configuration
                             $paymentIntentData['payment_method'] = $paymentMethodId;
                             $paymentIntentData['confirm'] = true;
-                            $paymentIntentData['capture_method'] = 'automatic';
+                            $paymentIntentData['capture_method'] = $captureMethod;
                             $paymentIntentData['off_session'] = true;
                             $paymentIntentData['return_url'] = config('app.url') . '/payment/return';
                             $paymentIntentData['automatic_payment_methods'] = [
@@ -589,7 +591,7 @@ class StripeService
             if (isset($paymentData['payment_method']) && !isset($paymentIntentData['payment_method'])) {
                 $paymentIntentData['payment_method'] = $paymentData['payment_method'];
                 $paymentIntentData['confirm'] = true;
-                $paymentIntentData['capture_method'] = 'automatic';
+                $paymentIntentData['capture_method'] = $captureMethod;
                 $paymentIntentData['off_session'] = true; // Indicates this is an off-session payment
                 $paymentIntentData['return_url'] = config('app.url') . '/payment/return'; // Add return URL for redirect-based payments
                 $paymentIntentData['automatic_payment_methods'] = [
@@ -679,7 +681,8 @@ class StripeService
 
             // Validate payment intent status
             $statusInfo = $this->validatePaymentIntentStatus($paymentIntent);
-            $isPaymentSuccessful = $statusInfo['is_successful'];
+            $isAuthorizedManual = ($captureMethod === 'manual') && in_array($paymentIntent->status, ['requires_capture', 'succeeded']);
+            $isPaymentSuccessful = ($captureMethod === 'automatic') ? $statusInfo['is_successful'] : $isAuthorizedManual;
 
             // Create payment record in database
             $payment = \App\Models\Payment::create([
@@ -687,12 +690,12 @@ class StripeService
                 'user_type' => $paymentData['user_type'],
                 'amount' => $paymentData['amount'],
                 'payment_method' => $paymentData['payment_method_type'] ?? 'card',
-                'status' => $isPaymentSuccessful ? 'paid' : 'pending',
+                'status' => $isPaymentSuccessful ? (($captureMethod === 'automatic' && $paymentIntent->status === 'succeeded') ? 'paid' : 'pending') : 'failed',
                 'description' => $paymentData['description'] ?? 'Payment',
                 'stripe_payment_intent_id' => $paymentIntent->id,
                 'stripe_customer_id' => $paymentData['customer_id'] ?? null,
                 'metadata' => $paymentData['metadata'] ?? [],
-                'paid_at' => $isPaymentSuccessful ? now() : null,
+                'paid_at' => ($captureMethod === 'automatic' && $paymentIntent->status === 'succeeded') ? now() : null,
             ]);
 
             return [

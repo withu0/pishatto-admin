@@ -284,10 +284,10 @@ const PointTransactionPage: React.FC = () => {
   const getTypeLabel = (type: string) => {
     const typeLabels: { [key: string]: string } = {
       'buy': '購入',
-      'transfer': '転送',
+      'transfer': '基本料金',
       'convert': '変換',
       'gift': 'ギフト',
-      'exceeded_pending': '超過時間保留',
+      'exceeded_pending': '延長時間料金',
       'pending': '保留',
       'refund': '返金'
     };
