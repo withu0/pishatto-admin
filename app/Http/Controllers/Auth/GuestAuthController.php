@@ -408,12 +408,33 @@ class GuestAuthController extends Controller
 
             // Check if guest has sufficient points
             if ($guest->points < $requiredPoints) {
-                DB::rollBack();
-                return response()->json([
-                    'message' => 'Insufficient points',
+                // Try automatic payment with pending transaction
+                $automaticPaymentService = app(\App\Services\AutomaticPaymentWithPendingService::class);
+                $paymentResult = $automaticPaymentService->processAutomaticPaymentWithPending(
+                    $guest->id,
+                    $requiredPoints,
+                    $reservation->id,
+                    "ピシャット予約 - {$reservation->id}"
+                );
+
+                if (!$paymentResult['success']) {
+                    DB::rollBack();
+                    return response()->json([
+                        'message' => 'ポイントが不足しており、自動支払いも失敗しました',
+                        'required_points' => $requiredPoints,
+                        'available_points' => $guest->points,
+                        'payment_error' => $paymentResult['error'],
+                        'requires_card_registration' => $paymentResult['requires_card_registration'] ?? false
+                    ], 400);
+                }
+
+                // Points have been added via automatic payment, continue with reservation creation
+                Log::info('Automatic payment successful for insufficient points', [
+                    'guest_id' => $guest->id,
+                    'reservation_id' => $reservation->id,
                     'required_points' => $requiredPoints,
-                    'available_points' => $guest->points
-                ], 400);
+                    'payment_id' => $paymentResult['payment_id']
+                ]);
             }
 
             // Deduct points from guest and mark as pending
@@ -522,7 +543,7 @@ class GuestAuthController extends Controller
             if (!$success) {
                 DB::rollBack();
                 return response()->json([
-                    'message' => 'Insufficient points',
+                    'message' => 'ポイントが不足しています',
                     'required_points' => $requiredPoints,
                     'available_points' => $guest->points
                 ], 400);
@@ -652,7 +673,7 @@ class GuestAuthController extends Controller
             if (!$success) {
                 DB::rollBack();
                 return response()->json([
-                    'message' => 'Insufficient points',
+                    'message' => 'ポイントが不足しています',
                     'required_points' => $requiredPoints,
                     'available_points' => $guest->points
                 ], 400);
@@ -1927,7 +1948,7 @@ class GuestAuthController extends Controller
             // Check if guest has enough points
             if ($guest->points < $request->amount) {
                 return response()->json([
-                    'message' => 'Insufficient points',
+                    'message' => 'ポイントが不足しています',
                     'available_points' => $guest->points,
                     'requested_amount' => $request->amount
                 ], 400);

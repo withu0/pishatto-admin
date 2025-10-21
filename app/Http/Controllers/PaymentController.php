@@ -1729,4 +1729,92 @@ class PaymentController extends Controller
             ];
         }
     }
+
+    /**
+     * Process automatic payment with pending transaction
+     */
+    public function processAutomaticPaymentWithPending(Request $request)
+    {
+        $request->validate([
+            'guest_id' => 'required|integer|exists:guests,id',
+            'required_points' => 'required|integer|min:1',
+            'reservation_id' => 'required|integer|exists:reservations,id',
+            'description' => 'nullable|string|max:255'
+        ]);
+
+        try {
+            $automaticPaymentService = app(\App\Services\AutomaticPaymentWithPendingService::class);
+
+            $result = $automaticPaymentService->processAutomaticPaymentWithPending(
+                $request->guest_id,
+                $request->required_points,
+                $request->reservation_id,
+                $request->description ?? 'Automatic payment with pending for insufficient points'
+            );
+
+            if ($result['success']) {
+                return response()->json([
+                    'success' => true,
+                    'message' => 'Automatic payment with pending processed successfully',
+                    'payment_id' => $result['payment_id'],
+                    'point_transaction_id' => $result['point_transaction_id'],
+                    'amount_yen' => $result['amount_yen'],
+                    'points_added' => $result['points_added'],
+                    'new_balance' => $result['new_balance'],
+                    'expires_at' => $result['expires_at']
+                ]);
+            } else {
+                return response()->json([
+                    'success' => false,
+                    'message' => $result['error'],
+                    'requires_card_registration' => $result['requires_card_registration'] ?? false
+                ], 400);
+            }
+
+        } catch (\Exception $e) {
+            Log::error('Automatic payment with pending API error', [
+                'guest_id' => $request->guest_id,
+                'required_points' => $request->required_points,
+                'reservation_id' => $request->reservation_id,
+                'error' => $e->getMessage()
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to process automatic payment with pending',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Process pending automatic payments (for cron job)
+     */
+    public function processPendingAutomaticPayments()
+    {
+        try {
+            $automaticPaymentService = app(\App\Services\AutomaticPaymentWithPendingService::class);
+            $result = $automaticPaymentService->processPendingPaymentsForCapture();
+
+            return response()->json([
+                'success' => $result['success'],
+                'processed_count' => $result['processed_count'] ?? 0,
+                'failed_count' => $result['failed_count'] ?? 0,
+                'total_found' => $result['total_found'] ?? 0,
+                'error' => $result['error'] ?? null
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('Process pending automatic payments API error', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to process pending automatic payments',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
 }

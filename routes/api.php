@@ -182,6 +182,10 @@ Route::get('/payments/automatic/history', [PaymentController::class, 'getAutomat
 Route::get('/payments/automatic/audit-trail', [PaymentController::class, 'getAutomaticPaymentAuditTrail']);
 Route::get('/payments/automatic/reservation/{reservationId}', [PaymentController::class, 'getReservationAutomaticPayments']);
 
+// Automatic payment with pending routes
+Route::post('/payments/automatic-pending', [PaymentController::class, 'processAutomaticPaymentWithPending']);
+Route::post('/payments/process-pending-automatic', [PaymentController::class, 'processPendingAutomaticPayments']);
+
 // Admin cast payment management routes
 Route::get('/admin/payments/cast', [PaymentController::class, 'getCastPayments']);
 Route::post('/admin/payments/cast', [PaymentController::class, 'createCastPayment']);

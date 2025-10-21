@@ -979,4 +979,124 @@ class StripeService
                 return 'unknown';
         }
     }
+
+    /**
+     * Create a payment intent with capture delay
+     */
+    public function createPaymentIntentWithDelay($customerId, $amount, $description, $captureDelayDays = 1)
+    {
+        try {
+            // For testing: 1 minute delay instead of days
+            $captureDelay = 60; // 1 minute in seconds
+
+            $paymentIntentData = [
+                'amount' => $amount,
+                'currency' => 'jpy',
+                'customer' => $customerId,
+                'description' => $description,
+                'capture_method' => 'manual',
+                'confirm' => false, // Don't confirm immediately - let it be authorized only
+                'automatic_payment_methods' => [
+                    'enabled' => true,
+                    'allow_redirects' => 'never'
+                ],
+                'metadata' => [
+                    'capture_delay_days' => $captureDelayDays,
+                    'auto_capture_at' => now()->addDays($captureDelayDays)->toISOString()
+                ]
+            ];
+
+            // Try to get customer's default payment method
+            try {
+                $paymentMethods = PaymentMethod::all([
+                    'customer' => $customerId,
+                    'type' => 'card',
+                ]);
+
+                if (!empty($paymentMethods->data)) {
+                    $paymentMethodId = $paymentMethods->data[0]->id;
+
+                    // Ensure payment method is attached to customer
+                    $paymentMethod = PaymentMethod::retrieve($paymentMethodId);
+                    if (!$paymentMethod->customer) {
+                        $paymentMethod->attach(['customer' => $customerId]);
+                    }
+
+                    // Set payment method for automatic payment
+                    $paymentIntentData['payment_method'] = $paymentMethodId;
+                    // Don't set off_session when confirm is false
+
+                    Log::info('Using customer default payment method for delayed payment', [
+                        'customer_id' => $customerId,
+                        'payment_method_id' => $paymentMethodId
+                    ]);
+                } else {
+                    // No payment methods found, use automatic payment methods only
+                    Log::info('No saved payment methods found, using automatic payment methods only', [
+                        'customer_id' => $customerId
+                    ]);
+                }
+            } catch (Exception $e) {
+                Log::warning('Failed to get customer payment methods for delayed payment', [
+                    'customer_id' => $customerId,
+                    'error' => $e->getMessage()
+                ]);
+            }
+
+            $paymentIntent = PaymentIntent::create($paymentIntentData);
+
+            // If we have a payment method, confirm the payment intent
+            if (isset($paymentIntentData['payment_method'])) {
+                try {
+                    $paymentIntent = $paymentIntent->confirm([
+                        'payment_method' => $paymentIntentData['payment_method']
+                    ]);
+
+                    Log::info('Payment intent confirmed for delayed capture', [
+                        'payment_intent_id' => $paymentIntent->id,
+                        'status' => $paymentIntent->status
+                    ]);
+                } catch (\Exception $e) {
+                    Log::error('Failed to confirm payment intent', [
+                        'payment_intent_id' => $paymentIntent->id,
+                        'error' => $e->getMessage()
+                    ]);
+
+                    return [
+                        'success' => false,
+                        'error' => 'Failed to confirm payment intent: ' . $e->getMessage()
+                    ];
+                }
+            }
+
+            Log::info('Payment intent with delay created', [
+                'payment_intent_id' => $paymentIntent->id,
+                'amount' => $amount,
+                'capture_delay_days' => $captureDelayDays,
+                'customer_id' => $customerId,
+                'status' => $paymentIntent->status
+            ]);
+
+            return [
+                'success' => true,
+                'payment_intent_id' => $paymentIntent->id,
+                'client_secret' => $paymentIntent->client_secret,
+                'status' => $paymentIntent->status
+            ];
+
+        } catch (\Exception $e) {
+            Log::error('Failed to create payment intent with delay', [
+                'customer_id' => $customerId,
+                'amount' => $amount,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+
+            return [
+                'success' => false,
+                'error' => $e->getMessage()
+            ];
+        }
+    }
+
 }

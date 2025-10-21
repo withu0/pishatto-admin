@@ -24,6 +24,8 @@ class Kernel extends ConsoleKernel
         $schedule->command('points:process-exceeded-pending')->hourly();
         // Process pending payments every hour (for 2-day delayed capture)
         $schedule->command('payments:process-pending')->hourly();
+        // Process pending automatic payments every hour (for 2-day delayed capture)
+        $schedule->command('payments:process-pending-automatic')->hourly();
     }
 
     /**

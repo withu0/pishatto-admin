@@ -254,7 +254,7 @@ class ChatController extends Controller
                             // If insufficient points, delete the message and return error
                             $message->delete();
                             return response()->json([
-                                'error' => 'Insufficient points to send this gift',
+                                'error' => 'ギフト送信に必要なポイントが不足しています',
                                 'required_points' => $gift->points,
                                 'available_points' => $guest->points
                             ], 400);

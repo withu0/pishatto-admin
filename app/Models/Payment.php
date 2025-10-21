@@ -30,6 +30,7 @@ class Payment extends Model
         'error_message',
         'reservation_id',
         'payment_id',
+        'expires_at',
     ];
 
     protected $casts = [
@@ -38,6 +39,7 @@ class Payment extends Model
         'paid_at' => 'datetime',
         'failed_at' => 'datetime',
         'refunded_at' => 'datetime',
+        'expires_at' => 'datetime',
         'is_automatic' => 'boolean',
     ];
 

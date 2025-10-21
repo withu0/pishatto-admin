@@ -94,7 +94,7 @@ class CastPaymentController extends Controller
 
             if ($immediatePoints < $request->amount) {
                 return response()->json([
-                    'message' => 'Insufficient points for immediate payment'
+                    'message' => '即時支払いに必要なポイントが不足しています'
                 ], 400);
             }
 
