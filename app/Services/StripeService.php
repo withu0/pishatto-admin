@@ -986,8 +986,8 @@ class StripeService
     public function createPaymentIntentWithDelay($customerId, $amount, $description, $captureDelayDays = 1)
     {
         try {
-            // For testing: 1 minute delay instead of days
-            $captureDelay = 60; // 1 minute in seconds
+            // For production: Use the captureDelayDays parameter (2 days = 172800 seconds)
+            $captureDelay = $captureDelayDays * 24 * 60 * 60; // Convert days to seconds
 
             $paymentIntentData = [
                 'amount' => $amount,

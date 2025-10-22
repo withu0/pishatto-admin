@@ -164,6 +164,7 @@ Route::get('/feedback/all-satisfaction', [FeedbackController::class, 'getAllSati
 Route::post('/payments/payment-intent-direct', [PaymentController::class, 'createPaymentIntentDirect']);
 Route::post('/payments/debug-response', [PaymentController::class, 'debugStripeResponse']);
 Route::post('/payments/purchase', [PaymentController::class, 'purchase']);
+Route::post('/payments/purchase-pending', [PaymentController::class, 'purchaseWithPendingCapture']);
 Route::post('/payments/register-card', [PaymentController::class, 'registerCard']);
 Route::post('/payments/info', [PaymentController::class, 'storePaymentInfo']);
 Route::get('/payments/info/{userType}/{userId}', [PaymentController::class, 'getPaymentInfo']);

@@ -1817,4 +1817,85 @@ class PaymentController extends Controller
             ], 500);
         }
     }
+
+    /**
+     * Purchase points with manual capture for insufficient points scenario
+     * This creates a pending payment that will be captured after 2 days
+     */
+    public function purchaseWithPendingCapture(Request $request)
+    {
+        $request->validate([
+            'user_id' => 'required|integer',
+            'user_type' => 'required|string|in:guest,cast',
+            'amount' => 'required|integer|min:100',
+            'required_points' => 'required|integer|min:1',
+            'description' => 'nullable|string',
+        ]);
+
+        try {
+            // Get user model
+            $model = $request->user_type === 'guest'
+                ? \App\Models\Guest::find($request->user_id)
+                : \App\Models\Cast::find($request->user_id);
+
+            if (!$model) {
+                return response()->json([
+                    'success' => false,
+                    'error' => 'ユーザーが見つかりません',
+                ], 404);
+            }
+
+            // Check if user has a registered payment method
+            if (!$model->stripe_customer_id) {
+                return response()->json([
+                    'success' => false,
+                    'error' => 'カード情報が必要です。カードを登録してください。',
+                    'requires_card_registration' => true,
+                ], 400);
+            }
+
+            // Use the existing AutomaticPaymentWithPendingService
+            $automaticPaymentService = app(\App\Services\AutomaticPaymentWithPendingService::class);
+
+            $result = $automaticPaymentService->processAutomaticPaymentWithPending(
+                $request->user_id,
+                $request->required_points,
+                0, // No reservation ID for insufficient points modal (use 0 instead of null)
+                $request->description ?? "ポイント不足時の自動支払い - {$request->required_points}ポイント"
+            );
+
+            if ($result['success']) {
+                return response()->json([
+                    'success' => true,
+                    'payment_id' => $result['payment_id'],
+                    'point_transaction_id' => $result['point_transaction_id'],
+                    'amount_yen' => $result['amount_yen'],
+                    'points_added' => $result['points_added'],
+                    'new_balance' => $result['new_balance'],
+                    'expires_at' => $result['expires_at'],
+                    'payment_intent_id' => $result['payment_intent_id'],
+                    'message' => 'ポイントが追加されました。2日後に自動的に支払いが完了します。'
+                ]);
+            } else {
+                return response()->json([
+                    'success' => false,
+                    'error' => $result['error'],
+                    'requires_card_registration' => $result['requires_card_registration'] ?? false,
+                ], 400);
+            }
+
+        } catch (\Exception $e) {
+            Log::error('Purchase with pending capture failed: ' . $e->getMessage(), [
+                'user_id' => $request->user_id ?? 'unknown',
+                'user_type' => $request->user_type ?? 'unknown',
+                'amount' => $request->amount ?? 'unknown',
+                'trace' => $e->getTraceAsString()
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'error' => '決済処理中にエラーが発生しました',
+            ], 500);
+        }
+    }
 }

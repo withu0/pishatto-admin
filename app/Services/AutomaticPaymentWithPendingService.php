@@ -109,7 +109,7 @@ class AutomaticPaymentWithPendingService
                 'status' => 'pending',
                 'stripe_payment_intent_id' => $paymentIntent['payment_intent_id'],
                 'description' => $description,
-                'reservation_id' => $reservationId,
+                'reservation_id' => $reservationId > 0 ? $reservationId : null,
                 'is_automatic' => true,
                 'expires_at' => now()->addDays(2)->addHour(), // 2 days + 1 hour from now (for production)
                 'created_at' => now(),
@@ -121,7 +121,7 @@ class AutomaticPaymentWithPendingService
                 'guest_id' => $guestId,
                 'type' => 'pending',
                 'amount' => $requiredPoints,
-                'reservation_id' => $reservationId,
+                'reservation_id' => $reservationId > 0 ? $reservationId : null,
                 'description' => $description . ' (2日後自動支払い)',
                 'payment_id' => $payment->id,
                 'created_at' => now(),
@@ -180,9 +180,9 @@ class AutomaticPaymentWithPendingService
     public function processPendingPaymentsForCapture(): array
     {
         try {
-            // Find all pending payments that have expired (ready for capture)
+            // Find all pending payments that are ready for capture (2 days old)
             $pendingPayments = Payment::where('status', 'pending')
-                ->where('expires_at', '<=', now())
+                ->where('expires_at', '<=', now()) // Capture when expired (2+ days)
                 ->whereNotNull('stripe_payment_intent_id')
                 ->where('is_automatic', true)
                 ->get();
