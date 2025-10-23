@@ -35,11 +35,11 @@ class AdminController extends Controller
 
     public function reservationApplications()
     {
-        // Get all reservations with their applications
+        // Get all reservations with their applications (paginated)
         $reservations = Reservation::with(['guest', 'applications.cast'])
             ->orderBy('scheduled_at', 'desc')
-            ->get()
-            ->map(function ($reservation) {
+            ->paginate(10)
+            ->through(function ($reservation) {
                 return [
                     'id' => $reservation->id,
                     'guest' => [
@@ -97,7 +97,18 @@ class AdminController extends Controller
                 ];
             });
 
-        return \Inertia\Inertia::render('admin/reservation-applications', compact('reservations'));
+        return \Inertia\Inertia::render('admin/reservation-applications', [
+            'reservations' => $reservations->items(),
+            'pagination' => [
+                'current_page' => $reservations->currentPage(),
+                'last_page' => $reservations->lastPage(),
+                'per_page' => $reservations->perPage(),
+                'total' => $reservations->total(),
+                'from' => $reservations->firstItem(),
+                'to' => $reservations->lastItem(),
+                'has_more_pages' => $reservations->hasMorePages(),
+            ]
+        ]);
     }
 
     public function approveApplication(Request $request, $applicationId)

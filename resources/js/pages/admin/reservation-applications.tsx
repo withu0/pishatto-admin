@@ -64,14 +64,26 @@ interface Reservation {
     applications: ReservationApplication[];
 }
 
-interface Props {
-    reservations: Reservation[];
+interface PaginationInfo {
+    current_page: number;
+    last_page: number;
+    per_page: number;
+    total: number;
+    from: number | null;
+    to: number | null;
+    has_more_pages: boolean;
 }
 
-export default function AdminReservationApplications({ reservations: initialReservations }: Props) {
+interface Props {
+    reservations: Reservation[];
+    pagination: PaginationInfo;
+}
+
+export default function AdminReservationApplications({ reservations: initialReservations, pagination: initialPagination }: Props) {
     const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
     const [search, setSearch] = useState('');
     const [reservations, setReservations] = useState<Reservation[]>(initialReservations);
+    const [pagination, setPagination] = useState<PaginationInfo>(initialPagination);
     const [selectedApplication, setSelectedApplication] = useState<ReservationApplication | null>(null);
     const [showRejectModal, setShowRejectModal] = useState(false);
     const [showDetailModal, setShowDetailModal] = useState(false);
@@ -121,7 +133,15 @@ export default function AdminReservationApplications({ reservations: initialRese
 
     const handleRefresh = () => {
         setIsRefreshing(true);
-        router.reload({ only: ['reservations'] });
+        router.reload({ only: ['reservations', 'pagination'] });
+    };
+
+    const handlePageChange = (page: number) => {
+        router.get('/admin/reservation-applications', { page }, {
+            preserveState: true,
+            preserveScroll: true,
+            only: ['reservations', 'pagination']
+        });
     };
 
     const handleApprove = async (applicationId: number) => {
@@ -295,11 +315,12 @@ export default function AdminReservationApplications({ reservations: initialRese
         return reservation ? reservation.applications.filter(app => app.status === 'approved').length : 0;
     };
 
-    // Update reservations when props change
+    // Update reservations and pagination when props change
     useEffect(() => {
         setReservations(initialReservations);
+        setPagination(initialPagination);
         setIsRefreshing(false);
-    }, [initialReservations]);
+    }, [initialReservations, initialPagination]);
 
     return (
         <AppLayout breadcrumbs={[{ title: '予約応募管理', href: '/admin/reservation-applications' }]}>
@@ -564,6 +585,78 @@ export default function AdminReservationApplications({ reservations: initialRese
                         </div>
                     </CardContent>
                 </Card>
+
+                {/* Pagination */}
+                <div className="mt-6 flex items-center justify-between">
+                    <div className="text-sm text-gray-700">
+                        {pagination.from && pagination.to ? (
+                            <>表示中: {pagination.from} - {pagination.to} / 全{pagination.total}件</>
+                        ) : (
+                            <>全{pagination.total}件</>
+                        )}
+                    </div>
+                    <div className="flex items-center space-x-2">
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => handlePageChange(pagination.current_page - 1)}
+                            disabled={pagination.current_page <= 1}
+                        >
+                            前へ
+                        </Button>
+
+                        <div className="flex items-center space-x-1">
+                            {Array.from({ length: Math.min(5, pagination.last_page) }, (_, i) => {
+                                const page = i + 1;
+                                const isCurrentPage = page === pagination.current_page;
+
+                                return (
+                                    <Button
+                                        key={page}
+                                        variant={isCurrentPage ? "default" : "outline"}
+                                        size="sm"
+                                        onClick={() => handlePageChange(page)}
+                                        className={isCurrentPage ? "bg-blue-600 text-white" : ""}
+                                    >
+                                        {page}
+                                    </Button>
+                                );
+                            })}
+
+                            {pagination.last_page > 5 && (
+                                <>
+                                    {pagination.current_page > 3 && <span className="px-2">...</span>}
+                                    {pagination.current_page > 3 && pagination.current_page < pagination.last_page - 2 && (
+                                        <Button
+                                            variant="default"
+                                            size="sm"
+                                            className="bg-blue-600 text-white"
+                                        >
+                                            {pagination.current_page}
+                                        </Button>
+                                    )}
+                                    {pagination.current_page < pagination.last_page - 2 && <span className="px-2">...</span>}
+                                    <Button
+                                        variant="outline"
+                                        size="sm"
+                                        onClick={() => handlePageChange(pagination.last_page)}
+                                    >
+                                        {pagination.last_page}
+                                    </Button>
+                                </>
+                            )}
+                        </div>
+
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => handlePageChange(pagination.current_page + 1)}
+                            disabled={!pagination.has_more_pages}
+                        >
+                            次へ
+                        </Button>
+                    </div>
+                </div>
             </div>
 
             {/* Detail Modal - Full version with better structure */}
