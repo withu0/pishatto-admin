@@ -18,14 +18,14 @@ class ChatController extends Controller
             ->get()
             ->map(function ($chat) {
                 $lastMessage = $chat->messages()->latest()->first();
-                
+
                 // Get the first avatar for cast (in case they have multiple)
                 $castAvatar = $chat->cast->avatar;
                 if ($castAvatar) {
                     $avatars = explode(',', $castAvatar);
                     $castAvatar = trim($avatars[0]);
                 }
-                
+
                 return [
                     'id' => $chat->id,
                     'guest' => [
@@ -40,6 +40,7 @@ class ChatController extends Controller
                     ],
                     'reservation' => $chat->reservation ? [
                         'id' => $chat->reservation->id,
+                        'type' => $chat->reservation->type,
                         'scheduled_at' => $chat->reservation->scheduled_at,
                         'location' => $chat->reservation->location,
                         'duration' => $chat->reservation->duration,
@@ -106,6 +107,7 @@ class ChatController extends Controller
                 ],
                 'reservation' => $chat->reservation ? [
                     'id' => $chat->reservation->id,
+                    'type' => $chat->reservation->type,
                     'scheduled_at' => $chat->reservation->scheduled_at,
                     'location' => $chat->reservation->location,
                     'duration' => $chat->reservation->duration,
@@ -145,7 +147,7 @@ class ChatController extends Controller
             if (isset($validated['location'])) $reservationData['location'] = $validated['location'];
             if (isset($validated['duration'])) $reservationData['duration'] = $validated['duration'];
             if (isset($validated['details'])) $reservationData['details'] = $validated['details'];
-            
+
             $chat->reservation->update($reservationData);
         }
 
@@ -157,10 +159,10 @@ class ChatController extends Controller
     public function destroy($id)
     {
         $chat = Chat::findOrFail($id);
-        
+
         // Delete all messages in this chat
         $chat->messages()->delete();
-        
+
         // Delete the chat
         $chat->delete();
 
@@ -178,4 +180,4 @@ class ChatController extends Controller
             'message' => 'Message deleted successfully'
         ]);
     }
-} 
+}

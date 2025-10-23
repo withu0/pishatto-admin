@@ -49,6 +49,7 @@ interface Chat {
     };
     reservation?: {
         id: number;
+        type?: string;
         scheduled_at: string;
         location?: string;
         duration?: number;
@@ -82,8 +83,8 @@ export default function AdminMatchingManage({ chats: initialChats }: Props) {
     });
 
     const filtered = chats.filter(
-        (chat) => 
-            chat.guest.nickname.includes(search) || 
+        (chat) =>
+            chat.guest.nickname.includes(search) ||
             chat.cast.nickname.includes(search) ||
             chat.reservation?.location?.includes(search)
     );
@@ -119,7 +120,7 @@ export default function AdminMatchingManage({ chats: initialChats }: Props) {
             setIsLoadingMessages(true);
             const response = await fetch(`/admin/chats/${chat.id}`);
             const data = await response.json();
-            
+
             if (response.ok && data.chat) {
                 setSelectedChat(data.chat);
                 setSelectedChatMessages(data.chat.messages || []);
@@ -149,7 +150,7 @@ export default function AdminMatchingManage({ chats: initialChats }: Props) {
 
     const handleEditSubmit = async () => {
         if (!selectedChat) return;
-        
+
         try {
             const response = await fetch(`/admin/chats/${selectedChat.id}`, {
                 method: 'PUT',
@@ -159,11 +160,11 @@ export default function AdminMatchingManage({ chats: initialChats }: Props) {
                 },
                 body: JSON.stringify(editForm)
             });
-            
+
             if (response.ok) {
                 // Update the local state
-                setChats(prev => prev.map(chat => 
-                    chat.id === selectedChat.id 
+                setChats(prev => prev.map(chat =>
+                    chat.id === selectedChat.id
                         ? {
                             ...chat,
                             guest: { ...chat.guest, nickname: editForm.guest_nickname },
@@ -191,11 +192,11 @@ export default function AdminMatchingManage({ chats: initialChats }: Props) {
 
     const handleDelete = async () => {
         if (!selectedChat) return;
-        
+
         if (!confirm(`このチャットを削除しますか？\n${selectedChat.guest.nickname} と ${selectedChat.cast.nickname} のチャット`)) {
             return;
         }
-        
+
         try {
             const response = await fetch(`/admin/chats/${selectedChat.id}`, {
                 method: 'DELETE',
@@ -204,7 +205,7 @@ export default function AdminMatchingManage({ chats: initialChats }: Props) {
                     'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '',
                 },
             });
-            
+
             if (response.ok) {
                 setChats(prev => prev.filter(chat => chat.id !== selectedChat.id));
                 setShowDeleteModal(false);
@@ -264,6 +265,7 @@ export default function AdminMatchingManage({ chats: initialChats }: Props) {
                                         <th className="px-3 py-2 text-left font-semibold">#</th>
                                         <th className="px-3 py-2 text-left font-semibold">ゲスト</th>
                                         <th className="px-3 py-2 text-left font-semibold">キャスト</th>
+                                        <th className="px-3 py-2 text-left font-semibold">予約タイプ</th>
                                         <th className="px-3 py-2 text-left font-semibold">予約情報</th>
                                         <th className="px-3 py-2 text-left font-semibold">メッセージ数</th>
                                         <th className="px-3 py-2 text-left font-semibold">作成日時</th>
@@ -274,7 +276,7 @@ export default function AdminMatchingManage({ chats: initialChats }: Props) {
                                 <tbody>
                                     {filtered.length === 0 ? (
                                         <tr>
-                                            <td colSpan={8} className="text-center py-6 text-muted-foreground">
+                                            <td colSpan={9} className="text-center py-6 text-muted-foreground">
                                                 該当するデータがありません
                                             </td>
                                         </tr>
@@ -286,8 +288,8 @@ export default function AdminMatchingManage({ chats: initialChats }: Props) {
                                                     <div className="flex items-center gap-2">
                                                         <div className="w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center overflow-hidden">
                                                             {item.guest.avatar ? (
-                                                                <img 
-                                                                    src={getAvatarUrl(item.guest.avatar)} 
+                                                                <img
+                                                                    src={getAvatarUrl(item.guest.avatar)}
                                                                     alt={item.guest.nickname}
                                                                     className="w-8 h-8 rounded-full object-cover"
                                                                     onError={(e) => {
@@ -308,8 +310,8 @@ export default function AdminMatchingManage({ chats: initialChats }: Props) {
                                                     <div className="flex items-center gap-2">
                                                         <div className="w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center overflow-hidden">
                                                             {item.cast.avatar ? (
-                                                                <img 
-                                                                    src={getAvatarUrl(getFirstAvatar(item.cast.avatar))} 
+                                                                <img
+                                                                    src={getAvatarUrl(getFirstAvatar(item.cast.avatar))}
                                                                     alt={item.cast.nickname}
                                                                     className="w-8 h-8 rounded-full object-cover"
                                                                     onError={(e) => {
@@ -325,6 +327,29 @@ export default function AdminMatchingManage({ chats: initialChats }: Props) {
                                                         </div>
                                                         {item.cast.nickname}
                                                     </div>
+                                                </td>
+                                                <td className="px-3 py-2">
+                                                    {item.reservation ? (
+                                                        <div className="flex items-center gap-1">
+                                                            {(item.reservation as any).type === 'free' ? (
+                                                                <Badge variant="secondary" className="text-xs">
+                                                                    <span className="mr-1">🆓</span>
+                                                                    フリーコール
+                                                                </Badge>
+                                                            ) : (item.reservation as any).type === 'Pishatto' ? (
+                                                                <Badge variant="default" className="text-xs">
+                                                                    <span className="mr-1">💎</span>
+                                                                    ピシャットコール
+                                                                </Badge>
+                                                            ) : (
+                                                                <Badge variant="outline" className="text-xs">
+                                                                    {(item.reservation as any).type || '通常'}
+                                                                </Badge>
+                                                            )}
+                                                        </div>
+                                                    ) : (
+                                                        <Badge variant="outline" className="text-xs">予約なし</Badge>
+                                                    )}
                                                 </td>
                                                 <td className="px-3 py-2">
                                                     {item.reservation ? (
@@ -348,23 +373,23 @@ export default function AdminMatchingManage({ chats: initialChats }: Props) {
                                                     {item.last_message_at ? formatDate(item.last_message_at) : 'なし'}
                                                 </td>
                                                 <td className="px-3 py-2 flex gap-2 items-center justify-center">
-                                                    <Button 
-                                                        size="sm" 
+                                                    <Button
+                                                        size="sm"
                                                         variant="outline"
                                                         onClick={() => handleView(item)}
                                                         disabled={isLoadingMessages}
                                                     >
                                                         <Eye className="w-4 h-4" />
                                                     </Button>
-                                                    <Button 
-                                                        size="sm" 
+                                                    <Button
+                                                        size="sm"
                                                         variant="outline"
                                                         onClick={() => handleEdit(item)}
                                                     >
                                                         <Edit className="w-4 h-4" />
                                                     </Button>
-                                                    <Button 
-                                                        size="sm" 
+                                                    <Button
+                                                        size="sm"
                                                         variant="destructive"
                                                         onClick={() => {
                                                             setSelectedChat(item);
@@ -401,7 +426,7 @@ export default function AdminMatchingManage({ chats: initialChats }: Props) {
                             このチャットの全メッセージを表示します。メッセージ、画像、ギフトのやり取りを確認できます。
                         </DialogDescription>
                     </DialogHeader>
-                    
+
                     <div className="flex-1 overflow-y-auto p-4 space-y-4">
                         {isLoadingMessages ? (
                             <div className="text-center text-gray-500 py-8">
@@ -421,8 +446,8 @@ export default function AdminMatchingManage({ chats: initialChats }: Props) {
                                         <div className="flex-shrink-0">
                                             <div className="w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center overflow-hidden">
                                                 {sender.avatar ? (
-                                                    <img 
-                                                        src={getAvatarUrl(sender.type === 'cast' ? getFirstAvatar(sender.avatar) : sender.avatar)} 
+                                                    <img
+                                                        src={getAvatarUrl(sender.type === 'cast' ? getFirstAvatar(sender.avatar) : sender.avatar)}
                                                         alt={sender.name}
                                                         className="w-10 h-10 rounded-full object-cover"
                                                         onError={(e) => {
@@ -437,7 +462,7 @@ export default function AdminMatchingManage({ chats: initialChats }: Props) {
                                                 </span>
                                             </div>
                                         </div>
-                                        
+
                                         <div className="flex-1 min-w-0">
                                             <div className="flex items-center gap-2 mb-1">
                                                 <span className="font-medium text-sm">{sender.name}</span>
@@ -452,22 +477,22 @@ export default function AdminMatchingManage({ chats: initialChats }: Props) {
                                                     </span>
                                                 </div>
                                             </div>
-                                            
+
                                             <div className="bg-gray-50 rounded-lg p-3">
                                                 {message.message && (
                                                     <p className="text-sm mb-2">{message.message}</p>
                                                 )}
-                                                
+
                                                 {message.image && (
                                                     <div className="mb-2">
-                                                        <img 
-                                                            src={getAvatarUrl(message.image)} 
+                                                        <img
+                                                            src={getAvatarUrl(message.image)}
                                                             alt="メッセージ画像"
                                                             className="max-w-xs rounded-lg"
                                                         />
                                                     </div>
                                                 )}
-                                                
+
                                                 {message.gift && (
                                                     <div className="flex items-center gap-2 p-2 bg-yellow-50 rounded border border-yellow-200">
                                                         <span className="text-yellow-600">🎁</span>
@@ -496,7 +521,7 @@ export default function AdminMatchingManage({ chats: initialChats }: Props) {
                             ゲストとキャストの情報、予約情報を編集できます。
                         </DialogDescription>
                     </DialogHeader>
-                    
+
                     <div className="space-y-4">
                         <div>
                             <label className="text-sm font-medium">ゲスト名</label>
@@ -506,7 +531,7 @@ export default function AdminMatchingManage({ chats: initialChats }: Props) {
                                 className="mt-1"
                             />
                         </div>
-                        
+
                         <div>
                             <label className="text-sm font-medium">キャスト名</label>
                             <Input
@@ -515,7 +540,7 @@ export default function AdminMatchingManage({ chats: initialChats }: Props) {
                                 className="mt-1"
                             />
                         </div>
-                        
+
                         <div>
                             <label className="text-sm font-medium">場所</label>
                             <Input
@@ -525,7 +550,7 @@ export default function AdminMatchingManage({ chats: initialChats }: Props) {
                                 placeholder="予約場所"
                             />
                         </div>
-                        
+
                         <div>
                             <label className="text-sm font-medium">時間（時間）</label>
                             <Input
@@ -536,7 +561,7 @@ export default function AdminMatchingManage({ chats: initialChats }: Props) {
                                 placeholder="予約時間"
                             />
                         </div>
-                        
+
                         <div>
                             <label className="text-sm font-medium">詳細</label>
                             <textarea
@@ -548,16 +573,16 @@ export default function AdminMatchingManage({ chats: initialChats }: Props) {
                             />
                         </div>
                     </div>
-                    
+
                     <div className="flex space-x-3 mt-6">
-                        <Button 
+                        <Button
                             variant="outline"
                             onClick={() => setShowEditModal(false)}
                             className="flex-1"
                         >
                             キャンセル
                         </Button>
-                        <Button 
+                        <Button
                             onClick={handleEditSubmit}
                             className="flex-1"
                         >
@@ -584,7 +609,7 @@ export default function AdminMatchingManage({ chats: initialChats }: Props) {
                             </p>
                         </div>
                         <div className="flex space-x-3">
-                            <Button 
+                            <Button
                                 variant="outline"
                                 onClick={() => {
                                     setShowDeleteModal(false);
@@ -594,7 +619,7 @@ export default function AdminMatchingManage({ chats: initialChats }: Props) {
                             >
                                 キャンセル
                             </Button>
-                            <Button 
+                            <Button
                                 variant="destructive"
                                 onClick={handleDelete}
                                 className="flex-1"
