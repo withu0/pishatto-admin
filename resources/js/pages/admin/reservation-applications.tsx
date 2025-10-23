@@ -5,36 +5,11 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import {  Check, X, Eye, RefreshCw, User, Calendar, Star,  Phone, MapPin as LocationIcon, Users, Star as StarIcon, CheckCircle } from 'lucide-react';
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { router } from '@inertiajs/react';
 
 interface ReservationApplication {
     id: number;
-    reservation: {
-        id: number;
-        guest: {
-            id: number;
-            nickname: string;
-            avatar?: string;
-            phone?: string;
-            age?: number;
-            location?: string;
-            residence?: string;
-            birthplace?: string;
-            occupation?: string;
-            education?: string;
-            annual_income?: string;
-            interests?: (string | { category: string; tag: string })[];
-            points?: number;
-            created_at?: string;
-            total_reservations?: number;
-        };
-        scheduled_at: string;
-        location?: string;
-        duration?: number;
-        details?: string;
-        type: string;
-    };
     cast: {
         id: number;
         nickname: string;
@@ -62,14 +37,41 @@ interface ReservationApplication {
     rejection_reason?: string;
 }
 
-interface Props {
+interface Reservation {
+    id: number;
+    guest: {
+        id: number;
+        nickname: string;
+        avatar?: string;
+        phone?: string;
+        age?: number;
+        location?: string;
+        residence?: string;
+        birthplace?: string;
+        occupation?: string;
+        education?: string;
+        annual_income?: string;
+        interests?: (string | { category: string; tag: string })[];
+        points?: number;
+        created_at?: string;
+        total_reservations?: number;
+    };
+    scheduled_at: string;
+    location?: string;
+    duration?: number;
+    details?: string;
+    type: string;
     applications: ReservationApplication[];
 }
 
-export default function AdminReservationApplications({ applications: initialApplications }: Props) {
+interface Props {
+    reservations: Reservation[];
+}
+
+export default function AdminReservationApplications({ reservations: initialReservations }: Props) {
     const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
     const [search, setSearch] = useState('');
-    const [applications, setApplications] = useState<ReservationApplication[]>(initialApplications);
+    const [reservations, setReservations] = useState<Reservation[]>(initialReservations);
     const [selectedApplication, setSelectedApplication] = useState<ReservationApplication | null>(null);
     const [showRejectModal, setShowRejectModal] = useState(false);
     const [showDetailModal, setShowDetailModal] = useState(false);
@@ -77,14 +79,28 @@ export default function AdminReservationApplications({ applications: initialAppl
     const [rejectionReason, setRejectionReason] = useState('');
     const [isRefreshing, setIsRefreshing] = useState(false);
     const [selectedCasts, setSelectedCasts] = useState<ReservationApplication[]>([]);
-    const [currentReservation, setCurrentReservation] = useState<ReservationApplication['reservation'] | null>(null);
+    const [currentReservation, setCurrentReservation] = useState<Reservation | null>(null);
+    const [expandedReservations, setExpandedReservations] = useState<Set<number>>(new Set());
 
-    const filtered = applications.filter(
-        (app) => 
-            app.reservation.guest.nickname.includes(search) || 
-            app.cast.nickname.includes(search) ||
-            app.reservation.location?.includes(search)
+    const filtered = reservations.filter(
+        (reservation) =>
+            reservation.guest.nickname.includes(search) ||
+            reservation.location?.includes(search) ||
+            reservation.applications.some(app => app.cast.nickname.includes(search))
     );
+
+    // Toggle reservation expansion
+    const toggleReservationExpansion = (reservationId: number) => {
+        setExpandedReservations(prev => {
+            const newSet = new Set(prev);
+            if (newSet.has(reservationId)) {
+                newSet.delete(reservationId);
+            } else {
+                newSet.add(reservationId);
+            }
+            return newSet;
+        });
+    };
 
     const getStatusBadge = (status: string) => {
         switch (status) {
@@ -105,13 +121,13 @@ export default function AdminReservationApplications({ applications: initialAppl
 
     const handleRefresh = () => {
         setIsRefreshing(true);
-        router.reload({ only: ['applications'] });
+        router.reload({ only: ['reservations'] });
     };
 
     const handleApprove = async (applicationId: number) => {
         console.log("AOO", applicationId);
         if (!confirm('この応募を承認しますか？')) return;
-        
+
         try {
             const response = await fetch(`/admin/reservation-applications/${applicationId}/approve`, {
                 method: 'POST',
@@ -128,7 +144,7 @@ export default function AdminReservationApplications({ applications: initialAppl
                 }),
             });
 
-            
+
             if (response.ok) {
                 // Refresh the data after successful approval
                 handleRefresh();
@@ -143,7 +159,7 @@ export default function AdminReservationApplications({ applications: initialAppl
 
     const handleReject = async () => {
         if (!selectedApplication) return;
-        
+
         try {
             const response = await fetch(`/admin/reservation-applications/${selectedApplication.id}/reject`, {
                 method: 'POST',
@@ -159,7 +175,7 @@ export default function AdminReservationApplications({ applications: initialAppl
                     rejection_reason: rejectionReason,
                 }),
             });
-            
+
             if (response.ok) {
                 setShowRejectModal(false);
                 setSelectedApplication(null);
@@ -175,8 +191,11 @@ export default function AdminReservationApplications({ applications: initialAppl
         }
     };
 
-    const handleViewDetails = (application: ReservationApplication) => {
+    const handleViewDetails = (application: ReservationApplication, reservation?: Reservation) => {
         setSelectedApplication(application);
+        if (reservation) {
+            setCurrentReservation(reservation);
+        }
         setShowDetailModal(true);
     };
 
@@ -186,12 +205,10 @@ export default function AdminReservationApplications({ applications: initialAppl
     };
 
     // New function to handle multi-cast selection for Pishatto calls
-    const handleMultiCastSelection = (reservation: ReservationApplication['reservation']) => {
+    const handleMultiCastSelection = (reservation: Reservation) => {
         setCurrentReservation(reservation);
         // Get all pending applications for this reservation
-        const pendingApps = applications.filter(app => 
-            app.reservation.id === reservation.id && app.status === 'pending'
-        );
+        const pendingApps = reservation.applications.filter(app => app.status === 'pending');
         setSelectedCasts(pendingApps);
         setShowMultiCastModal(true);
     };
@@ -217,12 +234,19 @@ export default function AdminReservationApplications({ applications: initialAppl
             });
 
             if (response.ok) {
-                setApplications(prev => prev.map(app => 
+                setReservations(prev => prev.map(reservation =>
+                    reservation.id === currentReservation.id
+                        ? {
+                            ...reservation,
+                            applications: reservation.applications.map(app =>
                     selectedCasts.some(selected => selected.id === app.id)
                         ? { ...app, status: 'approved' as const }
-                        : app.reservation.id === currentReservation.id && app.status === 'pending'
+                                    : app.status === 'pending'
                             ? { ...app, status: 'rejected' as const }
                             : app
+                            )
+                        }
+                        : reservation
                 ));
                 setShowMultiCastModal(false);
                 setSelectedCasts([]);
@@ -255,28 +279,27 @@ export default function AdminReservationApplications({ applications: initialAppl
 
     // Get all applications for the same reservation
     const getReservationApplications = (reservationId: number) => {
-        return applications.filter(app => app.reservation.id === reservationId);
+        const reservation = reservations.find(r => r.id === reservationId);
+        return reservation ? reservation.applications : [];
     };
 
     // Get pending applications count for a reservation
     const getPendingApplicationsCount = (reservationId: number) => {
-        return applications.filter(app => 
-            app.reservation.id === reservationId && app.status === 'pending'
-        ).length;
+        const reservation = reservations.find(r => r.id === reservationId);
+        return reservation ? reservation.applications.filter(app => app.status === 'pending').length : 0;
     };
 
     // Get approved applications count for a reservation
     const getApprovedApplicationsCount = (reservationId: number) => {
-        return applications.filter(app => 
-            app.reservation.id === reservationId && app.status === 'approved'
-        ).length;
+        const reservation = reservations.find(r => r.id === reservationId);
+        return reservation ? reservation.applications.filter(app => app.status === 'approved').length : 0;
     };
 
-    // Update applications when props change
+    // Update reservations when props change
     useEffect(() => {
-        setApplications(initialApplications);
+        setReservations(initialReservations);
         setIsRefreshing(false);
-    }, [initialApplications]);
+    }, [initialReservations]);
 
     return (
         <AppLayout breadcrumbs={[{ title: '予約応募管理', href: '/admin/reservation-applications' }]}>
@@ -284,8 +307,8 @@ export default function AdminReservationApplications({ applications: initialAppl
             <div className="p-6">
                 <div className="flex justify-between items-center mb-6">
                     <h1 className="text-2xl font-bold">予約応募管理</h1>
-                    <Button 
-                        onClick={handleRefresh} 
+                    <Button
+                        onClick={handleRefresh}
                         disabled={isRefreshing}
                         className="gap-2"
                     >
@@ -293,7 +316,7 @@ export default function AdminReservationApplications({ applications: initialAppl
                         更新
                     </Button>
                 </div>
-                
+
                 <Card>
                     <CardHeader className="flex flex-row items-center justify-between gap-4 pb-2">
                         <CardTitle>予約応募一覧</CardTitle>
@@ -311,13 +334,13 @@ export default function AdminReservationApplications({ applications: initialAppl
                             <table className="min-w-full text-sm border">
                                 <thead>
                                     <tr className="bg-muted">
-                                        <th className="px-3 py-2 text-left font-semibold">#</th>
+                                        <th className="px-3 py-2 text-left font-semibold">予約ID</th>
                                         <th className="px-3 py-2 text-left font-semibold">ゲスト</th>
-                                        <th className="px-3 py-2 text-left font-semibold">キャスト</th>
+                                        <th className="px-3 py-2 text-left font-semibold">応募情報</th>
                                         <th className="px-3 py-2 text-left font-semibold">予約日時</th>
                                         <th className="px-3 py-2 text-left font-semibold">場所</th>
                                         <th className="px-3 py-2 text-left font-semibold">状態</th>
-                                        <th className="px-3 py-2 text-left font-semibold">応募日時</th>
+                                        <th className="px-3 py-2 text-left font-semibold">予約タイプ</th>
                                         <th className="px-3 py-2 text-left font-semibold">操作</th>
                                     </tr>
                                 </thead>
@@ -329,33 +352,143 @@ export default function AdminReservationApplications({ applications: initialAppl
                                             </td>
                                         </tr>
                                     ) : (
-                                        filtered.map((item, idx) => (
-                                            <tr key={item.id} className="border-t">
-                                                <td className="px-3 py-2">{idx + 1}</td>
-                                                <td className="px-3 py-2">
+                                        filtered.map((reservation, reservationIdx) => {
+                                            const isExpanded = expandedReservations.has(reservation.id);
+                                            const pendingCount = reservation.applications.filter(app => app.status === 'pending').length;
+                                            const approvedCount = reservation.applications.filter(app => app.status === 'approved').length;
+                                            const rejectedCount = reservation.applications.filter(app => app.status === 'rejected').length;
+
+                                            return (
+                                                <React.Fragment key={reservation.id}>
+                                                    {/* Reservation Summary Row */}
+                                                    <tr
+                                                        className="border-t bg-blue-50 hover:bg-blue-100 cursor-pointer"
+                                                        onClick={() => toggleReservationExpansion(reservation.id)}
+                                                    >
+                                                        <td className="px-3 py-3">
                                                     <div className="flex items-center gap-2">
-                                                        <div className="w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center">
-                                                            {item.reservation.guest.avatar ? (
-                                                                <img 
-                                                                    src={item.reservation.guest.avatar} 
-                                                                    alt={item.reservation.guest.nickname}
+                                                                <span className="font-semibold text-blue-900">
+                                                                    #{reservation.id}
+                                                                </span>
+                                                                {isExpanded ? (
+                                                                    <span className="text-blue-600">▼</span>
+                                                                ) : (
+                                                                    <span className="text-blue-600">▶</span>
+                                                                )}
+                                                            </div>
+                                                        </td>
+                                                        <td className="px-3 py-3">
+                                                            <div className="flex items-center gap-2">
+                                                                <div className="w-8 h-8 rounded-full bg-blue-200 flex items-center justify-center">
+                                                                    {reservation.guest.avatar ? (
+                                                                        <img
+                                                                            src={reservation.guest.avatar}
+                                                                            alt={reservation.guest.nickname}
                                                                     className="w-8 h-8 rounded-full object-cover"
                                                                 />
                                                             ) : (
-                                                                <span className="text-xs text-gray-500">
-                                                                    {item.reservation.guest.nickname.charAt(0)}
+                                                                        <span className="text-xs text-blue-600 font-bold">
+                                                                            {reservation.guest.nickname.charAt(0)}
                                                                 </span>
                                                             )}
                                                         </div>
-                                                        {item.reservation.guest.nickname}
+                                                                <div>
+                                                                    <div className="font-semibold text-blue-900">
+                                                                        {reservation.guest.nickname}
+                                                                    </div>
+                                                                    <div className="text-xs text-blue-600">
+                                                                        ゲスト #{reservation.guest.id}
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                        </td>
+                                                        <td className="px-3 py-3">
+                                                            <div className="text-blue-800 font-medium">
+                                                                応募数: {reservation.applications.length}件
+                                                            </div>
+                                                            <div className="text-xs text-blue-600">
+                                                                保留: {pendingCount} | 承認: {approvedCount} | 却下: {rejectedCount}
+                                                            </div>
+                                                        </td>
+                                                        <td className="px-3 py-3">
+                                                            <div className="font-semibold text-blue-900">
+                                                                {formatDate(reservation.scheduled_at)}
+                                                            </div>
+                                                            <div className="text-xs text-blue-600">
+                                                                {reservation.duration || 1}時間
+                                                            </div>
+                                                        </td>
+                                                        <td className="px-3 py-3">
+                                                            <div className="text-blue-800">
+                                                                {reservation.location || '未設定'}
+                                                            </div>
+                                                        </td>
+                                                        <td className="px-3 py-3">
+                                                            <div className="flex gap-1">
+                                                                {pendingCount > 0 && <Badge variant="secondary" className="text-xs">保留 {pendingCount}</Badge>}
+                                                                {approvedCount > 0 && <Badge variant="default" className="bg-green-500 text-xs">承認 {approvedCount}</Badge>}
+                                                                {rejectedCount > 0 && <Badge variant="destructive" className="text-xs">却下 {rejectedCount}</Badge>}
+                                                                {reservation.applications.length === 0 && <Badge variant="outline" className="text-xs">応募なし</Badge>}
+                                                            </div>
+                                                        </td>
+                                                        <td className="px-3 py-3">
+                                                            <div className="text-blue-800">
+                                                                {reservation.type === 'Pishatto' ? 'プレミアム' :
+                                                                 reservation.type === 'normal' ? '通常' :
+                                                                 reservation.type}
+                                                            </div>
+                                                        </td>
+                                                        <td className="px-3 py-3">
+                                                            <div className="flex gap-2">
+                                                                {reservation.type === 'Pishatto' && pendingCount > 0 && (
+                                                                    <Button
+                                                                        size="sm"
+                                                                        variant="outline"
+                                                                        className="bg-blue-600 hover:bg-blue-700 text-white"
+                                                                        onClick={(e) => {
+                                                                            e.stopPropagation();
+                                                                            handleMultiCastSelection(reservation);
+                                                                        }}
+                                                                    >
+                                                                        <Users className="w-4 h-4" />
+                                                                    </Button>
+                                                                )}
+                                                                <Button
+                                                                    size="sm"
+                                                                    variant="outline"
+                                                                    onClick={(e) => {
+                                                                        e.stopPropagation();
+                                                                        // Show first application details as representative
+                                                                        if (reservation.applications.length > 0) {
+                                                                            handleViewDetails(reservation.applications[0], reservation);
+                                                                        }
+                                                                    }}
+                                                                >
+                                                                    <Eye className="w-4 h-4" />
+                                                                </Button>
+                                                            </div>
+                                                        </td>
+                                                    </tr>
+
+                                                    {/* Expanded Applications */}
+                                                    {isExpanded && reservation.applications.map((item, appIdx) => (
+                                                        <tr key={item.id} className="border-t bg-gray-50">
+                                                            <td className="px-3 py-2 pl-8">
+                                                                <div className="text-sm text-gray-600">
+                                                                    {appIdx + 1}
+                                                                </div>
+                                                            </td>
+                                                            <td className="px-3 py-2 pl-8">
+                                                                <div className="text-sm text-gray-600">
+                                                                    -
                                                     </div>
                                                 </td>
                                                 <td className="px-3 py-2">
                                                     <div className="flex items-center gap-2">
                                                         <div className="w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center">
                                                             {item.cast.avatar ? (
-                                                                <img 
-                                                                    src={item.cast.avatar} 
+                                                                <img
+                                                                    src={item.cast.avatar}
                                                                     alt={item.cast.nickname}
                                                                     className="w-8 h-8 rounded-full object-cover"
                                                                 />
@@ -365,43 +498,50 @@ export default function AdminReservationApplications({ applications: initialAppl
                                                                 </span>
                                                             )}
                                                         </div>
-                                                        {item.cast.nickname}
+                                                                    <div>
+                                                                        <div className="font-medium">{item.cast.nickname}</div>
+                                                                        <div className="text-xs text-gray-500">
+                                                                            キャスト #{item.cast.id}
+                                                                        </div>
+                                                                    </div>
                                                     </div>
                                                 </td>
-                                                <td className="px-3 py-2">{formatDate(item.reservation.scheduled_at)}</td>
-                                                <td className="px-3 py-2">{item.reservation.location || '未設定'}</td>
+                                                            <td className="px-3 py-2">
+                                                                <div className="text-sm text-gray-600">
+                                                                    -
+                                                                </div>
+                                                            </td>
+                                                            <td className="px-3 py-2">
+                                                                <div className="text-sm text-gray-600">
+                                                                    -
+                                                                </div>
+                                                            </td>
                                                 <td className="px-3 py-2">{getStatusBadge(item.status)}</td>
-                                                <td className="px-3 py-2">{formatDate(item.applied_at)}</td>
+                                                            <td className="px-3 py-2">
+                                                                <div className="text-sm">
+                                                                    {formatDate(item.applied_at)}
+                                                                </div>
+                                                            </td>
                                                 <td className="px-3 py-2 flex gap-2">
-                                                    <Button 
-                                                        size="sm" 
-                                                        variant="outline"
-                                                        onClick={() => handleViewDetails(item)}
-                                                    >
-                                                        <Eye className="w-4 h-4" />
-                                                    </Button>
+                                                                <Button
+                                                                    size="sm"
+                                                                    variant="outline"
+                                                                    onClick={() => handleViewDetails(item, reservation)}
+                                                                >
+                                                                    <Eye className="w-4 h-4" />
+                                                                </Button>
                                                     {item.status === 'pending' && (
                                                         <>
-                                                            <Button 
-                                                                size="sm" 
-                                                                variant="default" 
+                                                            <Button
+                                                                size="sm"
+                                                                variant="default"
                                                                 className="bg-green-600 hover:bg-green-700"
                                                                 onClick={() => handleApprove(item.id)}
                                                             >
                                                                 <Check className="w-4 h-4" />
                                                             </Button>
-                                                            {item.reservation.type === 'Pishatto' && (
-                                                                <Button 
-                                                                    size="sm" 
-                                                                    variant="outline" 
-                                                                    className="bg-blue-600 hover:bg-blue-700 text-white"
-                                                                    onClick={() => handleMultiCastSelection(item.reservation)}
-                                                                >
-                                                                    <Users className="w-4 h-4" />
-                                                                </Button>
-                                                            )}
-                                                            <Button 
-                                                                size="sm" 
+                                                            <Button
+                                                                size="sm"
                                                                 variant="destructive"
                                                                 onClick={() => {
                                                                     setSelectedApplication(item);
@@ -414,7 +554,10 @@ export default function AdminReservationApplications({ applications: initialAppl
                                                     )}
                                                 </td>
                                             </tr>
-                                        ))
+                                                    ))}
+                                                </React.Fragment>
+                                            );
+                                        })
                                     )}
                                 </tbody>
                             </table>
@@ -448,31 +591,31 @@ export default function AdminReservationApplications({ applications: initialAppl
                                         <User className="w-5 h-5 text-blue-600 mr-2" />
                                         <h3 className="text-lg font-semibold text-blue-900">ゲストプロフィール</h3>
                                     </div>
-                                    
+
                                     {/* Basic Info */}
                                     <div className="flex items-center mb-6">
                                         <div className="w-20 h-20 rounded-full bg-blue-200 flex items-center justify-center mr-4 border-4 border-white shadow-lg">
-                                            {selectedApplication.reservation.guest.avatar ? (
-                                                <img 
-                                                    src={selectedApplication.reservation.guest.avatar} 
-                                                    alt={selectedApplication.reservation.guest.nickname}
+                                            {currentReservation?.guest.avatar ? (
+                                                <img
+                                                    src={currentReservation.guest.avatar}
+                                                    alt={currentReservation.guest.nickname}
                                                     className="w-20 h-20 rounded-full object-cover"
                                                 />
                                             ) : (
                                                 <span className="text-3xl text-blue-600 font-bold">
-                                                    {selectedApplication.reservation.guest.nickname.charAt(0)}
+                                                    {currentReservation?.guest.nickname.charAt(0)}
                                                 </span>
                                             )}
                                         </div>
                                         <div>
                                             <h4 className="text-2xl font-bold text-blue-900">
-                                                {selectedApplication.reservation.guest.nickname}
+                                                {currentReservation?.guest.nickname}
                                             </h4>
-                                            <p className="text-blue-600">ゲスト #{selectedApplication.reservation.guest.id}</p>
-                                            {selectedApplication.reservation.guest.points && (
+                                            <p className="text-blue-600">ゲスト #{currentReservation?.guest.id}</p>
+                                            {currentReservation?.guest.points && (
                                                 <div className="flex items-center mt-1">
                                                     <StarIcon className="w-4 h-4 text-yellow-500 mr-1" />
-                                                    <span className="text-blue-700 font-medium">{Number(selectedApplication.reservation.guest.points).toLocaleString()}P</span>
+                                                    <span className="text-blue-700 font-medium">{Number(currentReservation.guest.points).toLocaleString()}P</span>
                                                 </div>
                                             )}
                                         </div>
@@ -480,81 +623,81 @@ export default function AdminReservationApplications({ applications: initialAppl
 
                                     {/* Contact Info */}
                                     <div className="space-y-3 mb-6">
-                                        {selectedApplication.reservation.guest.phone && (
+                                        {currentReservation?.guest.phone && (
                                             <div className="flex items-center">
                                                 <Phone className="w-4 h-4 text-blue-600 mr-3" />
-                                                <span className="text-blue-800">{selectedApplication.reservation.guest.phone}</span>
+                                                <span className="text-blue-800">{currentReservation.guest.phone}</span>
                                             </div>
                                         )}
-                                        {selectedApplication.reservation.guest.location && (
+                                        {currentReservation?.guest.location && (
                                             <div className="flex items-center">
                                                 <LocationIcon className="w-4 h-4 text-blue-600 mr-3" />
-                                                <span className="text-blue-800">{selectedApplication.reservation.guest.location}</span>
+                                                <span className="text-blue-800">{currentReservation.guest.location}</span>
                                             </div>
                                         )}
-                                        {selectedApplication.reservation.guest.residence && (
+                                        {currentReservation?.guest.residence && (
                                             <div className="flex items-center">
                                                 <LocationIcon className="w-4 h-4 text-blue-600 mr-3" />
-                                                <span className="text-blue-800">{selectedApplication.reservation.guest.residence}</span>
+                                                <span className="text-blue-800">{currentReservation.guest.residence}</span>
                                             </div>
                                         )}
                                     </div>
 
                                     {/* Personal Info */}
                                     <div className="grid grid-cols-2 gap-4 mb-6">
-                                        {selectedApplication.reservation.guest.age && (
+                                        {currentReservation?.guest.age && (
                                             <div className="bg-blue-200 rounded-lg p-3">
                                                 <p className="text-xs text-blue-600 mb-1">年齢</p>
-                                                <p className="text-blue-900 font-semibold">{selectedApplication.reservation.guest.age}歳</p>
+                                                <p className="text-blue-900 font-semibold">{currentReservation.guest.age}歳</p>
                                             </div>
                                         )}
-                                        {selectedApplication.reservation.guest.birthplace && (
+                                        {currentReservation?.guest.birthplace && (
                                             <div className="bg-blue-200 rounded-lg p-3">
                                                 <p className="text-xs text-blue-600 mb-1">出身地</p>
-                                                <p className="text-blue-900 font-semibold">{selectedApplication.reservation.guest.birthplace}</p>
+                                                <p className="text-blue-900 font-semibold">{currentReservation.guest.birthplace}</p>
                                             </div>
                                         )}
-                                        {selectedApplication.reservation.guest.occupation && (
+                                        {currentReservation?.guest.occupation && (
                                             <div className="bg-blue-200 rounded-lg p-3">
                                                 <p className="text-xs text-blue-600 mb-1">職業</p>
-                                                <p className="text-blue-900 font-semibold">{selectedApplication.reservation.guest.occupation}</p>
+                                                <p className="text-blue-900 font-semibold">{currentReservation.guest.occupation}</p>
                                             </div>
                                         )}
-                                        {selectedApplication.reservation.guest.education && (
+                                        {currentReservation?.guest.education && (
                                             <div className="bg-blue-200 rounded-lg p-3">
                                                 <p className="text-xs text-blue-600 mb-1">学歴</p>
-                                                <p className="text-blue-900 font-semibold">{selectedApplication.reservation.guest.education}</p>
+                                                <p className="text-blue-900 font-semibold">{currentReservation.guest.education}</p>
                                             </div>
                                         )}
-                                        {selectedApplication.reservation.guest.created_at && (
+                                        {currentReservation?.guest.created_at && (
                                             <div className="bg-blue-200 rounded-lg p-3">
                                                 <p className="text-xs text-blue-600 mb-1">登録日</p>
-                                                <p className="text-blue-900 font-semibold">{formatDate(selectedApplication.reservation.guest.created_at)}</p>
+                                                <p className="text-blue-900 font-semibold">{formatDate(currentReservation.guest.created_at)}</p>
                                             </div>
                                         )}
-                                        {selectedApplication.reservation.guest.total_reservations && (
+                                        {currentReservation?.guest.total_reservations && (
                                             <div className="bg-blue-200 rounded-lg p-3">
                                                 <p className="text-xs text-blue-600 mb-1">予約回数</p>
-                                                <p className="text-blue-900 font-semibold">{selectedApplication.reservation.guest.total_reservations}回</p>
+                                                <p className="text-blue-900 font-semibold">{currentReservation.guest.total_reservations}回</p>
                                             </div>
                                         )}
-                                        {selectedApplication.reservation.guest.annual_income && (
+                                        {currentReservation?.guest.annual_income && (
                                             <div className="bg-blue-200 rounded-lg p-3">
                                                 <p className="text-xs text-blue-600 mb-1">年収</p>
-                                                <p className="text-blue-900 font-semibold">{selectedApplication.reservation.guest.annual_income}</p>
+                                                <p className="text-blue-900 font-semibold">{currentReservation.guest.annual_income}</p>
                                             </div>
                                         )}
                                     </div>
 
                                     {/* Interests */}
-                                    {selectedApplication.reservation.guest.interests && selectedApplication.reservation.guest.interests.length > 0 && (
+                                    {currentReservation?.guest.interests && currentReservation.guest.interests.length > 0 && (
                                         <div>
                                             <h5 className="text-sm font-semibold text-blue-700 mb-2">興味・関心</h5>
                                             <div className="flex flex-wrap gap-2">
-                                                {selectedApplication.reservation.guest.interests.map((interest, index) => (
+                                                {currentReservation.guest.interests.map((interest, index) => (
                                                     <Badge key={index} variant="secondary" className="bg-blue-200 text-blue-800">
-                                                        {typeof interest === 'string' 
-                                                            ? interest 
+                                                        {typeof interest === 'string'
+                                                            ? interest
                                                             : typeof interest === 'object' && interest.category && interest.tag
                                                                 ? `${interest.category}: ${interest.tag}`
                                                                 : JSON.stringify(interest)
@@ -572,13 +715,13 @@ export default function AdminReservationApplications({ applications: initialAppl
                                         <Star className="w-5 h-5 text-purple-600 mr-2" />
                                         <h3 className="text-lg font-semibold text-purple-900">キャストプロフィール</h3>
                                     </div>
-                                    
+
                                     {/* Basic Info */}
                                     <div className="flex items-center mb-6">
                                         <div className="w-20 h-20 rounded-full bg-purple-200 flex items-center justify-center mr-4 border-4 border-white shadow-lg">
                                             {selectedApplication.cast.avatar ? (
-                                                <img 
-                                                    src={selectedApplication.cast.avatar} 
+                                                <img
+                                                    src={selectedApplication.cast.avatar}
                                                     alt={selectedApplication.cast.nickname}
                                                     className="w-20 h-20 rounded-full object-cover"
                                                 />
@@ -702,25 +845,25 @@ export default function AdminReservationApplications({ applications: initialAppl
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                     <div className="bg-green-200 rounded-lg p-3">
                                         <p className="text-xs text-green-600 mb-1">予約ID</p>
-                                        <p className="text-green-900 font-semibold">#{selectedApplication.reservation.id}</p>
+                                        <p className="text-green-900 font-semibold">#{currentReservation?.id}</p>
                                     </div>
                                     <div className="bg-green-200 rounded-lg p-3">
                                         <p className="text-xs text-green-600 mb-1">予約タイプ</p>
                                         <p className="text-green-900 font-semibold">
-                                            {selectedApplication.reservation.type === 'Pishatto' ? 'プレミアム' : 
-                                             selectedApplication.reservation.type === 'normal' ? '通常' : 
-                                             selectedApplication.reservation.type}
+                                            {currentReservation?.type === 'Pishatto' ? 'プレミアム' :
+                                             currentReservation?.type === 'normal' ? '通常' :
+                                             currentReservation?.type}
                                         </p>
                                     </div>
-                                    {selectedApplication.reservation.duration && (
+                                    {currentReservation?.duration && (
                                         <div className="bg-green-200 rounded-lg p-3">
                                             <p className="text-xs text-green-600 mb-1">予約時間</p>
-                                            <p className="text-green-900 font-semibold">{selectedApplication.reservation.duration}時間</p>
+                                            <p className="text-green-900 font-semibold">{currentReservation.duration}時間</p>
                                         </div>
                                     )}
                                     <div className="bg-green-200 rounded-lg p-3">
                                         <p className="text-xs text-green-600 mb-1">予約場所</p>
-                                        <p className="text-green-900 font-semibold">{selectedApplication.reservation.location || '未設定'}</p>
+                                        <p className="text-green-900 font-semibold">{currentReservation?.location || '未設定'}</p>
                                     </div>
                                 </div>
 
@@ -729,29 +872,29 @@ export default function AdminReservationApplications({ applications: initialAppl
                                     <div className="bg-blue-200 rounded-lg p-3">
                                         <p className="text-xs text-blue-600 mb-1">総応募数</p>
                                         <p className="text-blue-900 font-semibold text-lg">
-                                            {getReservationApplications(selectedApplication.reservation.id).length}件
+                                            {currentReservation?.applications.length || 0}件
                                         </p>
                                     </div>
                                     <div className="bg-yellow-200 rounded-lg p-3">
                                         <p className="text-xs text-yellow-600 mb-1">保留中</p>
                                         <p className="text-yellow-900 font-semibold text-lg">
-                                            {getPendingApplicationsCount(selectedApplication.reservation.id)}件
+                                            {currentReservation?.applications.filter(app => app.status === 'pending').length || 0}件
                                         </p>
                                     </div>
                                     <div className="bg-green-200 rounded-lg p-3">
                                         <p className="text-xs text-green-600 mb-1">承認済</p>
                                         <p className="text-green-900 font-semibold text-lg">
-                                            {getApprovedApplicationsCount(selectedApplication.reservation.id)}件
+                                            {currentReservation?.applications.filter(app => app.status === 'approved').length || 0}件
                                         </p>
                                     </div>
                                 </div>
 
                                 {/* Reservation Details Text */}
-                                {selectedApplication.reservation.details && (
+                                {currentReservation?.details && (
                                     <div className="mt-4 bg-green-200 rounded-lg p-4">
                                         <p className="text-xs text-green-600 mb-2">予約詳細情報</p>
                                         <p className="text-green-900 whitespace-pre-wrap text-sm leading-relaxed">
-                                            {selectedApplication.reservation.details}
+                                            {currentReservation.details}
                                         </p>
                                     </div>
                                 )}
@@ -800,8 +943,8 @@ export default function AdminReservationApplications({ applications: initialAppl
                             </Button>
                             {selectedApplication.status === 'pending' && (
                                 <>
-                                    <Button 
-                                        variant="default" 
+                                    <Button
+                                        variant="default"
                                         className="bg-green-600 hover:bg-green-700"
                                         onClick={() => {
                                             closeDetailModal();
@@ -811,7 +954,7 @@ export default function AdminReservationApplications({ applications: initialAppl
                                         <Check className="w-4 h-4 mr-2" />
                                         承認
                                     </Button>
-                                    <Button 
+                                    <Button
                                         variant="destructive"
                                         onClick={() => {
                                             closeDetailModal();
@@ -842,7 +985,7 @@ export default function AdminReservationApplications({ applications: initialAppl
                             <label className="block text-sm font-medium text-gray-700 mb-2">
                                 却下理由 (オプション)
                             </label>
-                            <textarea 
+                            <textarea
                                 value={rejectionReason}
                                 onChange={(e) => setRejectionReason(e.target.value)}
                                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -851,7 +994,7 @@ export default function AdminReservationApplications({ applications: initialAppl
                             />
                         </div>
                         <div className="flex space-x-3">
-                            <Button 
+                            <Button
                                 variant="outline"
                                 onClick={() => {
                                     setShowRejectModal(false);
@@ -862,7 +1005,7 @@ export default function AdminReservationApplications({ applications: initialAppl
                             >
                                 キャンセル
                             </Button>
-                            <Button 
+                            <Button
                                 variant="destructive"
                                 onClick={handleReject}
                                 className="flex-1"
@@ -882,7 +1025,7 @@ export default function AdminReservationApplications({ applications: initialAppl
                             <h3 className="text-xl font-semibold text-gray-900">
                                 複数キャスト選択 - プレミアム予約
                             </h3>
-                            <Button 
+                            <Button
                                 variant="ghost"
                                 size="sm"
                                 onClick={() => {
@@ -921,11 +1064,11 @@ export default function AdminReservationApplications({ applications: initialAppl
                             </h4>
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                 {selectedCasts.map((application) => (
-                                    <div 
+                                    <div
                                         key={application.id}
                                         className={`border rounded-lg p-4 cursor-pointer transition-colors ${
-                                            isCastSelected(application) 
-                                                ? 'border-blue-500 bg-blue-50' 
+                                            isCastSelected(application)
+                                                ? 'border-blue-500 bg-blue-50'
                                                 : 'border-gray-200 hover:border-gray-300'
                                         }`}
                                         onClick={() => toggleCastSelection(application)}
@@ -934,8 +1077,8 @@ export default function AdminReservationApplications({ applications: initialAppl
                                             <div className="flex items-center space-x-3">
                                                 <div className="w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center">
                                                     {application.cast.avatar ? (
-                                                        <img 
-                                                            src={application.cast.avatar} 
+                                                        <img
+                                                            src={application.cast.avatar}
                                                             alt={application.cast.nickname}
                                                             className="w-10 h-10 rounded-full object-cover"
                                                         />
@@ -974,7 +1117,7 @@ export default function AdminReservationApplications({ applications: initialAppl
 
                         {/* Action Buttons */}
                         <div className="flex justify-end space-x-3 pt-4 border-t border-gray-200">
-                            <Button 
+                            <Button
                                 variant="outline"
                                 onClick={() => {
                                     setShowMultiCastModal(false);
@@ -984,7 +1127,7 @@ export default function AdminReservationApplications({ applications: initialAppl
                             >
                                 キャンセル
                             </Button>
-                            <Button 
+                            <Button
                                 variant="default"
                                 className="bg-blue-600 hover:bg-blue-700"
                                 onClick={handleMultiCastApprove}
@@ -999,4 +1142,4 @@ export default function AdminReservationApplications({ applications: initialAppl
             )}
         </AppLayout>
     );
-} 
+}

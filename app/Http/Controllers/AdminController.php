@@ -35,65 +35,69 @@ class AdminController extends Controller
 
     public function reservationApplications()
     {
-        $applications = ReservationApplication::with(['reservation.guest', 'cast'])
-            ->where('status', 'pending')
-            ->orderBy('applied_at', 'asc')
+        // Get all reservations with their applications
+        $reservations = Reservation::with(['guest', 'applications.cast'])
+            ->orderBy('scheduled_at', 'desc')
             ->get()
-            ->map(function ($application) {
+            ->map(function ($reservation) {
                 return [
-                    'id' => $application->id,
-                    'reservation' => [
-                        'id' => $application->reservation->id,
-                        'guest' => [
-                            'id' => $application->reservation->guest->id,
-                            'nickname' => $application->reservation->guest->nickname,
-                            'avatar' => $application->reservation->guest->avatar_url,
-                            'phone' => $application->reservation->guest->phone,
-                            'age' => $application->reservation->guest->age,
-                            'location' => $application->reservation->guest->location,
-                            'residence' => $application->reservation->guest->residence,
-                            'birthplace' => $application->reservation->guest->birthplace,
-                            'occupation' => $application->reservation->guest->occupation,
-                            'education' => $application->reservation->guest->education,
-                            'annual_income' => $application->reservation->guest->annual_income,
-                            'interests' => $application->reservation->guest->interests,
-                            'points' => $application->reservation->guest->points,
-                            'created_at' => $application->reservation->guest->created_at,
-                            'total_reservations' => $application->reservation->guest->reservations()->count(),
-                        ],
-                        'scheduled_at' => $application->reservation->scheduled_at,
-                        'location' => $application->reservation->location,
-                        'duration' => $application->reservation->duration,
-                        'details' => $application->reservation->details,
-                        'type' => $application->reservation->type,
+                    'id' => $reservation->id,
+                    'guest' => [
+                        'id' => $reservation->guest->id,
+                        'nickname' => $reservation->guest->nickname,
+                        'avatar' => $reservation->guest->avatar_url,
+                        'phone' => $reservation->guest->phone,
+                        'age' => $reservation->guest->age,
+                        'location' => $reservation->guest->location,
+                        'residence' => $reservation->guest->residence,
+                        'birthplace' => $reservation->guest->birthplace,
+                        'occupation' => $reservation->guest->occupation,
+                        'education' => $reservation->guest->education,
+                        'annual_income' => $reservation->guest->annual_income,
+                        'interests' => $reservation->guest->interests,
+                        'points' => $reservation->guest->points,
+                        'created_at' => $reservation->guest->created_at,
+                        'total_reservations' => $reservation->guest->reservations()->count(),
                     ],
-                    'cast' => [
-                        'id' => $application->cast->id,
-                        'nickname' => $application->cast->nickname,
-                        'avatar' => $application->cast->first_avatar_url,
-                        'phone' => $application->cast->phone,
-                        'name' => $application->cast->name,
-                        'birth_year' => $application->cast->birth_year,
-                        'height' => $application->cast->height,
-                        'grade' => $application->cast->grade,
-                        'grade_points' => $application->cast->grade_points,
-                        'residence' => $application->cast->residence,
-                        'birthplace' => $application->cast->birthplace,
-                        'location' => $application->cast->location,
-                        'profile_text' => $application->cast->profile_text,
-                        'points' => $application->cast->points,
-                        'status' => $application->cast->status,
-                        'created_at' => $application->cast->created_at,
-                    ],
-                    'status' => $application->status,
-                    'applied_at' => $application->applied_at,
-                    'approved_at' => $application->approved_at,
-                    'rejected_at' => $application->rejected_at,
-                    'rejection_reason' => $application->rejection_reason,
+                    'scheduled_at' => $reservation->scheduled_at,
+                    'location' => $reservation->location,
+                    'duration' => $reservation->duration,
+                    'details' => $reservation->details,
+                    'type' => $reservation->type,
+                    'applications' => $reservation->applications->map(function ($application) {
+                        return [
+                            'id' => $application->id,
+                            'cast' => [
+                                'id' => $application->cast->id,
+                                'nickname' => $application->cast->nickname,
+                                'avatar' => $application->cast->first_avatar_url,
+                                'phone' => $application->cast->phone,
+                                'name' => $application->cast->name,
+                                'birth_year' => $application->cast->birth_year,
+                                'height' => $application->cast->height,
+                                'grade' => $application->cast->grade,
+                                'grade_points' => $application->cast->grade_points,
+                                'residence' => $application->cast->residence,
+                                'birthplace' => $application->cast->birthplace,
+                                'location' => $application->cast->location,
+                                'profile_text' => $application->cast->profile_text,
+                                'points' => $application->cast->points,
+                                'status' => $application->cast->status,
+                                'created_at' => $application->cast->created_at,
+                                'total_reservations' => $application->cast->reservationApplications()->count(),
+                                'category' => $application->cast->category,
+                            ],
+                            'status' => $application->status,
+                            'applied_at' => $application->applied_at,
+                            'approved_at' => $application->approved_at,
+                            'rejected_at' => $application->rejected_at,
+                            'rejection_reason' => $application->rejection_reason,
+                        ];
+                    }),
                 ];
             });
 
-        return \Inertia\Inertia::render('admin/reservation-applications', compact('applications'));
+        return \Inertia\Inertia::render('admin/reservation-applications', compact('reservations'));
     }
 
     public function approveApplication(Request $request, $applicationId)

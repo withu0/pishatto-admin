@@ -150,4 +150,12 @@ class Cast extends Authenticatable
             ->where('is_read', false)
             ->count();
     }
+
+    /**
+     * Get reservation applications for this cast
+     */
+    public function reservationApplications()
+    {
+        return $this->hasMany(ReservationApplication::class);
+    }
 }
