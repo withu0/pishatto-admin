@@ -4,7 +4,7 @@ import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { Check, X, Search, Eye, Download } from 'lucide-react';
+import { Check, X, Search, Eye, Download, ZoomIn, ZoomOut, RotateCcw } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { useDebounce } from '@/hooks/use-debounce';
 import { toast } from 'sonner';
@@ -73,6 +73,8 @@ export default function AdminIdentityVerifications({ verifications, filters }: P
     const [isRejecting, setIsRejecting] = useState<number | null>(null);
     const [selectedVerification, setSelectedVerification] = useState<Guest | null>(null);
     const [isImageModalOpen, setIsImageModalOpen] = useState(false);
+    const [imageZoom, setImageZoom] = useState(100);
+    const [imageRotation, setImageRotation] = useState(0);
     const debouncedSearch = useDebounce(search, 300);
 
     useEffect(() => {
@@ -148,6 +150,25 @@ export default function AdminIdentityVerifications({ verifications, filters }: P
         console.log('Image URL:', verification.identity_verification_url);
         setSelectedVerification(verification);
         setIsImageModalOpen(true);
+        setImageZoom(100);
+        setImageRotation(0);
+    };
+
+    const handleZoomIn = () => {
+        setImageZoom(prev => Math.min(prev + 25, 300));
+    };
+
+    const handleZoomOut = () => {
+        setImageZoom(prev => Math.max(prev - 25, 25));
+    };
+
+    const handleResetZoom = () => {
+        setImageZoom(100);
+        setImageRotation(0);
+    };
+
+    const handleRotate = () => {
+        setImageRotation(prev => (prev + 90) % 360);
     };
 
     const downloadImage = (url: string, filename: string) => {
@@ -371,162 +392,152 @@ export default function AdminIdentityVerifications({ verifications, filters }: P
                     </CardContent>
                 </Card>
 
-                {/* Enhanced Image Modal */}
+                {/* Simple Image Modal */}
                 <Dialog open={isImageModalOpen} onOpenChange={setIsImageModalOpen}>
-                    <DialogContent className="max-w-5xl max-h-[90vh] overflow-hidden">
-                        <DialogHeader className="pb-4 border-b">
-                            <div className="flex items-center justify-between">
-                                <div>
-                                    <DialogTitle className="text-xl font-semibold">
-                                        身分証明書確認
-                                    </DialogTitle>
-                                    <p className="text-sm text-muted-foreground mt-1">
-                                        {selectedVerification && getDisplayName(selectedVerification)}
-                                    </p>
-                                </div>
-                                <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                                    <span className="px-2 py-1 bg-blue-100 text-blue-800 rounded-full text-xs font-medium">
-                                        ゲストID: {selectedVerification?.id}
-                                    </span>
-                                    <span className="px-2 py-1 bg-gray-100 text-gray-800 rounded-full text-xs">
-                                        {selectedVerification && new Date(selectedVerification.created_at).toLocaleDateString('ja-JP')}
-                                    </span>
-                                </div>
-                            </div>
-                        </DialogHeader>
-
+                    <DialogContent className="max-w-7xl w-[98vw] h-[98vh] max-h-[98vh] p-0 overflow-hidden bg-gray-900">
                         {selectedVerification && (selectedVerification.identity_verification_url || selectedVerification.identity_verification) && (
-                            <div className="flex flex-col h-full">
-                                {/* Image Display Section */}
-                                <div className="flex-1 min-h-0 p-6">
-                                    <div className="relative w-full max-w-4xl mx-auto bg-gray-50 rounded-lg border-2 border-dashed border-gray-200 overflow-hidden">
-                                        <img
-                                            src={selectedVerification.identity_verification_url || (selectedVerification.identity_verification ? `/storage/${selectedVerification.identity_verification}` : '')}
-                                            alt="身分証明書"
-                                            className="w-full h-auto max-h-[70vh] object-contain"
-                                            onError={(e) => {
-                                                console.error('Image failed to load:', selectedVerification.identity_verification_url || selectedVerification.identity_verification);
-                                                e.currentTarget.style.display = 'none';
-                                                e.currentTarget.nextElementSibling?.classList.remove('hidden');
-                                            }}
-                                        />
-                                        <div className="hidden absolute inset-0 flex items-center justify-center bg-white">
-                                            <div className="text-center p-8 max-w-md mx-auto">
-                                                <div className="text-gray-400 mb-4">
-                                                    <svg className="mx-auto h-16 w-16" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 002 2z" />
-                                                    </svg>
-                                                </div>
-                                                <h3 className="text-lg font-medium text-gray-900 mb-2">画像を読み込めませんでした</h3>
-                                                <p className="text-sm text-gray-500 mb-4">画像の読み込みに失敗しました。以下を確認してください。</p>
-                                                <div className="text-xs text-gray-400 space-y-1 mb-4">
-                                                    <p>URL: {selectedVerification.identity_verification_url || '(なし)'}</p>
-                                                    <p>File Path: {selectedVerification.identity_verification || '(なし)'}</p>
-                                                </div>
-                                                <Button
-                                                    size="sm"
-                                                    variant="outline"
-                                                    onClick={() => {
-                                                        const directUrl = selectedVerification.identity_verification_url || (selectedVerification.identity_verification ? `/storage/${selectedVerification.identity_verification}` : '');
-                                                        if (directUrl) {
-                                                            window.open(directUrl, '_blank');
-                                                        }
-                                                    }}
-                                                >
-                                                    直接リンクを試す
-                                                </Button>
-                                            </div>
-                                        </div>
-                                    </div>
+                            <div className="relative w-full h-full bg-gray-900">
+                                {/* Zoom Controls - Top Right */}
+                                <div className="absolute top-4 right-4 z-20 flex items-center gap-2 bg-white rounded-lg shadow-lg border p-2">
+                                    <Button
+                                        size="sm"
+                                        variant="outline"
+                                        onClick={handleZoomOut}
+                                        disabled={imageZoom <= 25}
+                                        className="h-8 w-8 p-0"
+                                    >
+                                        <ZoomOut className="w-4 h-4" />
+                                    </Button>
+                                    <span className="text-xs font-medium min-w-[3rem] text-center text-gray-700">
+                                        {imageZoom}%
+                                    </span>
+                                    <Button
+                                        size="sm"
+                                        variant="outline"
+                                        onClick={handleZoomIn}
+                                        disabled={imageZoom >= 300}
+                                        className="h-8 w-8 p-0"
+                                    >
+                                        <ZoomIn className="w-4 h-4" />
+                                    </Button>
+                                    <div className="w-px h-4 bg-gray-300 mx-1" />
+                                    <Button
+                                        size="sm"
+                                        variant="outline"
+                                        onClick={handleRotate}
+                                        className="h-8 w-8 p-0"
+                                    >
+                                        <RotateCcw className="w-4 h-4" />
+                                    </Button>
+                                    <Button
+                                        size="sm"
+                                        variant="outline"
+                                        onClick={handleResetZoom}
+                                        className="h-8 w-8 p-0"
+                                    >
+                                        <span className="text-xs">100%</span>
+                                    </Button>
                                 </div>
 
-                                {/* Action Bar */}
-                                <div className="border-t bg-gray-50 p-4">
-                                    <div className="flex items-center justify-between">
-                                        {/* Guest Information */}
-                                        <div className="flex items-center gap-4">
-                                            <div className="flex items-center gap-2">
-                                                <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center">
-                                                    <span className="text-blue-600 text-sm font-medium">
-                                                        {selectedVerification.nickname?.[0] || 'G'}
-                                                    </span>
-                                                </div>
-                                                <div>
-                                                    <p className="text-sm font-medium">{selectedVerification.nickname || `ゲスト${selectedVerification.id}`}</p>
-                                                    <p className="text-xs text-muted-foreground">
-                                                        {selectedVerification.phone && `📞 ${selectedVerification.phone}`}
-                                                        {selectedVerification.line_id && ` | LINE: ${selectedVerification.line_id}`}
-                                                    </p>
-                                                </div>
+                                {/* Action Buttons - Bottom Center */}
+                                <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 z-20 flex items-center gap-3">
+                                    <Button
+                                        size="sm"
+                                        variant="outline"
+                                        onClick={() => downloadImage(
+                                            selectedVerification.identity_verification_url || `/storage/${selectedVerification.identity_verification}`,
+                                            `verification_${selectedVerification.id}.jpg`
+                                        )}
+                                        disabled={!selectedVerification.identity_verification_url && !selectedVerification.identity_verification}
+                                        className="bg-white border-gray-300 text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                                    >
+                                        <Download className="w-4 h-4 mr-1" />
+                                        ダウンロード
+                                    </Button>
+                                    <Button
+                                        size="sm"
+                                        variant="default"
+                                        onClick={() => {
+                                            handleApproveVerification(selectedVerification.id);
+                                            setIsImageModalOpen(false);
+                                        }}
+                                        disabled={isApproving === selectedVerification.id}
+                                        className="bg-green-600 hover:bg-green-700 text-white"
+                                    >
+                                        {isApproving === selectedVerification.id ? (
+                                            <div className="flex items-center">
+                                                <div className="animate-spin rounded-full h-3 w-3 border-b border-white mr-2"></div>
+                                                承認中...
                                             </div>
-                                        </div>
+                                        ) : (
+                                            <>
+                                                <Check className="w-4 h-4 mr-1" />
+                                                承認
+                                            </>
+                                        )}
+                                    </Button>
+                                    <Button
+                                        size="sm"
+                                        variant="destructive"
+                                        onClick={() => {
+                                            handleRejectVerification(selectedVerification.id);
+                                            setIsImageModalOpen(false);
+                                        }}
+                                        disabled={isRejecting === selectedVerification.id}
+                                    >
+                                        {isRejecting === selectedVerification.id ? (
+                                            <div className="flex items-center">
+                                                <div className="animate-spin rounded-full h-3 w-3 border-b border-white mr-2"></div>
+                                                却下中...
+                                            </div>
+                                        ) : (
+                                            <>
+                                                <X className="w-4 h-4 mr-1" />
+                                                却下
+                                            </>
+                                        )}
+                                    </Button>
+                                </div>
 
-                                        {/* Action Buttons */}
-                                        <div className="flex items-center gap-3">
-                                            {/* Utility Buttons */}
-                                            <div className="flex items-center gap-2">
-                                                <Button
-                                                    size="sm"
-                                                    variant="outline"
-                                                    onClick={() => downloadImage(
-                                                        selectedVerification.identity_verification_url || `/storage/${selectedVerification.identity_verification}`,
-                                                        `verification_${selectedVerification.id}.jpg`
-                                                    )}
-                                                    disabled={!selectedVerification.identity_verification_url && !selectedVerification.identity_verification}
-                                                    className="text-xs disabled:opacity-50"
-                                                >
-                                                    <Download className="w-3 h-3 mr-1" />
-                                                    ダウンロード
-                                                </Button>
+                                {/* Image Display */}
+                                <div className="w-full h-full overflow-auto bg-gray-900 flex items-center justify-center p-4">
+                                    <img
+                                        src={selectedVerification.identity_verification_url || (selectedVerification.identity_verification ? `/storage/${selectedVerification.identity_verification}` : '')}
+                                        alt="身分証明書"
+                                        className="max-w-full max-h-full object-contain"
+                                        style={{
+                                            transform: `scale(${imageZoom / 100}) rotate(${imageRotation}deg)`,
+                                            transformOrigin: 'center',
+                                            transition: 'transform 0.2s ease-in-out'
+                                        }}
+                                        onError={(e) => {
+                                            console.error('Image failed to load:', selectedVerification.identity_verification_url || selectedVerification.identity_verification);
+                                            e.currentTarget.style.display = 'none';
+                                            e.currentTarget.nextElementSibling?.classList.remove('hidden');
+                                        }}
+                                    />
+                                    <div className="hidden absolute inset-0 flex items-center justify-center bg-gray-900">
+                                        <div className="text-center p-8 max-w-md mx-auto">
+                                            <div className="text-gray-400 mb-4">
+                                                <svg className="mx-auto h-16 w-16" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 002 2z" />
+                                                </svg>
                                             </div>
-
-                                            {/* Decision Buttons */}
-                                            <div className="flex items-center gap-2 ml-4 pl-4 border-l">
-                                                <Button
-                                                    size="sm"
-                                                    variant="default"
-                                                    onClick={() => {
-                                                        handleApproveVerification(selectedVerification.id);
-                                                        setIsImageModalOpen(false);
-                                                    }}
-                                                    disabled={isApproving === selectedVerification.id}
-                                                    className="bg-green-600 hover:bg-green-700 text-white px-4"
-                                                >
-                                                    {isApproving === selectedVerification.id ? (
-                                                        <div className="flex items-center">
-                                                            <div className="animate-spin rounded-full h-3 w-3 border-b border-white mr-2"></div>
-                                                            承認中...
-                                                        </div>
-                                                    ) : (
-                                                        <>
-                                                            <Check className="w-4 h-4 mr-1" />
-                                                            承認
-                                                        </>
-                                                    )}
-                                                </Button>
-                                                <Button
-                                                    size="sm"
-                                                    variant="destructive"
-                                                    onClick={() => {
-                                                        handleRejectVerification(selectedVerification.id);
-                                                        setIsImageModalOpen(false);
-                                                    }}
-                                                    disabled={isRejecting === selectedVerification.id}
-                                                    className="px-4"
-                                                >
-                                                    {isRejecting === selectedVerification.id ? (
-                                                        <div className="flex items-center">
-                                                            <div className="animate-spin rounded-full h-3 w-3 border-b border-white mr-2"></div>
-                                                            却下中...
-                                                        </div>
-                                                    ) : (
-                                                        <>
-                                                            <X className="w-4 h-4 mr-1" />
-                                                            却下
-                                                        </>
-                                                    )}
-                                                </Button>
-                                            </div>
+                                            <h3 className="text-lg font-medium text-white mb-2">画像を読み込めませんでした</h3>
+                                            <p className="text-sm text-gray-300 mb-4">画像の読み込みに失敗しました。</p>
+                                            <Button
+                                                size="sm"
+                                                variant="outline"
+                                                onClick={() => {
+                                                    const directUrl = selectedVerification.identity_verification_url || (selectedVerification.identity_verification ? `/storage/${selectedVerification.identity_verification}` : '');
+                                                    if (directUrl) {
+                                                        window.open(directUrl, '_blank');
+                                                    }
+                                                }}
+                                                className="bg-white/10 border-gray-600 text-white hover:bg-white/20"
+                                            >
+                                                直接リンクを試す
+                                            </Button>
                                         </div>
                                     </div>
                                 </div>
@@ -537,4 +548,4 @@ export default function AdminIdentityVerifications({ verifications, filters }: P
             </div>
         </AppLayout>
     );
-} 
+}
