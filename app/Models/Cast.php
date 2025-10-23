@@ -26,6 +26,7 @@ class Cast extends Authenticatable
         'location',
         'profile_text',
         'payjp_customer_id',
+        'stripe_customer_id',
         'payment_info',
         'points',
         'category',

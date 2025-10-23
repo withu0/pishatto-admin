@@ -33,6 +33,7 @@ class Guest extends Authenticatable
         'favorite_area',
         'interests',
         'payjp_customer_id',
+        'stripe_customer_id',
         'payment_info',
         'points',
         'grade',
