@@ -1048,23 +1048,50 @@ class StripeService
             // If we have a payment method, confirm the payment intent
             if (isset($paymentIntentData['payment_method'])) {
                 try {
+                    // For delayed capture, we need to confirm with off_session for automatic payments
                     $paymentIntent = $paymentIntent->confirm([
-                        'payment_method' => $paymentIntentData['payment_method']
+                        'payment_method' => $paymentIntentData['payment_method'],
+                        'off_session' => true
                     ]);
 
                     Log::info('Payment intent confirmed for delayed capture', [
                         'payment_intent_id' => $paymentIntent->id,
                         'status' => $paymentIntent->status
                     ]);
+
+                    // Check if payment requires action (3D Secure, etc.)
+                    if ($paymentIntent->status === 'requires_action') {
+                        Log::warning('Payment intent requires action for delayed capture', [
+                            'payment_intent_id' => $paymentIntent->id,
+                            'status' => $paymentIntent->status
+                        ]);
+
+                        return [
+                            'success' => false,
+                            'error' => 'Payment requires authentication. Please complete payment setup in your account.'
+                        ];
+                    }
                 } catch (\Exception $e) {
                     Log::error('Failed to confirm payment intent', [
-                        'payment_intent_id' => $paymentIntent->id,
-                        'error' => $e->getMessage()
+                        'payment_intent_id' => $paymentIntent->id ?? 'unknown',
+                        'error' => $e->getMessage(),
+                        'trace' => $e->getTraceAsString()
                     ]);
+
+                    // Check if error is related to payment method
+                    $errorMessage = $e->getMessage();
+                    if (strpos($errorMessage, 'payment_method') !== false ||
+                        strpos($errorMessage, 'authentication_required') !== false ||
+                        strpos($errorMessage, 'requires_action') !== false) {
+                        return [
+                            'success' => false,
+                            'error' => 'Payment method requires authentication. Please update your payment method.'
+                        ];
+                    }
 
                     return [
                         'success' => false,
-                        'error' => 'Failed to confirm payment intent: ' . $e->getMessage()
+                        'error' => 'Failed to confirm payment intent: ' . $errorMessage
                     ];
                 }
             }

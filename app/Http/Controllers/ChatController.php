@@ -8,6 +8,7 @@ use App\Models\Message;
 use App\Models\Gift;
 use Illuminate\Support\Facades\DB; // Added for DB facade
 use Illuminate\Support\Facades\Log; // Added for Log facade
+use App\Services\AutomaticPaymentWithPendingService;
 
 class ChatController extends Controller
 {
@@ -251,13 +252,173 @@ class ChatController extends Controller
                                 // The points have already been deducted/added
                             }
                         } else {
-                            // If insufficient points, delete the message and return error
-                            $message->delete();
-                            return response()->json([
-                                'error' => 'ギフト送信に必要なポイントが不足しています',
-                                'required_points' => $gift->points,
-                                'available_points' => $guest->points
-                            ], 400);
+                            // If insufficient points, check if guest has registered card for pending payment
+                            if (!$guest->stripe_customer_id) {
+                                // No registered card - delete message and return error
+                                $message->delete();
+                                return response()->json([
+                                    'error' => 'ギフト送信に必要なポイントが不足しています。カードを登録してください。',
+                                    'required_points' => $gift->points,
+                                    'available_points' => $guest->points,
+                                    'requires_card_registration' => true
+                                ], 400);
+                            }
+
+                            // Guest has registered card - create pending payment transaction
+                            try {
+                                $paymentService = app(AutomaticPaymentWithPendingService::class);
+                                $paymentResult = $paymentService->processAutomaticPaymentWithPending(
+                                    $guest->id,
+                                    $gift->points,
+                                    $chat->reservation_id ?? 0,
+                                    "ギフト送信: {$gift->name}"
+                                );
+
+                                if (!$paymentResult['success']) {
+                                    // Payment creation failed
+                                    $message->delete();
+                                    $errorMessage = $paymentResult['error'] ?? '自動支払いの処理に失敗しました';
+                                    $requiresCardRegistration = $paymentResult['requires_card_registration'] ?? false;
+
+                                    // Provide more specific error messages
+                                    if ($requiresCardRegistration) {
+                                        $errorMessage = 'カード情報の確認に失敗しました。カードを登録してください。';
+                                    } elseif (strpos($errorMessage, 'payment method') !== false ||
+                                              strpos($errorMessage, 'payment_method') !== false ||
+                                              strpos($errorMessage, 'customer') !== false) {
+                                        $requiresCardRegistration = true;
+                                        $errorMessage = 'カード情報の確認に失敗しました。カードを登録してください。';
+                                    } elseif (strpos($errorMessage, 'card') !== false ||
+                                              strpos($errorMessage, 'declined') !== false) {
+                                        $errorMessage = 'カードの処理に失敗しました。カード情報を確認してください。';
+                                    }
+
+                                    Log::warning('Gift payment failed in ChatController', [
+                                        'guest_id' => $guest->id,
+                                        'cast_id' => $cast->id,
+                                        'gift_id' => $gift->id,
+                                        'points' => $gift->points,
+                                        'error' => $errorMessage,
+                                        'requires_card_registration' => $requiresCardRegistration
+                                    ]);
+
+                                    return response()->json([
+                                        'error' => $errorMessage,
+                                        'required_points' => $gift->points,
+                                        'available_points' => $guest->points,
+                                        'requires_card_registration' => $requiresCardRegistration,
+                                        'debug_error' => config('app.debug') ? ($paymentResult['error'] ?? null) : null
+                                    ], 400);
+                                }
+
+                                // Payment pending transaction created successfully
+                                // Points have already been added to guest by the service
+                                // Now deduct points for gift and add to cast
+                                $guest->points -= $gift->points;
+                                $guest->grade_points += $gift->points;
+                                $guest->save();
+
+                                // Add points to cast
+                                $cast->points += $gift->points;
+                                $cast->save();
+
+                                // Create point transaction record with gift type and payment reference
+                                try {
+                                    \App\Models\PointTransaction::create([
+                                        'guest_id' => $guest->id,
+                                        'cast_id' => $cast->id,
+                                        'type' => 'gift',
+                                        'amount' => $gift->points,
+                                        'reservation_id' => $chat->reservation_id,
+                                        'description' => "贈り物が送られました: {$gift->name} (2日後自動支払い)",
+                                        'gift_type' => 'sent',
+                                        'payment_id' => $paymentResult['payment_id'] ?? null
+                                    ]);
+                                } catch (\Exception $e) {
+                                    // Log the error for debugging
+                                    Log::error('Failed to create point transaction for gift with pending payment', [
+                                        'error' => $e->getMessage(),
+                                        'guest_id' => $guest->id,
+                                        'cast_id' => $cast->id,
+                                        'gift_id' => $gift->id,
+                                        'points' => $gift->points,
+                                        'payment_id' => $paymentResult['payment_id'] ?? null
+                                    ]);
+
+                                    // Try using raw SQL as fallback
+                                    try {
+                                        DB::table('point_transactions')->insert([
+                                            'guest_id' => $guest->id,
+                                            'cast_id' => $cast->id,
+                                            'type' => 'gift',
+                                            'amount' => $gift->points,
+                                            'reservation_id' => $chat->reservation_id,
+                                            'description' => "贈り物が送られました: {$gift->name} (2日後自動支払い)",
+                                            'gift_type' => 'sent',
+                                            'payment_id' => $paymentResult['payment_id'] ?? null,
+                                            'created_at' => now(),
+                                            'updated_at' => now()
+                                        ]);
+                                    } catch (\Exception $e2) {
+                                        Log::error('Raw SQL also failed for point transaction with pending payment', [
+                                            'error' => $e2->getMessage()
+                                        ]);
+                                    }
+
+                                    // Continue with the gift sending even if transaction record fails
+                                }
+
+                                Log::info('Gift sent with pending payment', [
+                                    'guest_id' => $guest->id,
+                                    'cast_id' => $cast->id,
+                                    'gift_id' => $gift->id,
+                                    'points' => $gift->points,
+                                    'payment_id' => $paymentResult['payment_id'] ?? null
+                                ]);
+
+                            } catch (\Exception $e) {
+                                // Exception during pending payment creation
+                                $message->delete();
+                                Log::error('Failed to create pending payment for gift', [
+                                    'guest_id' => $guest->id,
+                                    'cast_id' => $cast->id,
+                                    'gift_id' => $gift->id,
+                                    'points' => $gift->points,
+                                    'error' => $e->getMessage(),
+                                    'trace' => $e->getTraceAsString()
+                                ]);
+
+                                // Try to extract more specific error information
+                                $errorMessage = $e->getMessage();
+                                $requiresCardRegistration = false;
+
+                                // Check for common error patterns
+                                if (strpos($errorMessage, 'payment method') !== false ||
+                                    strpos($errorMessage, 'payment_method') !== false ||
+                                    strpos($errorMessage, 'No such payment method') !== false ||
+                                    strpos($errorMessage, 'requires_payment_method') !== false) {
+                                    $requiresCardRegistration = true;
+                                    $errorMessage = 'カード情報の確認に失敗しました。カードを登録してください。';
+                                } elseif (strpos($errorMessage, 'customer') !== false ||
+                                          strpos($errorMessage, 'No such customer') !== false) {
+                                    $requiresCardRegistration = true;
+                                    $errorMessage = 'カード情報の確認に失敗しました。カードを登録してください。';
+                                } elseif (strpos($errorMessage, 'card') !== false ||
+                                          strpos($errorMessage, 'declined') !== false) {
+                                    $errorMessage = 'カードの処理に失敗しました。カード情報を確認してください。';
+                                } else {
+                                    // Use generic error but include the actual error in debug mode
+                                    $errorMessage = '自動支払いの処理中にエラーが発生しました。カード情報を確認してください。';
+                                }
+
+                                return response()->json([
+                                    'error' => $errorMessage,
+                                    'required_points' => $gift->points,
+                                    'available_points' => $guest->points,
+                                    'requires_card_registration' => $requiresCardRegistration,
+                                    'debug_error' => config('app.debug') ? $e->getMessage() : null
+                                ], 400);
+                            }
                         }
                     }
                 }
@@ -731,40 +892,151 @@ class ChatController extends Controller
                         $guest = \App\Models\Guest::find($message->sender_guest_id);
                         $cast = \App\Models\Cast::find($chat->cast_id);
 
-                        if ($guest && $cast && $guest->points >= $gift->points) {
-                            // Deduct points from guest and add to grade_points (spending contributes to grade)
-                            $guest->points -= $gift->points;
-                            $guest->grade_points += $gift->points;
-                            $guest->save();
+                        if ($guest && $cast) {
+                            $giftProcessed = false; // Track if gift was successfully processed
 
-                            $cast->points += $gift->points;
-                            $cast->save();
-                            // Grade upgrades are handled via quarterly evaluation & admin approval
+                            // Check if guest has enough points
+                            if ($guest->points >= $gift->points) {
+                                // Deduct points from guest and add to grade_points (spending contributes to grade)
+                                $guest->points -= $gift->points;
+                                $guest->grade_points += $gift->points;
+                                $guest->save();
 
-                            // Record point transaction
-                            \App\Models\PointTransaction::create([
-                                'guest_id' => $guest->id,
-                                'cast_id' => $cast->id,
-                                'type' => 'gift',
-                                'amount' => $gift->points,
-                                'reservation_id' => $chat->reservation_id,
-                                'description' => "贈り物が送られました: {$gift->name}",
-                                'gift_type' => 'sent'
-                            ]);
+                                $cast->points += $gift->points;
+                                $cast->save();
+                                // Grade upgrades are handled via quarterly evaluation & admin approval
 
-                            // Store to guest_gifts table as well
-                            \App\Models\GuestGift::create([
-                                'sender_guest_id' => $message->sender_guest_id,
-                                'receiver_cast_id' => $chat->cast_id,
-                                'gift_id' => $request->input('gift_id'),
-                                'message' => $request->input('message'),
-                                'created_at' => now(),
-                            ]);
+                                // Record point transaction
+                                try {
+                                    \App\Models\PointTransaction::create([
+                                        'guest_id' => $guest->id,
+                                        'cast_id' => $cast->id,
+                                        'type' => 'gift',
+                                        'amount' => $gift->points,
+                                        'reservation_id' => $chat->reservation_id,
+                                        'description' => "贈り物が送られました: {$gift->name}",
+                                        'gift_type' => 'sent'
+                                    ]);
+                                } catch (\Exception $e) {
+                                    Log::error('Failed to create point transaction for group gift', [
+                                        'error' => $e->getMessage(),
+                                        'guest_id' => $guest->id,
+                                        'cast_id' => $cast->id,
+                                        'gift_id' => $gift->id
+                                    ]);
+                                }
 
-                            // Update real-time rankings
-                            $rankingService = app(\App\Services\RankingService::class);
-                            $region = $chat && $chat->cast && $chat->cast->residence ? $chat->cast->residence : '全国';
-                            $rankingService->updateRealTimeRankings($region);
+                                $giftProcessed = true;
+                            } else {
+                                // Insufficient points - check if guest has registered card for pending payment
+                                if (!$guest->stripe_customer_id) {
+                                    // No registered card - skip gift processing (message will still be sent)
+                                    Log::warning('Guest has insufficient points and no registered card for group gift', [
+                                        'guest_id' => $guest->id,
+                                        'cast_id' => $cast->id,
+                                        'gift_id' => $gift->id,
+                                        'required_points' => $gift->points,
+                                        'available_points' => $guest->points
+                                    ]);
+                                } else {
+                                    // Guest has registered card - create pending payment transaction
+                                    try {
+                                        $paymentService = app(AutomaticPaymentWithPendingService::class);
+                                        $paymentResult = $paymentService->processAutomaticPaymentWithPending(
+                                            $guest->id,
+                                            $gift->points,
+                                            $chat->reservation_id ?? 0,
+                                            "ギフト送信: {$gift->name}"
+                                        );
+
+                                        if ($paymentResult['success']) {
+                                            // Payment pending transaction created successfully
+                                            // Points have already been added to guest by the service
+                                            // Now deduct points for gift and add to cast
+                                            $guest->points -= $gift->points;
+                                            $guest->grade_points += $gift->points;
+                                            $guest->save();
+
+                                            // Add points to cast
+                                            $cast->points += $gift->points;
+                                            $cast->save();
+
+                                            // Create point transaction record with gift type and payment reference
+                                            try {
+                                                \App\Models\PointTransaction::create([
+                                                    'guest_id' => $guest->id,
+                                                    'cast_id' => $cast->id,
+                                                    'type' => 'gift',
+                                                    'amount' => $gift->points,
+                                                    'reservation_id' => $chat->reservation_id,
+                                                    'description' => "贈り物が送られました: {$gift->name} (2日後自動支払い)",
+                                                    'gift_type' => 'sent',
+                                                    'payment_id' => $paymentResult['payment_id'] ?? null
+                                                ]);
+                                            } catch (\Exception $e) {
+                                                Log::error('Failed to create point transaction for group gift with pending payment', [
+                                                    'error' => $e->getMessage(),
+                                                    'guest_id' => $guest->id,
+                                                    'cast_id' => $cast->id,
+                                                    'gift_id' => $gift->id,
+                                                    'payment_id' => $paymentResult['payment_id'] ?? null
+                                                ]);
+                                            }
+
+                                            Log::info('Group gift sent with pending payment', [
+                                                'guest_id' => $guest->id,
+                                                'cast_id' => $cast->id,
+                                                'gift_id' => $gift->id,
+                                                'points' => $gift->points,
+                                                'payment_id' => $paymentResult['payment_id'] ?? null
+                                            ]);
+
+                                            $giftProcessed = true;
+                                        } else {
+                                            // Payment creation failed
+                                            Log::warning('Failed to create pending payment for group gift', [
+                                                'guest_id' => $guest->id,
+                                                'cast_id' => $cast->id,
+                                                'gift_id' => $gift->id,
+                                                'error' => $paymentResult['error'] ?? 'Unknown error'
+                                            ]);
+                                        }
+                                    } catch (\Exception $e) {
+                                        Log::error('Exception during pending payment creation for group gift', [
+                                            'guest_id' => $guest->id,
+                                            'cast_id' => $cast->id,
+                                            'gift_id' => $gift->id,
+                                            'error' => $e->getMessage(),
+                                            'trace' => $e->getTraceAsString()
+                                        ]);
+                                    }
+                                }
+                            }
+
+                            // Store to guest_gifts table (only if we successfully processed the gift)
+                            if ($giftProcessed) {
+                                try {
+                                    \App\Models\GuestGift::create([
+                                        'sender_guest_id' => $message->sender_guest_id,
+                                        'receiver_cast_id' => $chat->cast_id,
+                                        'gift_id' => $request->input('gift_id'),
+                                        'message' => $request->input('message'),
+                                        'created_at' => now(),
+                                    ]);
+
+                                    // Update real-time rankings
+                                    $rankingService = app(\App\Services\RankingService::class);
+                                    $region = $chat && $chat->cast && $chat->cast->residence ? $chat->cast->residence : '全国';
+                                    $rankingService->updateRealTimeRankings($region);
+                                } catch (\Exception $e) {
+                                    Log::error('Failed to create guest_gift record for group message', [
+                                        'error' => $e->getMessage(),
+                                        'guest_id' => $guest->id,
+                                        'cast_id' => $cast->id,
+                                        'gift_id' => $gift->id
+                                    ]);
+                                }
+                            }
                         }
                     }
                 }

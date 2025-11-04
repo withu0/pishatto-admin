@@ -167,9 +167,24 @@ class AutomaticPaymentWithPendingService
                 'trace' => $e->getTraceAsString()
             ]);
 
+            // Check for common error patterns to provide better error messages
+            $errorMessage = $e->getMessage();
+            $requiresCardRegistration = false;
+
+            // Check if error is related to payment method or customer
+            if (strpos($errorMessage, 'payment method') !== false ||
+                strpos($errorMessage, 'payment_method') !== false ||
+                strpos($errorMessage, 'No such payment method') !== false ||
+                strpos($errorMessage, 'requires_payment_method') !== false ||
+                strpos($errorMessage, 'No such customer') !== false ||
+                strpos($errorMessage, 'customer') !== false) {
+                $requiresCardRegistration = true;
+            }
+
             return [
                 'success' => false,
-                'error' => $e->getMessage()
+                'error' => $errorMessage,
+                'requires_card_registration' => $requiresCardRegistration
             ];
         }
     }
