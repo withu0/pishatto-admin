@@ -996,9 +996,10 @@ class StripeService
                 'description' => $description,
                 'capture_method' => 'manual',
                 'confirm' => false, // Don't confirm immediately - let it be authorized only
+                'return_url' => config('app.frontend_url', env('FRONTEND_URL', 'http://localhost:3000')) . '/payment/return', // Return URL for redirect-based authentication
                 'automatic_payment_methods' => [
                     'enabled' => true,
-                    'allow_redirects' => 'never'
+                    'allow_redirects' => 'always' // Allow redirects for 3D Secure authentication
                 ],
                 'metadata' => [
                     'capture_delay_days' => $captureDelayDays,
@@ -1078,8 +1079,27 @@ class StripeService
                         'trace' => $e->getTraceAsString()
                     ]);
 
-                    // Check if error is related to payment method
+                    // Check if error is related to requiring on-session action
                     $errorMessage = $e->getMessage();
+                    if (strpos($errorMessage, 'on-session action') !== false ||
+                        strpos($errorMessage, 'on_session') !== false ||
+                        (strpos($errorMessage, 'requires_action') !== false && strpos($errorMessage, 'on-session') !== false)) {
+                        // Payment requires on-session authentication - return client_secret for frontend handling
+                        Log::info('Payment intent requires on-session authentication', [
+                            'payment_intent_id' => $paymentIntent->id ?? 'unknown',
+                            'client_secret' => $paymentIntent->client_secret ?? null
+                        ]);
+
+                        return [
+                            'success' => true,
+                            'payment_intent_id' => $paymentIntent->id,
+                            'client_secret' => $paymentIntent->client_secret,
+                            'status' => $paymentIntent->status ?? 'requires_action',
+                            'requires_authentication' => true
+                        ];
+                    }
+
+                    // Check if error is related to payment method
                     if (strpos($errorMessage, 'payment_method') !== false ||
                         strpos($errorMessage, 'authentication_required') !== false ||
                         strpos($errorMessage, 'requires_action') !== false) {

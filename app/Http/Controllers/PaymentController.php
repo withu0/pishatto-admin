@@ -1865,7 +1865,7 @@ class PaymentController extends Controller
             );
 
             if ($result['success']) {
-                return response()->json([
+                $response = [
                     'success' => true,
                     'payment_id' => $result['payment_id'],
                     'point_transaction_id' => $result['point_transaction_id'],
@@ -1875,7 +1875,16 @@ class PaymentController extends Controller
                     'expires_at' => $result['expires_at'],
                     'payment_intent_id' => $result['payment_intent_id'],
                     'message' => 'ポイントが追加されました。2日後に自動的に支払いが完了します。'
-                ]);
+                ];
+
+                // Include authentication fields if authentication is required
+                if (isset($result['requires_authentication']) && $result['requires_authentication']) {
+                    $response['requires_authentication'] = true;
+                    $response['client_secret'] = $result['client_secret'] ?? null;
+                    $response['payment_intent_status'] = $result['payment_intent_status'] ?? null;
+                }
+
+                return response()->json($response);
             } else {
                 return response()->json([
                     'success' => false,

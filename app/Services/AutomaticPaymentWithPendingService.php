@@ -100,6 +100,10 @@ class AutomaticPaymentWithPendingService
                 ];
             }
 
+            // Check if payment requires on-session authentication
+            $requiresAuthentication = $paymentIntent['requires_authentication'] ?? false;
+            $clientSecret = $paymentIntent['client_secret'] ?? null;
+
             // Create payment record with pending status
             $payment = Payment::create([
                 'user_id' => $guestId,
@@ -143,10 +147,11 @@ class AutomaticPaymentWithPendingService
                 'point_transaction_id' => $pointTransaction->id,
                 'amount_yen' => $amountInYen,
                 'points_added' => $requiredPoints,
-                'expires_at' => $payment->expires_at
+                'expires_at' => $payment->expires_at,
+                'requires_authentication' => $requiresAuthentication
             ]);
 
-            return [
+            $result = [
                 'success' => true,
                 'payment_id' => $payment->id,
                 'point_transaction_id' => $pointTransaction->id,
@@ -156,6 +161,15 @@ class AutomaticPaymentWithPendingService
                 'expires_at' => $payment->expires_at,
                 'payment_intent_id' => $paymentIntent['payment_intent_id']
             ];
+
+            // Add authentication-related fields if authentication is required
+            if ($requiresAuthentication && $clientSecret) {
+                $result['requires_authentication'] = true;
+                $result['client_secret'] = $clientSecret;
+                $result['payment_intent_status'] = $paymentIntent['status'] ?? 'requires_action';
+            }
+
+            return $result;
 
         } catch (\Exception $e) {
             DB::rollBack();
