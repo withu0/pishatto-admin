@@ -155,34 +155,6 @@ class ChatController extends Controller
             'timestamp' => now()->toISOString()
         ]);
 
-        // Log before broadcasting
-        Log::info('ChatController: Broadcasting MessageSent event', [
-            'message_id' => $message->id,
-            'chat_id' => $message->chat_id,
-            'sender_guest_id' => $message->sender_guest_id,
-            'sender_cast_id' => $message->sender_cast_id,
-            'recipient_type' => $message->recipient_type
-        ]);
-
-        // Log the chat relationship
-        $chat = $message->chat;
-        Log::info('ChatController: Chat relationship details', [
-            'message_id' => $message->id,
-            'chat_id' => $chat->id,
-            'guest_id' => $chat->guest_id,
-            'cast_id' => $chat->cast_id,
-            'reservation_id' => $chat->reservation_id,
-            'group_id' => $chat->group_id
-        ]);
-
-        event(new \App\Events\MessageSent($message));
-
-        // Log after broadcasting
-        Log::info('ChatController: MessageSent event broadcasted', [
-            'message_id' => $message->id,
-            'chat_id' => $message->chat_id
-        ]);
-
         // Save gift to guest_gifts table if a gift was sent
         if ($request->input('gift_id')) {
             $chat = $message->chat;
@@ -267,12 +239,32 @@ class ChatController extends Controller
                             // Guest has registered card - create pending payment transaction
                             try {
                                 $paymentService = app(AutomaticPaymentWithPendingService::class);
+                                Log::info('Attempting automatic payment for gift', [
+                                    'guest_id' => $guest->id,
+                                    'stripe_customer_id' => $guest->stripe_customer_id,
+                                    'gift_id' => $gift->id,
+                                    'required_points' => $gift->points,
+                                    'guest_points_before' => $guest->points,
+                                    'reservation_id' => $chat->reservation_id
+                                ]);
                                 $paymentResult = $paymentService->processAutomaticPaymentWithPending(
                                     $guest->id,
                                     $gift->points,
                                     $chat->reservation_id ?? 0,
                                     "ギフト送信: {$gift->name}"
                                 );
+
+                                Log::info('Automatic payment result for gift', [
+                                    'guest_id' => $guest->id,
+                                    'gift_id' => $gift->id,
+                                    'success' => $paymentResult['success'] ?? null,
+                                    'requires_authentication' => $paymentResult['requires_authentication'] ?? false,
+                                    'requires_card_registration' => $paymentResult['requires_card_registration'] ?? false,
+                                    'payment_id' => $paymentResult['payment_id'] ?? null,
+                                    'point_transaction_id' => $paymentResult['point_transaction_id'] ?? null,
+                                    'error' => $paymentResult['error'] ?? null,
+                                    'payment_intent_status' => $paymentResult['payment_intent_status'] ?? null
+                                ]);
 
                                 if (!$paymentResult['success']) {
                                     // Payment creation failed
@@ -299,6 +291,7 @@ class ChatController extends Controller
                                         'gift_id' => $gift->id,
                                         'points' => $gift->points,
                                         'error' => $errorMessage,
+                                        'raw_error' => $paymentResult['error'] ?? null,
                                         'requires_card_registration' => $requiresCardRegistration
                                     ]);
 
@@ -314,6 +307,7 @@ class ChatController extends Controller
                                 // Payment pending transaction created successfully
                                 // Points have already been added to guest by the service
                                 // Now deduct points for gift and add to cast
+                                $guest->refresh();
                                 $guest->points -= $gift->points;
                                 $guest->grade_points += $gift->points;
                                 $guest->save();
@@ -373,7 +367,9 @@ class ChatController extends Controller
                                     'cast_id' => $cast->id,
                                     'gift_id' => $gift->id,
                                     'points' => $gift->points,
-                                    'payment_id' => $paymentResult['payment_id'] ?? null
+                                    'payment_id' => $paymentResult['payment_id'] ?? null,
+                                    'point_transaction_id' => $paymentResult['point_transaction_id'] ?? null,
+                                    'payment_result' => $paymentResult
                                 ]);
 
                             } catch (\Exception $e) {
@@ -438,8 +434,32 @@ class ChatController extends Controller
             $rankingService->updateRealTimeRankings($region);
         }
 
-        // Notification logic for recipient
+        // Broadcast only after gift processing completes successfully to avoid ghost messages
         $chat = $message->chat;
+        Log::info('ChatController: Broadcasting MessageSent event', [
+            'message_id' => $message->id,
+            'chat_id' => $message->chat_id,
+            'sender_guest_id' => $message->sender_guest_id,
+            'sender_cast_id' => $message->sender_cast_id,
+            'recipient_type' => $message->recipient_type
+        ]);
+        Log::info('ChatController: Chat relationship details', [
+            'message_id' => $message->id,
+            'chat_id' => $chat->id,
+            'guest_id' => $chat->guest_id,
+            'cast_id' => $chat->cast_id,
+            'reservation_id' => $chat->reservation_id,
+            'group_id' => $chat->group_id
+        ]);
+
+        event(new \App\Events\MessageSent($message));
+
+        Log::info('ChatController: MessageSent event broadcasted', [
+            'message_id' => $message->id,
+            'chat_id' => $message->chat_id
+        ]);
+
+        // Notification logic for recipient
         if ($message->sender_guest_id && $chat && $chat->cast_id) {
             // Guest sent message to cast
             $recipientId = $chat->cast_id;
@@ -942,6 +962,14 @@ class ChatController extends Controller
                                     // Guest has registered card - create pending payment transaction
                                     try {
                                         $paymentService = app(AutomaticPaymentWithPendingService::class);
+                                        Log::info('Attempting automatic payment for group gift', [
+                                            'guest_id' => $guest->id,
+                                            'stripe_customer_id' => $guest->stripe_customer_id,
+                                            'gift_id' => $gift->id,
+                                            'required_points' => $gift->points,
+                                            'guest_points_before' => $guest->points,
+                                            'reservation_id' => $chat->reservation_id
+                                        ]);
                                         $paymentResult = $paymentService->processAutomaticPaymentWithPending(
                                             $guest->id,
                                             $gift->points,
@@ -953,6 +981,7 @@ class ChatController extends Controller
                                             // Payment pending transaction created successfully
                                             // Points have already been added to guest by the service
                                             // Now deduct points for gift and add to cast
+                                            $guest->refresh();
                                             $guest->points -= $gift->points;
                                             $guest->grade_points += $gift->points;
                                             $guest->save();
@@ -988,7 +1017,9 @@ class ChatController extends Controller
                                                 'cast_id' => $cast->id,
                                                 'gift_id' => $gift->id,
                                                 'points' => $gift->points,
-                                                'payment_id' => $paymentResult['payment_id'] ?? null
+                                                'payment_id' => $paymentResult['payment_id'] ?? null,
+                                                'point_transaction_id' => $paymentResult['point_transaction_id'] ?? null,
+                                                'payment_result' => $paymentResult
                                             ]);
 
                                             $giftProcessed = true;
@@ -998,7 +1029,9 @@ class ChatController extends Controller
                                                 'guest_id' => $guest->id,
                                                 'cast_id' => $cast->id,
                                                 'gift_id' => $gift->id,
-                                                'error' => $paymentResult['error'] ?? 'Unknown error'
+                                                'error' => $paymentResult['error'] ?? 'Unknown error',
+                                                'requires_card_registration' => $paymentResult['requires_card_registration'] ?? null,
+                                                'payment_result' => $paymentResult
                                             ]);
                                         }
                                     } catch (\Exception $e) {

@@ -996,7 +996,6 @@ class StripeService
                 'description' => $description,
                 'capture_method' => 'manual',
                 'confirm' => false, // Don't confirm immediately - let it be authorized only
-                'return_url' => config('app.frontend_url', env('FRONTEND_URL', 'http://localhost:3000')) . '/payment/return', // Return URL for redirect-based authentication
                 'automatic_payment_methods' => [
                     'enabled' => true,
                     'allow_redirects' => 'always' // Allow redirects for 3D Secure authentication
@@ -1008,13 +1007,55 @@ class StripeService
             ];
 
             // Try to get customer's default payment method
+            $defaultPaymentMethodId = null;
+            try {
+                $customer = Customer::retrieve($customerId);
+                if ($customer && !empty($customer->invoice_settings) && !empty($customer->invoice_settings->default_payment_method)) {
+                    $defaultPaymentMethodId = $customer->invoice_settings->default_payment_method;
+                    Log::info('Using customer default payment method from invoice settings for delayed payment', [
+                        'customer_id' => $customerId,
+                        'payment_method_id' => $defaultPaymentMethodId
+                    ]);
+                } elseif ($customer && !empty($customer->default_source)) {
+                    $defaultPaymentMethodId = $customer->default_source;
+                    Log::info('Using customer default source for delayed payment', [
+                        'customer_id' => $customerId,
+                        'default_source' => $defaultPaymentMethodId
+                    ]);
+                }
+            } catch (Exception $e) {
+                Log::warning('Failed to retrieve customer default payment method', [
+                    'customer_id' => $customerId,
+                    'error' => $e->getMessage()
+                ]);
+            }
+
+            $paymentMethodId = null;
             try {
                 $paymentMethods = PaymentMethod::all([
                     'customer' => $customerId,
                     'type' => 'card',
                 ]);
 
-                if (!empty($paymentMethods->data)) {
+                if ($defaultPaymentMethodId) {
+                    try {
+                        $paymentMethod = PaymentMethod::retrieve($defaultPaymentMethodId);
+                        if ($paymentMethod && $paymentMethod->customer === $customerId) {
+                            $paymentMethodId = $paymentMethod->id;
+                        } elseif ($paymentMethod && !$paymentMethod->customer) {
+                            $paymentMethod->attach(['customer' => $customerId]);
+                            $paymentMethodId = $paymentMethod->id;
+                        }
+                    } catch (Exception $e) {
+                        Log::warning('Failed to use default payment method, falling back to list', [
+                            'customer_id' => $customerId,
+                            'payment_method_id' => $defaultPaymentMethodId,
+                            'error' => $e->getMessage()
+                        ]);
+                    }
+                }
+
+                if (empty($paymentMethodId) && !empty($paymentMethods->data)) {
                     $paymentMethodId = $paymentMethods->data[0]->id;
 
                     // Ensure payment method is attached to customer
@@ -1023,11 +1064,7 @@ class StripeService
                         $paymentMethod->attach(['customer' => $customerId]);
                     }
 
-                    // Set payment method for automatic payment
-                    $paymentIntentData['payment_method'] = $paymentMethodId;
-                    // Don't set off_session when confirm is false
-
-                    Log::info('Using customer default payment method for delayed payment', [
+                    Log::info('Using first available customer payment method for delayed payment', [
                         'customer_id' => $customerId,
                         'payment_method_id' => $paymentMethodId
                     ]);
@@ -1041,6 +1078,14 @@ class StripeService
                 Log::warning('Failed to get customer payment methods for delayed payment', [
                     'customer_id' => $customerId,
                     'error' => $e->getMessage()
+                ]);
+            }
+
+            if (!empty($paymentMethodId)) {
+                $paymentIntentData['payment_method'] = $paymentMethodId;
+                Log::info('Selected payment method for delayed payment', [
+                    'customer_id' => $customerId,
+                    'payment_method_id' => $paymentMethodId
                 ]);
             }
 
