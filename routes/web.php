@@ -18,6 +18,7 @@ use App\Http\Controllers\Admin\ConciergeController;
 use App\Http\Controllers\Admin\ReceiptsController;
 use App\Http\Controllers\Admin\GradeController;
 use App\Http\Controllers\Admin\CastApplicationController;
+use App\Http\Controllers\Admin\CastPayoutController;
 
 use App\Http\Controllers\AdminController;
 
@@ -110,6 +111,13 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::post('admin/cast-applications/{application}/reject-preliminary', [CastApplicationController::class, 'rejectPreliminary'])->name('admin.cast-applications.reject-preliminary');
     Route::post('admin/cast-applications/{application}/approve-final', [CastApplicationController::class, 'approveFinal'])->name('admin.cast-applications.approve-final');
     Route::post('admin/cast-applications/{application}/reject-final', [CastApplicationController::class, 'rejectFinal'])->name('admin.cast-applications.reject-final');
+
+    // Cast Payouts Management
+    Route::get('admin/cast-payouts', [CastPayoutController::class, 'index'])->name('admin.cast-payouts.index');
+    Route::get('admin/cast-payouts/{castPayout}', [CastPayoutController::class, 'show'])->name('admin.cast-payouts.show');
+    Route::post('admin/cast-payouts/{castPayout}/retry', [CastPayoutController::class, 'retry'])->name('admin.cast-payouts.retry');
+    Route::post('admin/cast-payouts/{castPayout}/cancel', [CastPayoutController::class, 'cancel'])->name('admin.cast-payouts.cancel');
+    Route::post('admin/cast-payouts/{castPayout}/mark-paid', [CastPayoutController::class, 'markPaid'])->name('admin.cast-payouts.mark-paid');
 });
 
 // CSRF token refresh route

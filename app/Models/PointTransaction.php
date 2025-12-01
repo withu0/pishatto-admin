@@ -18,6 +18,7 @@ class PointTransaction extends Model
         'description',
         'gift_type',
         'payment_id',
+        'cast_payout_id',
     ];
 
     public function guest()
@@ -38,5 +39,10 @@ class PointTransaction extends Model
     public function payment()
     {
         return $this->belongsTo(Payment::class);
+    }
+
+    public function castPayout()
+    {
+        return $this->belongsTo(CastPayout::class);
     }
 } 

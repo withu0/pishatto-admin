@@ -192,4 +192,12 @@ When a cast payment is marked as "paid":
 - Payment methods must be valid
 - Status transitions must be logical
 
+## Stripe Connect Payout Flow
+
+- Casts onboard to Stripe Connect Express via `POST /api/casts/{castId}/stripe/connect`, which stores `stripe_connect_account_id`, `stripe_onboarding_status`, `stripe_requirements`, `payouts_enabled`, `stripe_connect_last_synced_at`, and `stripe_payouts_enabled_at` on the `casts` table.
+- Onboarding/update URLs are issued from `POST /api/casts/{castId}/stripe/onboarding-link` and Express dashboard login links from `POST /api/casts/{castId}/stripe/login-link`.
+- Cast dashboards poll `GET /api/casts/{castId}/stripe/account` to show current requirements, payout readiness, and sync timestamps before enabling payouts.
+- Payout requests use `POST /api/casts/{castId}/stripe/payouts` to trigger Stripe payouts and log `stripe_payout_id`/`stripe_connect_account_id` on the `payments` table for reconciliation.
+- Connect webhook endpoint `POST /api/stripe/connect/webhook` handles `account.updated` and `payout.*` events to refresh cast requirements and payment statuses automatically.
+
 This payment management system provides comprehensive tracking of cast payments while maintaining clear separation from sales/revenue data, enabling proper financial management and reporting. 

@@ -27,11 +27,24 @@ class Cast extends Authenticatable
         'profile_text',
         'payjp_customer_id',
         'stripe_customer_id',
+        'stripe_connect_account_id',
+        'stripe_onboarding_status',
+        'stripe_requirements',
+        'payouts_enabled',
+        'stripe_connect_last_synced_at',
+        'stripe_payouts_enabled_at',
         'payment_info',
         'points',
         'category',
         'created_at',
         'updated_at',
+    ];
+
+    protected $casts = [
+        'stripe_requirements' => 'array',
+        'payouts_enabled' => 'boolean',
+        'stripe_connect_last_synced_at' => 'datetime',
+        'stripe_payouts_enabled_at' => 'datetime',
     ];
 
     /**
@@ -130,6 +143,11 @@ class Cast extends Authenticatable
     public function feedback()
     {
         return $this->hasMany(Feedback::class);
+    }
+
+    public function payouts()
+    {
+        return $this->hasMany(CastPayout::class);
     }
 
     /**

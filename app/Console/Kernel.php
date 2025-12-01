@@ -12,6 +12,10 @@ class Kernel extends ConsoleKernel
      */
     protected function schedule(Schedule $schedule): void
     {
+        // Close cast payouts on the 1st (末締め)
+        $schedule->command('casts:close-month')->monthlyOn(1, '03:10');
+        // Disburse cast payouts daily (翌月末)
+        $schedule->command('casts:process-payouts')->dailyAt('03:40');
         // Calculate and store monthly earned rankings on the 15th of every month at 03:00
         $schedule->command('rankings:monthly-earned')->monthlyOn(15, '03:00');
         // Auto-exit over budget reservations every minute

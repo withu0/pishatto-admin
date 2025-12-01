@@ -814,6 +814,16 @@ class PaymentController extends Controller
             'payment_method' => 'required|string', // Stripe payment method ID
         ]);
 
+        // Log Stripe key information for debugging (first 10 chars only for security)
+        $secretKey = config('services.stripe.secret_key', env('STRIPE_SECRET_KEY'));
+        $publicKey = config('services.stripe.public_key', env('STRIPE_PUBLIC_KEY'));
+        Log::info('Stripe key configuration check', [
+            'secret_key_prefix' => $secretKey ? substr($secretKey, 0, 10) . '...' : 'NOT SET',
+            'public_key_prefix' => $publicKey ? substr($publicKey, 0, 10) . '...' : 'NOT SET',
+            'secret_key_mode' => $secretKey ? (strpos($secretKey, 'sk_test_') === 0 ? 'TEST' : (strpos($secretKey, 'sk_live_') === 0 ? 'LIVE' : 'UNKNOWN')) : 'NOT SET',
+            'public_key_mode' => $publicKey ? (strpos($publicKey, 'pk_test_') === 0 ? 'TEST' : (strpos($publicKey, 'pk_live_') === 0 ? 'LIVE' : 'UNKNOWN')) : 'NOT SET',
+        ]);
+
         try {
             // Get or create customer
             $model = $request->user_type === 'guest'
@@ -889,21 +899,49 @@ class PaymentController extends Controller
 
             // Attach payment method to customer
             try {
+                Log::info('Attempting to attach PaymentMethod to customer', [
+                    'user_id' => $request->user_id,
+                    'user_type' => $request->user_type,
+                    'customer_id' => $model->stripe_customer_id,
+                    'payment_method_id' => $request->payment_method
+                ]);
+
                 $paymentMethodResult = $this->stripeService->attachPaymentMethod(
                     $request->payment_method,
                     $model->stripe_customer_id
                 );
+
+                Log::info('PaymentMethod attached successfully', [
+                    'user_id' => $request->user_id,
+                    'user_type' => $request->user_type,
+                    'customer_id' => $model->stripe_customer_id,
+                    'payment_method_id' => $request->payment_method,
+                    'payment_method_customer' => $paymentMethodResult['customer'] ?? null
+                ]);
             } catch (\Exception $e) {
                 Log::error('Failed to attach payment method to customer', [
                     'user_id' => $request->user_id,
                     'user_type' => $request->user_type,
                     'customer_id' => $model->stripe_customer_id,
-                    'error' => $e->getMessage()
+                    'payment_method_id' => $request->payment_method,
+                    'error' => $e->getMessage(),
+                    'error_code' => $e->getCode(),
+                    'trace' => $e->getTraceAsString()
                 ]);
+
+                // Provide more specific error message
+                $errorMessage = $e->getMessage();
+                if (strpos($errorMessage, 'No such PaymentMethod') !== false) {
+                    $errorMessage = 'カード情報が見つかりませんでした。カード情報を再度入力してください。';
+                } elseif (strpos($errorMessage, 'PaymentMethod does not exist') !== false) {
+                    $errorMessage = 'カード情報が無効です。もう一度お試しください。';
+                } else {
+                    $errorMessage = 'カードの追加に失敗しました: ' . $errorMessage;
+                }
 
                 return response()->json([
                     'success' => false,
-                    'error' => 'カードの追加に失敗しました: ' . $e->getMessage(),
+                    'error' => $errorMessage,
                 ], 400);
             }
 

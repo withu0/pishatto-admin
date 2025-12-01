@@ -11,18 +11,29 @@ use Stripe\PaymentIntent;
 use Stripe\PaymentMethod;
 use Stripe\Refund;
 use Stripe\Webhook;
+use Stripe\Balance;
+use Stripe\Account;
+use Stripe\AccountLink;
+use Stripe\Payout;
+use Stripe\Transfer;
 
 class StripeService
 {
     protected $secretKey;
     protected $publicKey;
     protected $webhookSecret;
+    protected $clientId;
+    protected $connectWebhookSecret;
+    protected $connectRefreshIntervalMinutes;
 
     public function __construct()
     {
         $this->secretKey = config('services.stripe.secret_key', env('STRIPE_SECRET_KEY'));
         $this->publicKey = config('services.stripe.public_key', env('STRIPE_PUBLIC_KEY'));
         $this->webhookSecret = config('services.stripe.webhook_secret', env('STRIPE_WEBHOOK_SECRET'));
+        $this->clientId = config('services.stripe.client_id');
+        $this->connectWebhookSecret = config('services.stripe.connect_webhook_secret');
+        $this->connectRefreshIntervalMinutes = (int) config('services.stripe.connect_refresh_interval_minutes', 60);
 
         if (!$this->secretKey) {
             throw new \Exception('Stripe secret key is not configured');
@@ -289,8 +300,97 @@ class StripeService
     public function attachPaymentMethod($paymentMethodId, $customerId)
     {
         try {
-            $paymentMethod = PaymentMethod::retrieve($paymentMethodId);
+            // First, verify the PaymentMethod exists with retry logic
+            // Sometimes there's a slight delay after creation
+            $paymentMethod = null;
+            $maxRetries = 3;
+            $retryDelay = 0.5; // 500ms
+
+            for ($attempt = 1; $attempt <= $maxRetries; $attempt++) {
+                try {
+                    Log::info('Attempting to retrieve PaymentMethod', [
+                        'payment_method_id' => $paymentMethodId,
+                        'attempt' => $attempt,
+                        'max_retries' => $maxRetries
+                    ]);
+
+                    $paymentMethod = PaymentMethod::retrieve($paymentMethodId);
+
+                    // Successfully retrieved
+                    Log::info('PaymentMethod retrieved successfully', [
+                        'payment_method_id' => $paymentMethodId,
+                        'attempt' => $attempt,
+                        'payment_method_type' => $paymentMethod->type ?? 'unknown',
+                        'created' => $paymentMethod->created ?? null
+                    ]);
+                    break;
+
+                } catch (Exception $e) {
+                    // Check if it's a "No such PaymentMethod" error
+                    if (strpos($e->getMessage(), 'No such PaymentMethod') !== false) {
+                        if ($attempt < $maxRetries) {
+                            // Wait before retrying
+                            Log::warning('PaymentMethod not found, retrying...', [
+                                'payment_method_id' => $paymentMethodId,
+                                'attempt' => $attempt,
+                                'max_retries' => $maxRetries,
+                                'retry_delay_seconds' => $retryDelay
+                            ]);
+                            usleep($retryDelay * 1000000); // Convert to microseconds
+                            continue;
+                        } else {
+                            // Final attempt failed
+                            Log::error('PaymentMethod does not exist in Stripe after all retries', [
+                                'payment_method_id' => $paymentMethodId,
+                                'customer_id' => $customerId,
+                                'error' => $e->getMessage(),
+                                'attempts' => $attempt,
+                                'suggestion' => 'The PaymentMethod may have been deleted, expired, or created on a different Stripe account. Please create a new PaymentMethod.'
+                            ]);
+
+                            // Throw a more user-friendly error
+                            throw new Exception(
+                                'PaymentMethod does not exist. This may happen if the card information was already used or expired. Please enter your card information again.',
+                                404
+                            );
+                        }
+                    }
+                    // Re-throw other errors immediately
+                    throw $e;
+                }
+            }
+
+            if (!$paymentMethod) {
+                throw new Exception('Failed to retrieve PaymentMethod after all retry attempts', 500);
+            }
+
+            // Check if PaymentMethod is already attached to a customer
+            if ($paymentMethod->customer) {
+                if ($paymentMethod->customer === $customerId) {
+                    // Already attached to this customer, return success
+                    Log::info('PaymentMethod already attached to customer', [
+                        'payment_method_id' => $paymentMethodId,
+                        'customer_id' => $customerId
+                    ]);
+                    return $paymentMethod->toArray();
+                } else {
+                    // Attached to a different customer - detach first
+                    Log::warning('PaymentMethod attached to different customer, detaching first', [
+                        'payment_method_id' => $paymentMethodId,
+                        'old_customer_id' => $paymentMethod->customer,
+                        'new_customer_id' => $customerId
+                    ]);
+                    $paymentMethod->detach();
+                }
+            }
+
+            // Attach to the customer
             $paymentMethod->attach(['customer' => $customerId]);
+
+            Log::info('PaymentMethod successfully attached to customer', [
+                'payment_method_id' => $paymentMethodId,
+                'customer_id' => $customerId
+            ]);
 
             return $paymentMethod->toArray();
 
@@ -298,7 +398,8 @@ class StripeService
             Log::error('Stripe payment method attachment failed', [
                 'payment_method_id' => $paymentMethodId,
                 'customer_id' => $customerId,
-                'error' => $e->getMessage()
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
             ]);
             throw $e;
         }
@@ -853,6 +954,24 @@ class StripeService
     }
 
     /**
+     * Handle Stripe Connect specific webhook
+     */
+    public function handleConnectWebhook($payload, $signature): array
+    {
+        if (!$this->connectWebhookSecret) {
+            throw new \Exception('Stripe Connect webhook secret is not configured');
+        }
+
+        $event = Webhook::constructEvent($payload, $signature, $this->connectWebhookSecret);
+
+        Log::info('Stripe Connect webhook received', [
+            'type' => $event->type,
+        ]);
+
+        return $event->toArray();
+    }
+
+    /**
      * Cancel a payment intent
      */
     public function cancelPaymentIntent(string $paymentIntentId): array
@@ -1189,6 +1308,413 @@ class StripeService
                 'error' => $e->getMessage()
             ];
         }
+    }
+
+    /**
+     * Create (or update) a Stripe Connect Express account for a cast
+     */
+    public function createExpressAccount(array $data = []): array
+    {
+        try {
+            $payload = $this->removeNullValues([
+                'type' => $data['type'] ?? 'express',
+                'country' => $data['country'] ?? config('services.stripe.connect_default_country', 'HK'),
+                'email' => $data['email'] ?? null,
+                'business_type' => $data['business_type'] ?? 'individual',
+                'metadata' => $data['metadata'] ?? [],
+                'settings' => $data['settings'] ?? [
+                    'payouts' => [
+                        'schedule' => [
+                            'interval' => 'manual',
+                        ],
+                    ],
+                ],
+                'capabilities' => $data['capabilities'] ?? [
+                    'card_payments' => ['requested' => true],
+                    'transfers' => ['requested' => true],
+                ],
+                'business_profile' => $data['business_profile'] ?? [
+                    'product_description' => $data['product_description'] ?? 'Pishatto cast services',
+                    'support_email' => $data['support_email'] ?? null,
+                    'support_phone' => $data['support_phone'] ?? null,
+                ],
+                'individual' => $data['individual'] ?? null,
+                'company' => $data['company'] ?? null,
+            ]);
+
+            // Log the payload for debugging (remove sensitive data)
+            $logPayload = $payload;
+            if (isset($logPayload['business_profile']['support_email'])) {
+                $logPayload['business_profile']['support_email'] = substr($logPayload['business_profile']['support_email'], 0, 3) . '***';
+            }
+            Log::info('Creating Stripe Connect Express account', [
+                'payload_keys' => array_keys($logPayload),
+                'business_profile' => $logPayload['business_profile'] ?? null,
+            ]);
+
+            $account = Account::create($payload);
+
+            Log::info('Stripe Connect Express account created', [
+                'account_id' => $account->id,
+                'email' => $data['email'] ?? null,
+            ]);
+
+            return $account->toArray();
+        } catch (Exception $e) {
+            Log::error('Stripe Connect account creation failed', [
+                'error' => $e->getMessage(),
+                'data' => $data,
+            ]);
+
+            throw $e;
+        }
+    }
+
+    /**
+     * Generate an onboarding link for a connected account
+     */
+    public function createOnboardingLink(string $accountId, string $refreshUrl, string $returnUrl, string $type = 'account_onboarding'): array
+    {
+        try {
+            $accountLink = AccountLink::create([
+                'account' => $accountId,
+                'refresh_url' => $refreshUrl,
+                'return_url' => $returnUrl,
+                'type' => $type,
+            ]);
+
+            Log::info('Stripe Connect onboarding link created', [
+                'account_id' => $accountId,
+                'link' => $accountLink->url,
+            ]);
+
+            return $accountLink->toArray();
+        } catch (Exception $e) {
+            Log::error('Stripe Connect onboarding link creation failed', [
+                'account_id' => $accountId,
+                'error' => $e->getMessage(),
+            ]);
+
+            throw $e;
+        }
+    }
+
+    /**
+     * Generate a login link for an Express dashboard
+     */
+    public function createLoginLink(string $accountId): array
+    {
+        try {
+            $loginLink = Account::createLoginLink($accountId);
+
+            Log::info('Stripe Connect login link created', [
+                'account_id' => $accountId,
+                'link' => $loginLink->url,
+            ]);
+
+            return $loginLink->toArray();
+        } catch (Exception $e) {
+            Log::error('Stripe Connect login link creation failed', [
+                'account_id' => $accountId,
+                'error' => $e->getMessage(),
+            ]);
+
+            throw $e;
+        }
+    }
+
+    /**
+     * Retrieve a connected account
+     */
+    public function retrieveAccount(string $accountId): array
+    {
+        try {
+            $account = Account::retrieve($accountId);
+
+            return $account->toArray();
+        } catch (Exception $e) {
+            Log::error('Stripe Connect account retrieval failed', [
+                'account_id' => $accountId,
+                'error' => $e->getMessage(),
+            ]);
+
+            throw $e;
+        }
+    }
+
+    /**
+     * Get the balance for the platform account (not a connected account)
+     */
+    public function getPlatformBalance(): array
+    {
+        try {
+            $balance = Balance::retrieve();
+
+            Log::info('Stripe platform account balance retrieved', [
+                'available' => $balance->available ?? [],
+                'pending' => $balance->pending ?? [],
+            ]);
+
+            return [
+                'available' => array_map(function($item) {
+                    return [
+                        'amount' => $item->amount,
+                        'currency' => $item->currency,
+                        'source_types' => $item->source_types ?? [],
+                    ];
+                }, $balance->available ?? []),
+                'pending' => array_map(function($item) {
+                    return [
+                        'amount' => $item->amount,
+                        'currency' => $item->currency,
+                        'source_types' => $item->source_types ?? [],
+                    ];
+                }, $balance->pending ?? []),
+            ];
+        } catch (Exception $e) {
+            Log::error('Stripe platform account balance retrieval failed', [
+                'error' => $e->getMessage(),
+            ]);
+
+            throw $e;
+        }
+    }
+
+    /**
+     * Get the balance for a connected account
+     */
+    public function getAccountBalance(string $accountId): array
+    {
+        try {
+            // Retrieve balance for connected account
+            // Balance::retrieve accepts options as first parameter
+            $balance = Balance::retrieve(['stripe_account' => $accountId]);
+
+            Log::info('Stripe Connect account balance retrieved', [
+                'account_id' => $accountId,
+                'available' => $balance->available ?? [],
+                'pending' => $balance->pending ?? [],
+            ]);
+
+            return [
+                'available' => array_map(function($item) {
+                    return [
+                        'amount' => $item->amount,
+                        'currency' => $item->currency,
+                        'source_types' => $item->source_types ?? [],
+                    ];
+                }, $balance->available ?? []),
+                'pending' => array_map(function($item) {
+                    return [
+                        'amount' => $item->amount,
+                        'currency' => $item->currency,
+                        'source_types' => $item->source_types ?? [],
+                    ];
+                }, $balance->pending ?? []),
+                'connect_reserved' => array_map(function($item) {
+                    return [
+                        'amount' => $item->amount,
+                        'currency' => $item->currency,
+                    ];
+                }, $balance->connect_reserved ?? []),
+            ];
+        } catch (Exception $e) {
+            Log::error('Stripe Connect account balance retrieval failed', [
+                'account_id' => $accountId,
+                'error' => $e->getMessage(),
+            ]);
+
+            throw $e;
+        }
+    }
+
+    /**
+     * Transfer money from platform account to a connected account
+     */
+    public function createTransfer(string $destinationAccountId, int $amount, string $currency = 'jpy', array $metadata = []): array
+    {
+        try {
+            $transfer = Transfer::create([
+                'amount' => $amount,
+                'currency' => $currency,
+                'destination' => $destinationAccountId,
+                'metadata' => $metadata,
+            ]);
+
+            Log::info('Stripe Transfer to connected account created', [
+                'destination_account_id' => $destinationAccountId,
+                'amount' => $amount,
+                'currency' => $currency,
+                'transfer_id' => $transfer->id,
+            ]);
+
+            return $transfer->toArray();
+        } catch (Exception $e) {
+            Log::error('Stripe Transfer to connected account failed', [
+                'destination_account_id' => $destinationAccountId,
+                'amount' => $amount,
+                'currency' => $currency,
+                'error' => $e->getMessage(),
+            ]);
+
+            throw $e;
+        }
+    }
+
+    /**
+     * Create a payout for a connected account
+     */
+    public function createPayout(string $accountId, int $amount, string $currency = 'jpy', array $metadata = []): array
+    {
+        try {
+            $payout = Payout::create(
+                [
+                    'amount' => $amount,
+                    'currency' => $currency,
+                    'metadata' => $metadata,
+                ],
+                [
+                    'stripe_account' => $accountId,
+                ]
+            );
+
+            Log::info('Stripe Connect payout created', [
+                'account_id' => $accountId,
+                'amount' => $amount,
+                'currency' => $currency,
+            ]);
+
+            return $payout->toArray();
+        } catch (Exception $e) {
+            Log::error('Stripe Connect payout creation failed', [
+                'account_id' => $accountId,
+                'amount' => $amount,
+                'currency' => $currency,
+                'error' => $e->getMessage(),
+            ]);
+
+            throw $e;
+        }
+    }
+
+    /**
+     * Summarize requirement blocks to show casts why payouts are disabled
+     */
+    public function summarizeAccountRequirements(array $account): array
+    {
+        $requirements = $account['requirements'] ?? [];
+
+        return [
+            'currently_due' => $requirements['currently_due'] ?? [],
+            'eventually_due' => $requirements['eventually_due'] ?? [],
+            'past_due' => $requirements['past_due'] ?? [],
+            'pending_verification' => $requirements['pending_verification'] ?? [],
+            'disabled_reason' => $requirements['disabled_reason'] ?? null,
+        ];
+    }
+
+    /**
+     * Normalize key account signals for UI consumption
+     */
+    public function formatAccountStatus(array $account): array
+    {
+        $requirements = $this->summarizeAccountRequirements($account);
+        $payoutsEnabled = (bool) ($account['payouts_enabled'] ?? false);
+        $chargesEnabled = (bool) ($account['charges_enabled'] ?? false);
+
+        return [
+            'id' => $account['id'] ?? null,
+            'email' => $account['email'] ?? null,
+            'payouts_enabled' => $payoutsEnabled,
+            'charges_enabled' => $chargesEnabled,
+            'details_submitted' => (bool) ($account['details_submitted'] ?? false),
+            'requirements' => $requirements,
+            'needs_attention' => !$payoutsEnabled || !empty($requirements['currently_due']) || !empty($requirements['past_due']),
+            'last_requirement_refresh' => now()->toISOString(),
+        ];
+    }
+
+    /**
+     * Accessor for Connect metadata used elsewhere in the app
+     */
+    public function getConnectMetadata(): array
+    {
+        return [
+            'client_id' => $this->clientId,
+            'webhook_secret' => $this->connectWebhookSecret,
+            'refresh_interval_minutes' => $this->connectRefreshIntervalMinutes,
+        ];
+    }
+
+    /**
+     * Determine if an account should be refreshed based on last sync timestamp
+     */
+    public function shouldRefreshAccountStatus(?\Carbon\CarbonInterface $lastSyncedAt): bool
+    {
+        if (empty($lastSyncedAt)) {
+            return true;
+        }
+
+        return $lastSyncedAt->addMinutes($this->connectRefreshIntervalMinutes)->isPast();
+    }
+
+    /**
+     * Filter out null values and invalid data from payloads to avoid Stripe validation errors
+     */
+    private function removeNullValues(array $payload, string $parentKey = ''): array
+    {
+        $cleaned = [];
+        foreach ($payload as $key => $value) {
+            if ($value === null) {
+                continue;
+            }
+
+            // Handle arrays recursively
+            if (is_array($value)) {
+                $cleanedArray = $this->removeNullValues($value, $key);
+                // Only include non-empty arrays
+                if (!empty($cleanedArray)) {
+                    $cleaned[$key] = $cleanedArray;
+                }
+                continue;
+            }
+
+            // Remove empty strings for URL fields (works at any nesting level)
+            if ($key === 'url' || $key === 'refresh_url' || $key === 'return_url') {
+                if (empty($value) || !is_string($value) || !filter_var($value, FILTER_VALIDATE_URL)) {
+                    continue;
+                }
+                // Stripe doesn't accept localhost URLs for business_profile.url
+                if ($key === 'url') {
+                    $parsedUrl = parse_url($value);
+                    if (isset($parsedUrl['host']) &&
+                        ($parsedUrl['host'] === 'localhost' ||
+                         $parsedUrl['host'] === '127.0.0.1' ||
+                         preg_match('/^192\.168\./', $parsedUrl['host']) ||
+                         preg_match('/^10\./', $parsedUrl['host']))) {
+                        continue;
+                    }
+                }
+            }
+
+            // Remove empty strings for email fields
+            if (($key === 'support_email' || $key === 'email') && (empty($value) || !filter_var($value, FILTER_VALIDATE_EMAIL))) {
+                continue;
+            }
+
+            // Remove empty strings for phone fields
+            if ($key === 'support_phone' && empty($value)) {
+                continue;
+            }
+
+            // Remove any empty strings
+            if (is_string($value) && trim($value) === '') {
+                continue;
+            }
+
+            $cleaned[$key] = $value;
+        }
+        return $cleaned;
     }
 
 }

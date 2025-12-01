@@ -9,11 +9,14 @@ use App\Http\Controllers\RankingController;
 use App\Http\Controllers\PaymentController;
 use App\Http\Controllers\TweetController;
 use App\Http\Controllers\CastPaymentController;
+use App\Http\Controllers\CastConnectController;
+use App\Http\Controllers\CastPayoutController;
 use App\Http\Controllers\IdentityVerificationController;
 use App\Http\Controllers\FeedbackController;
 use App\Http\Controllers\Auth\SmsVerificationController;
 use App\Http\Controllers\ReservationApplicationController;
 use App\Http\Controllers\ConciergeController;
+use App\Http\Controllers\StripeConnectWebhookController;
 use App\Models\Feedback;
 use App\Http\Controllers\Admin\LocationController;
 use App\Http\Controllers\Api\GradeController;
@@ -291,6 +294,22 @@ Route::get('/chats/{chatId}/favorited/{guestId}', [GuestAuthController::class, '
 // Cast payment routes
 Route::get('/casts/{castId}/immediate-payment', [CastPaymentController::class, 'getImmediatePaymentData']);
 Route::post('/casts/{castId}/immediate-payment', [CastPaymentController::class, 'processImmediatePayment']);
+
+Route::prefix('casts/{castId}/stripe')->group(function () {
+    Route::post('connect', [CastConnectController::class, 'ensureAccount']);
+    Route::post('onboarding-link', [CastConnectController::class, 'createOnboardingLink']);
+    Route::get('account', [CastConnectController::class, 'showAccount']);
+    Route::get('balance', [CastConnectController::class, 'getAccountBalance']);
+    Route::post('payouts', [CastConnectController::class, 'requestPayout']);
+    Route::post('login-link', [CastConnectController::class, 'createLoginLink']);
+});
+
+Route::prefix('casts/{castId}/payouts')->group(function () {
+    Route::get('summary', [CastPayoutController::class, 'summary']);
+    Route::post('instant', [CastPayoutController::class, 'requestInstant']);
+});
+
+Route::post('/stripe/connect/webhook', [StripeConnectWebhookController::class, 'handle']);
 
 Route::post('/identity/upload', [IdentityVerificationController::class, 'upload']);
 // Admin endpoints for identity verification approval/rejection

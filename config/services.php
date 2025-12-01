@@ -47,6 +47,10 @@ return [
         'public_key' => env('STRIPE_PUBLIC_KEY'),
         'secret_key' => env('STRIPE_SECRET_KEY'),
         'webhook_secret' => env('STRIPE_WEBHOOK_SECRET'),
+        'client_id' => env('STRIPE_CLIENT_ID'),
+        'connect_webhook_secret' => env('STRIPE_CONNECT_WEBHOOK_SECRET'),
+        'connect_refresh_interval_minutes' => (int) env('STRIPE_CONNECT_REFRESH_INTERVAL_MINUTES', 60),
+        'connect_default_country' => env('STRIPE_CONNECT_DEFAULT_COUNTRY', 'HK'), // Default to HK for Hong Kong platform
     ],
 
     'resend' => [

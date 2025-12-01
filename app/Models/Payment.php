@@ -13,6 +13,7 @@ class Payment extends Model
         'user_id',
         'user_type',
         'amount',
+        'cast_payout_id',
         'status',
         'payment_method',
         'payjp_charge_id',
@@ -21,6 +22,8 @@ class Payment extends Model
         'stripe_payment_intent_id',
         'stripe_customer_id',
         'stripe_payment_method_id',
+        'stripe_payout_id',
+        'stripe_connect_account_id',
         'description',
         'metadata',
         'paid_at',
@@ -51,6 +54,11 @@ class Payment extends Model
     public function cast()
     {
         return $this->belongsTo(Cast::class, 'user_id');
+    }
+
+    public function castPayout()
+    {
+        return $this->belongsTo(CastPayout::class);
     }
 
     public function receipts()

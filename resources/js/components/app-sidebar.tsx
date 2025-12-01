@@ -4,7 +4,7 @@ import { NavUser } from '@/components/nav-user';
 import { Sidebar, SidebarContent, SidebarFooter, SidebarHeader, SidebarMenu, SidebarMenuButton, SidebarMenuItem } from '@/components/ui/sidebar';
 import { type NavItem } from '@/types';
 import { Link } from '@inertiajs/react';
-import { BookOpen, Folder, LayoutGrid, Users, UserCheck, UserPlus, MessageCircle, Gift, Trophy, FileText, Receipt, CreditCard, Megaphone, ListChecks, DollarSign, FileSignature, MessageSquareText, Award, MapPin, Shield, Headphones, Star, ClipboardList, Clock } from 'lucide-react';
+import { BookOpen, Folder, LayoutGrid, Users, UserCheck, UserPlus, MessageCircle, Gift, Trophy, FileText, Receipt, CreditCard, Megaphone, ListChecks, DollarSign, FileSignature, MessageSquareText, Award, MapPin, Shield, Headphones, Star, ClipboardList, Clock, Wallet } from 'lucide-react';
 import AppLogo from './app-logo';
 
 const mainNavItems: NavItem[] = [
@@ -31,6 +31,7 @@ const mainNavItems: NavItem[] = [
     { title: '領収書管理', href: '/admin/receipts', icon: Receipt },
     { title: '支払管理', href: '/admin/payments', icon: CreditCard },
     { title: '支払明細管理', href: '/admin/payment-details', icon: FileSignature },
+    { title: 'キャスト振込管理', href: '/admin/cast-payouts', icon: Wallet },
     { title: 'ポイント取引管理', href: '/admin/point-transactions', icon: Clock },
     { title: 'お知らせ配信', href: '/admin/notifications', icon: Megaphone },
 ];
