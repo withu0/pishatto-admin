@@ -186,23 +186,23 @@ class CastPayoutService
                 ->orderBy('amount') // Order by amount ascending to consume smaller transactions first
                 ->orderBy('created_at') // Then by date for consistency
                 ->lockForUpdate()
-                ->get(['id', 'amount', 'created_at']);
+                ->get(['id', 'amount', 'type', 'description', 'reservation_id', 'payment_id', 'created_at']);
 
-            $consumed = $this->consumeTransactionsForInstantPayout($availableTransactions, $requiredPoints);
+            $consumed = $this->consumeTransactionsForInstantPayout($availableTransactions, $requiredPoints, $cast->id);
 
             if ($consumed['total_points'] < $requiredPoints) {
                 throw new \RuntimeException('即時振込に必要なポイントが不足しています。');
             }
 
-            // Store only the required points, not the actual consumed amount
-            // This ensures we only deduct the exact amount needed from cast->points
+            // Now consumed points should equal required points (or be very close due to rounding)
+            // Store the consumed amount which should match the required amount
             $payout = CastPayout::create([
                 'cast_id' => $cast->id,
                 'type' => CastPayout::TYPE_INSTANT,
                 'closing_month' => now()->format('Y-m'),
                 'period_start' => now()->startOfMonth()->toDateString(),
                 'period_end' => now()->endOfMonth()->toDateString(),
-                'total_points' => $requiredPoints, // Store required points, not consumed amount
+                'total_points' => $consumed['total_points'], // Store consumed points (should match required)
                 'conversion_rate' => $conversionRate,
                 'gross_amount_yen' => $amountYen,
                 'fee_rate' => $feeRate,
@@ -215,7 +215,6 @@ class CastPayoutService
                     'instant_request' => true,
                     'memo' => $memo,
                     'requested_at' => now()->toIso8601String(),
-                    'consumed_points' => $consumed['total_points'], // Store actual consumed for reference
                     'required_points' => $requiredPoints,
                 ],
             ]);
@@ -656,18 +655,49 @@ class CastPayoutService
         }
     }
 
-    private function consumeTransactionsForInstantPayout(Collection $transactions, int $requiredPoints): array
+    private function consumeTransactionsForInstantPayout(Collection $transactions, int $requiredPoints, int $castId): array
     {
         $consumedIds = [];
         $sum = 0;
+        $remainingNeeded = $requiredPoints;
 
         foreach ($transactions as $transaction) {
-            if ($sum >= $requiredPoints) {
+            if ($remainingNeeded <= 0) {
                 break;
             }
 
-            $consumedIds[] = $transaction->id;
-            $sum += (int) $transaction->amount;
+            $transactionAmount = (int) $transaction->amount;
+            $neededFromThis = min($transactionAmount, $remainingNeeded);
+
+            if ($neededFromThis === $transactionAmount) {
+                // Consume entire transaction
+                $consumedIds[] = $transaction->id;
+                $sum += $transactionAmount;
+                $remainingNeeded -= $transactionAmount;
+            } else {
+                // Partial consumption: create a new transaction for the consumed portion
+                // and reduce the original transaction
+                $remainingAmount = $transactionAmount - $neededFromThis;
+                
+                // Create a new transaction for the consumed portion
+                $consumedTransaction = PointTransaction::create([
+                    'cast_id' => $castId,
+                    'type' => $transaction->type,
+                    'amount' => $neededFromThis,
+                    'description' => ($transaction->description ? $transaction->description . ' (一部)' : '即時振込用（一部）'),
+                    'reservation_id' => $transaction->reservation_id,
+                    'payment_id' => $transaction->payment_id,
+                    'created_at' => $transaction->created_at, // Keep original date
+                    'updated_at' => $transaction->created_at,
+                ]);
+                
+                $consumedIds[] = $consumedTransaction->id;
+                $sum += $neededFromThis;
+                $remainingNeeded -= $neededFromThis;
+
+                // Update the original transaction to reduce its amount
+                $transaction->update(['amount' => $remainingAmount]);
+            }
         }
 
         return [
