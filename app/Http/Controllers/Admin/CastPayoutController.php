@@ -281,9 +281,15 @@ class CastPayoutController extends Controller
     /**
      * Approve a pending instant payout request.
      */
-    public function approve(CastPayout $castPayout)
+    public function approve(Request $request, CastPayout $castPayout)
     {
         if ($castPayout->status !== CastPayout::STATUS_PENDING_APPROVAL) {
+            if ($request->expectsJson() || $request->ajax()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => '承認待ちの即時振込のみ承認できます。',
+                ], 400);
+            }
             return redirect()->back()
                 ->with('error', '承認待ちの即時振込のみ承認できます。');
         }
@@ -297,6 +303,13 @@ class CastPayoutController extends Controller
                 'admin_id' => auth()->id(),
             ]);
 
+            if ($request->expectsJson() || $request->ajax()) {
+                return response()->json([
+                    'success' => true,
+                    'message' => '即時振込を承認し、処理を開始しました。',
+                ]);
+            }
+
             return redirect()->back()
                 ->with('success', '即時振込を承認し、処理を開始しました。');
         } catch (\Exception $e) {
@@ -304,6 +317,13 @@ class CastPayoutController extends Controller
                 'payout_id' => $castPayout->id,
                 'error' => $e->getMessage(),
             ]);
+
+            if ($request->expectsJson() || $request->ajax()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => '承認に失敗しました: ' . $e->getMessage(),
+                ], 500);
+            }
 
             return redirect()->back()
                 ->with('error', '承認に失敗しました: ' . $e->getMessage());
@@ -316,6 +336,12 @@ class CastPayoutController extends Controller
     public function reject(Request $request, CastPayout $castPayout)
     {
         if ($castPayout->status !== CastPayout::STATUS_PENDING_APPROVAL) {
+            if ($request->expectsJson() || $request->ajax()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => '承認待ちの即時振込のみ却下できます。',
+                ], 400);
+            }
             return redirect()->back()
                 ->with('error', '承認待ちの即時振込のみ却下できます。');
         }
@@ -334,6 +360,13 @@ class CastPayoutController extends Controller
                 'reason' => $validated['reason'] ?? null,
             ]);
 
+            if ($request->expectsJson() || $request->ajax()) {
+                return response()->json([
+                    'success' => true,
+                    'message' => '即時振込を却下しました。',
+                ]);
+            }
+
             return redirect()->back()
                 ->with('success', '即時振込を却下しました。');
         } catch (\Exception $e) {
@@ -341,6 +374,13 @@ class CastPayoutController extends Controller
                 'payout_id' => $castPayout->id,
                 'error' => $e->getMessage(),
             ]);
+
+            if ($request->expectsJson() || $request->ajax()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => '却下に失敗しました: ' . $e->getMessage(),
+                ], 500);
+            }
 
             return redirect()->back()
                 ->with('error', '却下に失敗しました: ' . $e->getMessage());
