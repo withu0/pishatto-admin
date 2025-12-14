@@ -183,7 +183,8 @@ class CastPayoutService
             $availableTransactions = PointTransaction::where('cast_id', $cast->id)
                 ->whereNull('cast_payout_id')
                 ->whereIn('type', $this->earnableTypes())
-                ->orderBy('created_at')
+                ->orderBy('amount') // Order by amount ascending to consume smaller transactions first
+                ->orderBy('created_at') // Then by date for consistency
                 ->lockForUpdate()
                 ->get(['id', 'amount', 'created_at']);
 
@@ -193,13 +194,15 @@ class CastPayoutService
                 throw new \RuntimeException('即時振込に必要なポイントが不足しています。');
             }
 
+            // Store only the required points, not the actual consumed amount
+            // This ensures we only deduct the exact amount needed from cast->points
             $payout = CastPayout::create([
                 'cast_id' => $cast->id,
                 'type' => CastPayout::TYPE_INSTANT,
                 'closing_month' => now()->format('Y-m'),
                 'period_start' => now()->startOfMonth()->toDateString(),
                 'period_end' => now()->endOfMonth()->toDateString(),
-                'total_points' => $consumed['total_points'],
+                'total_points' => $requiredPoints, // Store required points, not consumed amount
                 'conversion_rate' => $conversionRate,
                 'gross_amount_yen' => $amountYen,
                 'fee_rate' => $feeRate,
@@ -212,6 +215,8 @@ class CastPayoutService
                     'instant_request' => true,
                     'memo' => $memo,
                     'requested_at' => now()->toIso8601String(),
+                    'consumed_points' => $consumed['total_points'], // Store actual consumed for reference
+                    'required_points' => $requiredPoints,
                 ],
             ]);
 
