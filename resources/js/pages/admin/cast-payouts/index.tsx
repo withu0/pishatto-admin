@@ -175,6 +175,56 @@ export default function AdminCastPayouts({ payouts, filters }: Props) {
         }
     };
 
+    const handleApprove = async (payoutId: number) => {
+        if (!confirm('この即時振込を承認しますか？')) return;
+
+        try {
+            const response = await fetch(`/admin/cast-payouts/${payoutId}/approve`, {
+                method: 'POST',
+                headers: {
+                    'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '',
+                    'Content-Type': 'application/json',
+                },
+            });
+
+            if (response.ok) {
+                router.reload();
+            } else {
+                const data = await response.json();
+                alert(data.message || '承認に失敗しました。');
+            }
+        } catch (error) {
+            console.error('Error approving payout:', error);
+            alert('承認に失敗しました。');
+        }
+    };
+
+    const handleReject = async (payoutId: number) => {
+        const reason = prompt('却下理由を入力してください（任意）:');
+        if (reason === null) return; // User cancelled
+
+        try {
+            const response = await fetch(`/admin/cast-payouts/${payoutId}/reject`, {
+                method: 'POST',
+                headers: {
+                    'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '',
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ reason: reason || null }),
+            });
+
+            if (response.ok) {
+                router.reload();
+            } else {
+                const data = await response.json();
+                alert(data.message || '却下に失敗しました。');
+            }
+        } catch (error) {
+            console.error('Error rejecting payout:', error);
+            alert('却下に失敗しました。');
+        }
+    };
+
     return (
         <AppLayout breadcrumbs={[{ title: 'キャスト振込管理', href: '/admin/cast-payouts' }]}>
             <Head title="キャスト振込管理" />
