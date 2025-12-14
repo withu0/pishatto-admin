@@ -194,6 +194,62 @@ export default function AdminCastPayoutShow({ payout }: Props) {
         }
     };
 
+    const handleApprove = async () => {
+        if (!confirm('この即時振込を承認しますか？')) return;
+
+        setActionLoading('approve');
+        try {
+            const response = await fetch(`/admin/cast-payouts/${payout.id}/approve`, {
+                method: 'POST',
+                headers: {
+                    'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '',
+                    'Content-Type': 'application/json',
+                },
+            });
+
+            if (response.ok) {
+                router.reload();
+            } else {
+                const data = await response.json();
+                alert(data.message || '承認に失敗しました。');
+            }
+        } catch (error) {
+            console.error('Error approving payout:', error);
+            alert('承認に失敗しました。');
+        } finally {
+            setActionLoading(null);
+        }
+    };
+
+    const handleReject = async () => {
+        const reason = prompt('却下理由を入力してください（任意）:');
+        if (reason === null) return; // User cancelled
+
+        setActionLoading('reject');
+        try {
+            const response = await fetch(`/admin/cast-payouts/${payout.id}/reject`, {
+                method: 'POST',
+                headers: {
+                    'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '',
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ reason: reason || null }),
+            });
+
+            if (response.ok) {
+                router.reload();
+            } else {
+                const data = await response.json();
+                alert(data.message || '却下に失敗しました。');
+            }
+        } catch (error) {
+            console.error('Error rejecting payout:', error);
+            alert('却下に失敗しました。');
+        } finally {
+            setActionLoading(null);
+        }
+    };
+
     const getCastDisplayName = () => {
         if (!payout.cast) return `キャスト${payout.cast_id}`;
         return payout.cast.nickname || payout.cast.phone || `キャスト${payout.cast_id}`;
