@@ -4,7 +4,7 @@ import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Textarea } from '@/components/ui/textarea';
-import { ArrowLeft, RotateCw, X, CheckCircle, Calendar, Wallet, User, DollarSign, FileText, AlertCircle } from 'lucide-react';
+import { ArrowLeft, RotateCw, X, CheckCircle, Calendar, Wallet, User, DollarSign, FileText, AlertCircle, Check, XCircle } from 'lucide-react';
 import { useState } from 'react';
 
 interface Cast {
@@ -47,7 +47,7 @@ interface Payout {
     fee_amount_yen: number;
     net_amount_yen: number;
     transaction_count: number;
-    status: 'pending' | 'scheduled' | 'processing' | 'paid' | 'failed' | 'cancelled';
+    status: 'pending' | 'pending_approval' | 'scheduled' | 'processing' | 'paid' | 'failed' | 'cancelled';
     scheduled_payout_date: string | null;
     paid_at: string | null;
     created_at: string;
@@ -68,6 +68,7 @@ export default function AdminCastPayoutShow({ payout }: Props) {
     const getStatusBadge = (status: string) => {
         const variants: Record<string, string> = {
             pending: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/20 dark:text-yellow-400',
+            pending_approval: 'bg-orange-100 text-orange-800 dark:bg-orange-900/20 dark:text-orange-400',
             scheduled: 'bg-blue-100 text-blue-800 dark:bg-blue-900/20 dark:text-blue-400',
             processing: 'bg-purple-100 text-purple-800 dark:bg-purple-900/20 dark:text-purple-400',
             paid: 'bg-green-100 text-green-800 dark:bg-green-900/20 dark:text-green-400',
@@ -76,6 +77,7 @@ export default function AdminCastPayoutShow({ payout }: Props) {
         };
         const labels: Record<string, string> = {
             pending: '保留中',
+            pending_approval: '承認待ち',
             scheduled: '予定済み',
             processing: '処理中',
             paid: '支払済み',
@@ -217,6 +219,28 @@ export default function AdminCastPayoutShow({ payout }: Props) {
                         <h1 className="text-2xl font-bold">振込詳細 #{payout.id}</h1>
                     </div>
                     <div className="flex gap-2">
+                        {payout.status === 'pending_approval' && (
+                            <>
+                                <Button
+                                    variant="default"
+                                    onClick={handleApprove}
+                                    disabled={actionLoading !== null}
+                                    className="bg-green-600 hover:bg-green-700"
+                                >
+                                    <Check className="w-4 h-4 mr-2" />
+                                    {actionLoading === 'approve' ? '承認中...' : '承認'}
+                                </Button>
+                                <Button
+                                    variant="outline"
+                                    onClick={handleReject}
+                                    disabled={actionLoading !== null}
+                                    className="border-red-600 text-red-600 hover:bg-red-50"
+                                >
+                                    <XCircle className="w-4 h-4 mr-2" />
+                                    {actionLoading === 'reject' ? '却下中...' : '却下'}
+                                </Button>
+                            </>
+                        )}
                         {payout.status === 'failed' && (
                             <Button
                                 variant="outline"
@@ -237,7 +261,7 @@ export default function AdminCastPayoutShow({ payout }: Props) {
                                 {actionLoading === 'cancel' ? 'キャンセル中...' : 'キャンセル'}
                             </Button>
                         )}
-                        {payout.status !== 'paid' && payout.status !== 'cancelled' && (
+                        {payout.status !== 'paid' && payout.status !== 'cancelled' && payout.status !== 'pending_approval' && (
                             <Button
                                 variant="outline"
                                 onClick={handleMarkPaid}

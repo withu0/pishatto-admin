@@ -118,6 +118,8 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::post('admin/cast-payouts/{castPayout}/retry', [CastPayoutController::class, 'retry'])->name('admin.cast-payouts.retry');
     Route::post('admin/cast-payouts/{castPayout}/cancel', [CastPayoutController::class, 'cancel'])->name('admin.cast-payouts.cancel');
     Route::post('admin/cast-payouts/{castPayout}/mark-paid', [CastPayoutController::class, 'markPaid'])->name('admin.cast-payouts.mark-paid');
+    Route::post('admin/cast-payouts/{castPayout}/approve', [CastPayoutController::class, 'approve'])->name('admin.cast-payouts.approve');
+    Route::post('admin/cast-payouts/{castPayout}/reject', [CastPayoutController::class, 'reject'])->name('admin.cast-payouts.reject');
 });
 
 // CSRF token refresh route

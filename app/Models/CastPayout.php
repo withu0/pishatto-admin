@@ -13,6 +13,7 @@ class CastPayout extends Model
     public const TYPE_INSTANT = 'instant';
 
     public const STATUS_PENDING = 'pending';
+    public const STATUS_PENDING_APPROVAL = 'pending_approval';
     public const STATUS_SCHEDULED = 'scheduled';
     public const STATUS_PROCESSING = 'processing';
     public const STATUS_PAID = 'paid';

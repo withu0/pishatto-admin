@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Eye, Search, RotateCw, X, CheckCircle, Calendar, Wallet } from 'lucide-react';
+import { Eye, Search, RotateCw, X, CheckCircle, Calendar, Wallet, Check, XCircle } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { useDebounce } from '@/hooks/use-debounce';
 
@@ -24,7 +24,7 @@ interface Payout {
     fee_amount_yen: number;
     net_amount_yen: number;
     transaction_count: number;
-    status: 'pending' | 'scheduled' | 'processing' | 'paid' | 'failed' | 'cancelled';
+    status: 'pending' | 'pending_approval' | 'scheduled' | 'processing' | 'paid' | 'failed' | 'cancelled';
     scheduled_payout_date: string | null;
     paid_at: string | null;
     created_at: string;
@@ -83,6 +83,7 @@ export default function AdminCastPayouts({ payouts, filters }: Props) {
     const getStatusBadge = (status: string) => {
         const variants: Record<string, string> = {
             pending: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/20 dark:text-yellow-400',
+            pending_approval: 'bg-orange-100 text-orange-800 dark:bg-orange-900/20 dark:text-orange-400',
             scheduled: 'bg-blue-100 text-blue-800 dark:bg-blue-900/20 dark:text-blue-400',
             processing: 'bg-purple-100 text-purple-800 dark:bg-purple-900/20 dark:text-purple-400',
             paid: 'bg-green-100 text-green-800 dark:bg-green-900/20 dark:text-green-400',
@@ -91,6 +92,7 @@ export default function AdminCastPayouts({ payouts, filters }: Props) {
         };
         const labels: Record<string, string> = {
             pending: '保留中',
+            pending_approval: '承認待ち',
             scheduled: '予定済み',
             processing: '処理中',
             paid: '支払済み',
@@ -201,6 +203,7 @@ export default function AdminCastPayouts({ payouts, filters }: Props) {
                                 </SelectTrigger>
                                 <SelectContent>
                                     <SelectItem value="all">すべて</SelectItem>
+                                    <SelectItem value="pending_approval">承認待ち</SelectItem>
                                     <SelectItem value="pending">保留中</SelectItem>
                                     <SelectItem value="scheduled">予定済み</SelectItem>
                                     <SelectItem value="processing">処理中</SelectItem>
@@ -289,6 +292,28 @@ export default function AdminCastPayouts({ payouts, filters }: Props) {
                                                         >
                                                             <Eye className="w-4 h-4" />
                                                         </Button>
+                                                        {payout.status === 'pending_approval' && (
+                                                            <>
+                                                                <Button
+                                                                    variant="ghost"
+                                                                    size="sm"
+                                                                    onClick={() => handleApprove(payout.id)}
+                                                                    title="承認"
+                                                                    className="text-green-600 hover:text-green-700"
+                                                                >
+                                                                    <Check className="w-4 h-4" />
+                                                                </Button>
+                                                                <Button
+                                                                    variant="ghost"
+                                                                    size="sm"
+                                                                    onClick={() => handleReject(payout.id)}
+                                                                    title="却下"
+                                                                    className="text-red-600 hover:text-red-700"
+                                                                >
+                                                                    <XCircle className="w-4 h-4" />
+                                                                </Button>
+                                                            </>
+                                                        )}
                                                         {payout.status === 'failed' && (
                                                             <Button
                                                                 variant="ghost"

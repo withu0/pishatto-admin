@@ -171,7 +171,12 @@ class CastPayoutService
             throw new \RuntimeException('Stripe Connectアカウントが設定されていません。振込設定ページでStripe Connectを設定してください。');
         }
 
-        return DB::transaction(function () use ($cast, $amountYen, $memo) {
+        // Calculate fees and net amount
+        $feeRate = $this->instantFeeRate($cast->grade);
+        $feeAmount = (int) ceil($amountYen * $feeRate);
+        $netAmount = max(0, $amountYen - $feeAmount);
+
+        return DB::transaction(function () use ($cast, $amountYen, $memo, $feeRate, $feeAmount, $netAmount) {
             $conversionRate = $this->conversionRate();
             $requiredPoints = (int) ceil($amountYen / max(0.0001, $conversionRate));
 
@@ -188,10 +193,6 @@ class CastPayoutService
                 throw new \RuntimeException('即時振込に必要なポイントが不足しています。');
             }
 
-            $feeRate = $this->instantFeeRate($cast->grade);
-            $feeAmount = (int) ceil($amountYen * $feeRate);
-            $netAmount = max(0, $amountYen - $feeAmount);
-
             $payout = CastPayout::create([
                 'cast_id' => $cast->id,
                 'type' => CastPayout::TYPE_INSTANT,
@@ -206,23 +207,148 @@ class CastPayoutService
                 'net_amount_yen' => $netAmount,
                 'transaction_count' => $consumed['transaction_count'],
                 'scheduled_payout_date' => now()->toDateString(),
-                'status' => CastPayout::STATUS_PROCESSING,
+                'status' => CastPayout::STATUS_PENDING_APPROVAL,
                 'metadata' => [
                     'instant_request' => true,
                     'memo' => $memo,
+                    'requested_at' => now()->toIso8601String(),
                 ],
             ]);
 
             PointTransaction::whereIn('id', $consumed['transaction_ids'])
                 ->update(['cast_payout_id' => $payout->id]);
 
+            Log::info('Instant payout request created (pending approval)', [
+                'cast_id' => $cast->id,
+                'payout_id' => $payout->id,
+                'amount_yen' => $amountYen,
+                'net_amount_yen' => $netAmount,
+            ]);
+
+            return $payout->fresh();
+        });
+    }
+
+    /**
+     * Approve an instant payout request and execute the payout.
+     */
+    public function approveInstantPayout(CastPayout $payout): void
+    {
+        if ($payout->status !== CastPayout::STATUS_PENDING_APPROVAL) {
+            throw new \RuntimeException('承認待ちの即時振込のみ承認できます。');
+        }
+
+        if ($payout->type !== CastPayout::TYPE_INSTANT) {
+            throw new \RuntimeException('即時振込のみ承認できます。');
+        }
+
+        $cast = $payout->cast;
+        if (!$cast) {
+            throw new \RuntimeException('キャストが見つかりません。');
+        }
+
+        // Require Stripe Connect account to be set up
+        if (!$cast->stripe_connect_account_id || !$cast->payouts_enabled) {
+            throw new \RuntimeException('Stripe Connectアカウントが設定されていません。');
+        }
+
+        // Check platform balance before executing payout
+        try {
+            $platformBalance = $this->stripeService->getPlatformBalance();
+            $availableYen = 0;
+            foreach ($platformBalance['available'] ?? [] as $item) {
+                if (strtolower($item['currency'] ?? '') === 'jpy') {
+                    $availableYen = (int) ($item['amount'] ?? 0);
+                    break;
+                }
+            }
+            
+            if ($availableYen < $payout->net_amount_yen) {
+                $shortfall = $payout->net_amount_yen - $availableYen;
+                $errorMessage = 'プラットフォームのStripeアカウントに十分な残高がありません。';
+                if (config('app.env') === 'local' || config('app.env') === 'testing') {
+                    $errorMessage .= ' テストモードでは、Stripeダッシュボードでテストカード（4000000000000077）を使用してプラットフォームアカウントに残高を追加してください。';
+                } else {
+                    $errorMessage .= ' プラットフォームアカウントに残高を追加してください。';
+                }
+                $errorMessage .= " (必要額: ¥{$payout->net_amount_yen}, 利用可能額: ¥{$availableYen}, 不足額: ¥{$shortfall})";
+                throw new \RuntimeException($errorMessage);
+            }
+        } catch (\RuntimeException $e) {
+            throw $e;
+        } catch (Throwable $balanceCheckError) {
+            Log::warning('Failed to check platform balance before approving instant payout', [
+                'payout_id' => $payout->id,
+                'error' => $balanceCheckError->getMessage(),
+            ]);
+            // Continue - let the transfer attempt fail if balance is insufficient
+        }
+
+        DB::transaction(function () use ($cast, $payout) {
+            // Update status to processing
+            $payout->update([
+                'status' => CastPayout::STATUS_PROCESSING,
+                'metadata' => array_merge($payout->metadata ?? [], [
+                    'approved_at' => now()->toIso8601String(),
+                    'approved_by' => auth()->id(),
+                ]),
+            ]);
+
+            // Execute the actual payout
             $payment = $this->createStripeOrManualPayout($cast, $payout, true);
 
             if (!$payment) {
-                throw new \RuntimeException('Stripe Connectアカウントが設定されていません。振込設定ページでStripe Connectを設定してください。');
+                $payout->update([
+                    'status' => CastPayout::STATUS_FAILED,
+                    'metadata' => array_merge($payout->metadata ?? [], [
+                        'approval_failed_at' => now()->toIso8601String(),
+                        'approval_failure_reason' => 'Stripe payout creation failed',
+                    ]),
+                ]);
+                throw new \RuntimeException('振込処理の実行に失敗しました。');
             }
 
-            return $payout->fresh(['payment']);
+            Log::info('Instant payout approved and executed', [
+                'payout_id' => $payout->id,
+                'cast_id' => $cast->id,
+                'payment_id' => $payment->id,
+            ]);
+        });
+    }
+
+    /**
+     * Reject an instant payout request.
+     */
+    public function rejectInstantPayout(CastPayout $payout, ?string $reason = null): void
+    {
+        if ($payout->status !== CastPayout::STATUS_PENDING_APPROVAL) {
+            throw new \RuntimeException('承認待ちの即時振込のみ却下できます。');
+        }
+
+        if ($payout->type !== CastPayout::TYPE_INSTANT) {
+            throw new \RuntimeException('即時振込のみ却下できます。');
+        }
+
+        DB::transaction(function () use ($payout, $reason) {
+            // Release point transactions back to unsettled
+            PointTransaction::where('cast_payout_id', $payout->id)
+                ->update(['cast_payout_id' => null]);
+
+            // Update payout status
+            $payout->update([
+                'status' => CastPayout::STATUS_CANCELLED,
+                'metadata' => array_merge($payout->metadata ?? [], [
+                    'rejected_at' => now()->toIso8601String(),
+                    'rejected_by' => auth()->id(),
+                    'rejection_reason' => $reason,
+                ]),
+            ]);
+
+            Log::info('Instant payout rejected', [
+                'payout_id' => $payout->id,
+                'cast_id' => $payout->cast_id,
+                'reason' => $reason,
+            ]);
         });
     }
 

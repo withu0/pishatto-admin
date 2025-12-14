@@ -277,6 +277,75 @@ class CastPayoutController extends Controller
                 ->with('error', 'マークに失敗しました: ' . $e->getMessage());
         }
     }
+
+    /**
+     * Approve a pending instant payout request.
+     */
+    public function approve(CastPayout $castPayout)
+    {
+        if ($castPayout->status !== CastPayout::STATUS_PENDING_APPROVAL) {
+            return redirect()->back()
+                ->with('error', '承認待ちの即時振込のみ承認できます。');
+        }
+
+        try {
+            $this->castPayoutService->approveInstantPayout($castPayout);
+
+            Log::info('Admin approved instant payout', [
+                'payout_id' => $castPayout->id,
+                'cast_id' => $castPayout->cast_id,
+                'admin_id' => auth()->id(),
+            ]);
+
+            return redirect()->back()
+                ->with('success', '即時振込を承認し、処理を開始しました。');
+        } catch (\Exception $e) {
+            Log::error('Failed to approve instant payout', [
+                'payout_id' => $castPayout->id,
+                'error' => $e->getMessage(),
+            ]);
+
+            return redirect()->back()
+                ->with('error', '承認に失敗しました: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Reject a pending instant payout request.
+     */
+    public function reject(Request $request, CastPayout $castPayout)
+    {
+        if ($castPayout->status !== CastPayout::STATUS_PENDING_APPROVAL) {
+            return redirect()->back()
+                ->with('error', '承認待ちの即時振込のみ却下できます。');
+        }
+
+        $validated = $request->validate([
+            'reason' => 'nullable|string|max:500',
+        ]);
+
+        try {
+            $this->castPayoutService->rejectInstantPayout($castPayout, $validated['reason'] ?? null);
+
+            Log::info('Admin rejected instant payout', [
+                'payout_id' => $castPayout->id,
+                'cast_id' => $castPayout->cast_id,
+                'admin_id' => auth()->id(),
+                'reason' => $validated['reason'] ?? null,
+            ]);
+
+            return redirect()->back()
+                ->with('success', '即時振込を却下しました。');
+        } catch (\Exception $e) {
+            Log::error('Failed to reject instant payout', [
+                'payout_id' => $castPayout->id,
+                'error' => $e->getMessage(),
+            ]);
+
+            return redirect()->back()
+                ->with('error', '却下に失敗しました: ' . $e->getMessage());
+        }
+    }
 }
 
 
