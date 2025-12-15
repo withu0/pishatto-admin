@@ -15,6 +15,7 @@ use Illuminate\Support\Facades\Validator;
 use App\Models\Reservation;
 use App\Services\InfobipService;
 use App\Events\NotificationSent;
+use Illuminate\Support\Facades\Storage;
 
 class CastAuthController extends Controller
 {
@@ -395,6 +396,198 @@ class CastAuthController extends Controller
             'cast' => $cast,
             'token' => base64_encode('cast|' . $cast->id . '|' . now()),
         ], 201);
+    }
+
+    /**
+     * Direct cast registration with images (no approval required)
+     */
+    public function registerDirect(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'phone_number' => 'required|string|max:20|unique:casts,phone',
+            'line_id' => 'required|string|max:255',
+            'line_name' => 'nullable|string|max:255',
+            'upload_session_id' => 'nullable|string',
+            // Image fields - either files or URLs
+            'front_image' => 'nullable|file|image|max:2048',
+            'profile_image' => 'nullable|file|image|max:2048',
+            'full_body_image' => 'nullable|file|image|max:2048',
+            'front_image_url' => 'nullable|string|url',
+            'profile_image_url' => 'nullable|string|url',
+            'full_body_image_url' => 'nullable|string|url',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Validation failed',
+                'errors' => $validator->errors()
+            ], 422);
+        }
+
+        try {
+            // Check if we have images (either files or URLs)
+            $hasImages = $request->hasFile('front_image') ||
+                        $request->hasFile('profile_image') ||
+                        $request->hasFile('full_body_image') ||
+                        $request->filled('front_image_url') ||
+                        $request->filled('profile_image_url') ||
+                        $request->filled('full_body_image_url');
+
+            if (!$hasImages) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'At least one image is required'
+                ], 400);
+            }
+
+            // Create cast record first to get ID
+            $cast = Cast::create([
+                'phone' => $request->phone_number,
+                'line_id' => $request->line_id,
+                'nickname' => $request->line_name ?? '',
+                'status' => 'active', // Direct registration sets status to active
+            ]);
+
+            // Generate folder name for this cast's images
+            $castFolder = "casts/{$cast->id}";
+
+            // Array to store avatar paths
+            $avatarPaths = [];
+
+            // Handle images - prioritize uploaded files over URLs
+            if ($request->hasFile('front_image')) {
+                $extension = $request->file('front_image')->getClientOriginalExtension();
+                $path = $request->file('front_image')->storeAs($castFolder, "front.{$extension}", 'public');
+                $avatarPaths[] = $path;
+            } elseif ($request->filled('front_image_url')) {
+                $path = $this->copyTemporaryImageToPermanent($request->front_image_url, 'front', $castFolder);
+                if ($path) {
+                    $avatarPaths[] = $path;
+                }
+            }
+
+            if ($request->hasFile('profile_image')) {
+                $extension = $request->file('profile_image')->getClientOriginalExtension();
+                $path = $request->file('profile_image')->storeAs($castFolder, "profile.{$extension}", 'public');
+                $avatarPaths[] = $path;
+            } elseif ($request->filled('profile_image_url')) {
+                $path = $this->copyTemporaryImageToPermanent($request->profile_image_url, 'profile', $castFolder);
+                if ($path) {
+                    $avatarPaths[] = $path;
+                }
+            }
+
+            if ($request->hasFile('full_body_image')) {
+                $extension = $request->file('full_body_image')->getClientOriginalExtension();
+                $path = $request->file('full_body_image')->storeAs($castFolder, "full_body.{$extension}", 'public');
+                $avatarPaths[] = $path;
+            } elseif ($request->filled('full_body_image_url')) {
+                $path = $this->copyTemporaryImageToPermanent($request->full_body_image_url, 'full_body', $castFolder);
+                if ($path) {
+                    $avatarPaths[] = $path;
+                }
+            }
+
+            // Save avatar paths as comma-separated string
+            if (!empty($avatarPaths)) {
+                $cast->avatar = implode(',', $avatarPaths);
+                $cast->save();
+            }
+
+            // Clean up temporary images if session ID provided
+            if ($request->filled('upload_session_id')) {
+                $this->cleanupTemporaryImages($request->upload_session_id);
+            }
+
+            // Log the cast in using Laravel session (cast guard)
+            Auth::guard('cast')->login($cast);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Cast registered successfully',
+                'cast' => $cast,
+                'token' => base64_encode('cast|' . $cast->id . '|' . now()),
+            ], 201);
+
+        } catch (\Exception $e) {
+            Log::error('CastAuthController: Direct registration failed', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to register cast: ' . $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Copy temporary image to permanent storage
+     */
+    private function copyTemporaryImageToPermanent($imageUrl, $type, $castFolder)
+    {
+        try {
+            // Extract the file path from the URL
+            $parsedUrl = parse_url($imageUrl);
+            $path = $parsedUrl['path'] ?? '';
+            
+            // Remove '/storage/' prefix if present
+            if (strpos($path, '/storage/') === 0) {
+                $path = substr($path, 9); // Remove '/storage/' (9 characters)
+            }
+            
+            // Check if the temporary file exists
+            if (!Storage::disk('public')->exists($path)) {
+                Log::warning('Temporary image not found', ['path' => $path, 'url' => $imageUrl]);
+                return null;
+            }
+            
+            // Generate new permanent path
+            $extension = pathinfo($path, PATHINFO_EXTENSION);
+            $fileName = $type . '.' . $extension;
+            $newPath = "{$castFolder}/{$fileName}";
+            
+            // Copy the file to permanent storage
+            Storage::disk('public')->copy($path, $newPath);
+            
+            Log::info('Image copied to permanent storage', [
+                'from' => $path,
+                'to' => $newPath,
+                'type' => $type,
+                'cast_folder' => $castFolder
+            ]);
+            
+            return $newPath;
+            
+        } catch (\Exception $e) {
+            Log::error('Failed to copy temporary image to permanent storage', [
+                'error' => $e->getMessage(),
+                'url' => $imageUrl,
+                'type' => $type,
+                'cast_folder' => $castFolder,
+                'trace' => $e->getTraceAsString()
+            ]);
+            return null;
+        }
+    }
+
+    /**
+     * Clean up temporary images
+     */
+    private function cleanupTemporaryImages($sessionId)
+    {
+        try {
+            $sessionDir = "cast-applications/{$sessionId}";
+            Storage::disk('public')->deleteDirectory($sessionDir);
+            Log::info('Temporary images cleaned up', ['session_id' => $sessionId]);
+        } catch (\Exception $e) {
+            Log::error('Failed to cleanup temporary images', [
+                'session_id' => $sessionId,
+                'error' => $e->getMessage()
+            ]);
+        }
     }
 
     // List all casts (with optional filters)

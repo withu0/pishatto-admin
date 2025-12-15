@@ -55,6 +55,7 @@ Route::post('/cast/check-exists', [CastAuthController::class, 'checkCastExists']
 Route::get('/cast/check-auth', [CastAuthController::class, 'checkAuth']);
 Route::post('/cast/profile', [CastAuthController::class, 'updateProfile']);
 Route::post('/cast/register', [CastAuthController::class, 'register']);
+Route::post('/cast/register-direct', [CastAuthController::class, 'registerDirect']);
 Route::post('/guest/reservation', [GuestAuthController::class, 'createReservation']);
 Route::post('/guest/free-call', [GuestAuthController::class, 'createFreeCall']);
 Route::post('/guest/free-call-reservation', [GuestAuthController::class, 'createFreeCallReservation']);

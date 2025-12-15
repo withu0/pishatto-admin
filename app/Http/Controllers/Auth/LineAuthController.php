@@ -72,6 +72,14 @@ class LineAuthController extends Controller
             session(['cast_registration' => true]);
         }
 
+        // Check if this is for direct cast registration (no approval)
+        $isDirectRegistration = $request->has('cast_direct_registration') && $request->boolean('cast_direct_registration');
+        if ($isDirectRegistration) {
+            session(['cast_direct_registration' => true]);
+        } else {
+            session()->forget('cast_direct_registration');
+        }
+
         // Store cast callback flag if needed, clear it otherwise
         if ($useCastCallback) {
             session(['use_cast_callback' => true]);
@@ -154,7 +162,10 @@ class LineAuthController extends Controller
                     'user_type' => 'cast_registration',
                 ]);
 
-                $redirectUrl = $frontendUrl . '/cast/register?' . $query;
+                // Check if this is for direct registration (no approval)
+                $isDirectRegistration = session('cast_direct_registration', false);
+                $registerPath = $isDirectRegistration ? '/cast/register-direct' : '/cast/register';
+                $redirectUrl = $frontendUrl . $registerPath . '?' . $query;
                 return redirect()->away($redirectUrl);
             }
 
