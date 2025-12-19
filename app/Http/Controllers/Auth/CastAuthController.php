@@ -405,7 +405,7 @@ class CastAuthController extends Controller
     {
         $validator = Validator::make($request->all(), [
             'phone_number' => 'required|string|max:20|unique:casts,phone',
-            'line_id' => 'required|string|max:255',
+            'line_id' => 'required|string|max:255|unique:casts,line_id',
             'line_name' => 'nullable|string|max:255',
             'upload_session_id' => 'nullable|string',
             // Image fields - either files or URLs
@@ -415,13 +415,29 @@ class CastAuthController extends Controller
             'front_image_url' => 'nullable|string|url',
             'profile_image_url' => 'nullable|string|url',
             'full_body_image_url' => 'nullable|string|url',
+        ], [
+            'phone_number.required' => '電話番号は必須です。',
+            'phone_number.unique' => 'この電話番号は既に登録されています。',
+            'line_id.required' => 'LINE IDは必須です。',
+            'line_id.unique' => 'このLINE IDは既に登録されています。',
         ]);
 
         if ($validator->fails()) {
+            // Format errors for better frontend display
+            $errors = $validator->errors();
+            $errorMessages = [];
+            
+            if ($errors->has('phone_number')) {
+                $errorMessages['phone_number'] = $errors->first('phone_number');
+            }
+            if ($errors->has('line_id')) {
+                $errorMessages['line_id'] = $errors->first('line_id');
+            }
+            
             return response()->json([
                 'success' => false,
-                'message' => 'Validation failed',
-                'errors' => $validator->errors()
+                'message' => $errors->first(),
+                'errors' => $errorMessages
             ], 422);
         }
 
@@ -510,6 +526,50 @@ class CastAuthController extends Controller
                 'token' => base64_encode('cast|' . $cast->id . '|' . now()),
             ], 201);
 
+        } catch (\Illuminate\Database\QueryException $e) {
+            // Handle database constraint violations
+            $errorCode = $e->getCode();
+            $errorMessage = $e->getMessage();
+            
+            Log::error('CastAuthController: Direct registration database error', [
+                'error' => $errorMessage,
+                'code' => $errorCode,
+                'trace' => $e->getTraceAsString()
+            ]);
+
+            // Check for duplicate entry errors (SQLSTATE 23000 = Integrity constraint violation)
+            if ($errorCode == 23000 || strpos($errorMessage, '23000') !== false || strpos($errorMessage, 'Duplicate entry') !== false) {
+                // Check for phone number duplicate - check various constraint name formats
+                if (stripos($errorMessage, 'casts_phone_unique') !== false || 
+                    stripos($errorMessage, 'casts.casts_phone_unique') !== false ||
+                    (stripos($errorMessage, 'phone') !== false && stripos($errorMessage, 'Duplicate') !== false)) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'この電話番号は既に登録されています。',
+                        'errors' => [
+                            'phone_number' => 'この電話番号は既に登録されています。'
+                        ]
+                    ], 422);
+                }
+                
+                // Check for line_id duplicate - check various constraint name formats
+                if (stripos($errorMessage, 'casts_line_id_unique') !== false || 
+                    stripos($errorMessage, 'casts.casts_line_id_unique') !== false ||
+                    (stripos($errorMessage, 'line_id') !== false && stripos($errorMessage, 'Duplicate') !== false)) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'このLINE IDは既に登録されています。',
+                        'errors' => [
+                            'line_id' => 'このLINE IDは既に登録されています。'
+                        ]
+                    ], 422);
+                }
+            }
+
+            return response()->json([
+                'success' => false,
+                'message' => '登録に失敗しました。もう一度お試しください。'
+            ], 500);
         } catch (\Exception $e) {
             Log::error('CastAuthController: Direct registration failed', [
                 'error' => $e->getMessage(),
@@ -518,7 +578,7 @@ class CastAuthController extends Controller
 
             return response()->json([
                 'success' => false,
-                'message' => 'Failed to register cast: ' . $e->getMessage()
+                'message' => '登録に失敗しました。もう一度お試しください。'
             ], 500);
         }
     }
