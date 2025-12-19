@@ -70,6 +70,9 @@ class LineAuthController extends Controller
         $isCastRegistration = $request->has('cast_registration') && $request->boolean('cast_registration');
         if ($isCastRegistration) {
             session(['cast_registration' => true]);
+        } else {
+            // Clear cast_registration flag if not explicitly set (for login, not registration)
+            session()->forget('cast_registration');
         }
 
         // Check if this is for direct cast registration (no approval)
@@ -252,18 +255,33 @@ class LineAuthController extends Controller
                     'line_user_avatar' => $lineAvatar
                 ]);
 
-                // Check if this is for cast registration first (priority over existing accounts)
+                // For cast user type, check if cast exists first
+                // If cast exists, log them in (don't redirect to registration)
+                if ($userType === 'cast') {
+                    $cast = Cast::where('line_id', $lineId)->first();
+                    if ($cast) {
+                        // Cast exists, log them in (this is a login, not registration)
+                        return $this->handleCastAuthentication($request, $lineId, $lineEmail, $lineName, $lineAvatar);
+                    }
+
+                    // Cast doesn't exist - check if this is for registration
+                    $isCastRegistration = session('cast_registration', false);
+                    if ($isCastRegistration) {
+                        return $this->handleCastRegistration($request, $lineId, $lineEmail, $lineName, $lineAvatar);
+                    }
+
+                    // Cast doesn't exist and not for registration - show error
+                    return $this->handleCastAuthentication($request, $lineId, $lineEmail, $lineName, $lineAvatar);
+                }
+
+                // For guest user type, check registration flag first
                 $isCastRegistration = session('cast_registration', false);
                 if ($isCastRegistration) {
                     return $this->handleCastRegistration($request, $lineId, $lineEmail, $lineName, $lineAvatar);
                 }
 
-                // Only query the relevant table based on user type to optimize performance
-                if ($userType === 'cast') {
-                    return $this->handleCastAuthentication($request, $lineId, $lineEmail, $lineName, $lineAvatar);
-                } else {
-                    return $this->handleGuestAuthentication($request, $lineId, $lineEmail, $lineName, $lineAvatar);
-                }
+                // Default to guest authentication
+                return $this->handleGuestAuthentication($request, $lineId, $lineEmail, $lineName, $lineAvatar);
             });
 
         } catch (\Exception $e) {
