@@ -36,6 +36,11 @@ class Cast extends Authenticatable
         'payment_info',
         'points',
         'category',
+        'bank_name',
+        'branch_name',
+        'account_type',
+        'account_number',
+        'account_holder_name',
         'created_at',
         'updated_at',
     ];

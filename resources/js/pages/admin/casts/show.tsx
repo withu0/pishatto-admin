@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { AvatarSlider } from '@/components/ui/avatar-slider';
-import { Edit, ArrowLeft, MapPin, Calendar, Phone, MessageCircle, Gift, Heart, Users } from 'lucide-react';
+import { Edit, ArrowLeft, MapPin, Calendar, Phone, MessageCircle, Gift, Heart, Users, Wallet } from 'lucide-react';
 
 interface Cast {
     id: number;
@@ -25,6 +25,11 @@ interface Cast {
     stripe_customer_id?: string;
     payjp_customer_id?: string; // Keep for backward compatibility
     payment_info?: string;
+    bank_name?: string;
+    branch_name?: string;
+    account_type?: '普通' | '当座';
+    account_number?: string;
+    account_holder_name?: string;
     points: number;
     created_at: string;
     updated_at: string;
@@ -255,6 +260,50 @@ export default function CastShow({ cast }: Props) {
                                         <div className="flex justify-between">
                                             <span className="text-muted-foreground">PayJP顧客ID:</span>
                                             <span className="font-mono text-xs">{cast.payjp_customer_id}</span>
+                                        </div>
+                                    )}
+                                </CardContent>
+                            </Card>
+                        )}
+
+                        {/* 銀行口座情報 */}
+                        {(cast.bank_name || cast.branch_name || cast.account_number) && (
+                            <Card>
+                                <CardHeader>
+                                    <CardTitle className="flex items-center gap-2">
+                                        <Wallet className="w-5 h-5" />
+                                        銀行口座情報
+                                    </CardTitle>
+                                </CardHeader>
+                                <CardContent className="space-y-3 text-sm">
+                                    {cast.bank_name && (
+                                        <div>
+                                            <span className="text-muted-foreground">銀行名:</span>
+                                            <div className="font-medium mt-1">{cast.bank_name}</div>
+                                        </div>
+                                    )}
+                                    {cast.branch_name && (
+                                        <div>
+                                            <span className="text-muted-foreground">支店名:</span>
+                                            <div className="font-medium mt-1">{cast.branch_name}</div>
+                                        </div>
+                                    )}
+                                    {cast.account_type && (
+                                        <div>
+                                            <span className="text-muted-foreground">口座種別:</span>
+                                            <div className="font-medium mt-1">{cast.account_type}</div>
+                                        </div>
+                                    )}
+                                    {cast.account_number && (
+                                        <div>
+                                            <span className="text-muted-foreground">口座番号:</span>
+                                            <div className="font-medium mt-1 font-mono">{cast.account_number}</div>
+                                        </div>
+                                    )}
+                                    {cast.account_holder_name && (
+                                        <div>
+                                            <span className="text-muted-foreground">口座名義:</span>
+                                            <div className="font-medium mt-1">{cast.account_holder_name}</div>
                                         </div>
                                     )}
                                 </CardContent>

@@ -11,6 +11,7 @@ use App\Http\Controllers\TweetController;
 use App\Http\Controllers\CastPaymentController;
 use App\Http\Controllers\CastConnectController;
 use App\Http\Controllers\CastPayoutController;
+use App\Http\Controllers\CastBankAccountController;
 use App\Http\Controllers\IdentityVerificationController;
 use App\Http\Controllers\FeedbackController;
 use App\Http\Controllers\Auth\SmsVerificationController;
@@ -295,6 +296,11 @@ Route::get('/chats/{chatId}/favorited/{guestId}', [GuestAuthController::class, '
 // Cast payment routes
 Route::get('/casts/{castId}/immediate-payment', [CastPaymentController::class, 'getImmediatePaymentData']);
 Route::post('/casts/{castId}/immediate-payment', [CastPaymentController::class, 'processImmediatePayment']);
+
+// Cast bank account routes
+Route::get('/casts/{castId}/bank-account', [CastBankAccountController::class, 'show']);
+Route::post('/casts/{castId}/bank-account', [CastBankAccountController::class, 'store']);
+Route::delete('/casts/{castId}/bank-account', [CastBankAccountController::class, 'destroy']);
 
 Route::prefix('casts/{castId}/stripe')->group(function () {
     Route::post('connect', [CastConnectController::class, 'ensureAccount']);
