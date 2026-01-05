@@ -668,7 +668,7 @@ class StripeService
                             $paymentIntentData['payment_method'] = $paymentMethodId;
                             $paymentIntentData['confirm'] = false; // Create without confirming first
                             $paymentIntentData['capture_method'] = $captureMethod;
-                            $paymentIntentData['return_url'] = config('app.url') . '/payment/return';
+                            // Note: return_url can only be set when confirm=true, so we'll add it during confirmation
                             $paymentIntentData['automatic_payment_methods'] = [
                                 'enabled' => true,
                                 'allow_redirects' => 'always' // Allow redirects for 3D Secure
@@ -693,7 +693,7 @@ class StripeService
                 $paymentIntentData['payment_method'] = $paymentData['payment_method'];
                 $paymentIntentData['confirm'] = false; // Create without confirming first
                 $paymentIntentData['capture_method'] = $captureMethod;
-                $paymentIntentData['return_url'] = config('app.url') . '/payment/return'; // Add return URL for redirect-based payments
+                // Note: return_url can only be set when confirm=true, so we'll add it during confirmation
                 $paymentIntentData['automatic_payment_methods'] = [
                     'enabled' => true,
                     'allow_redirects' => 'always' // Allow redirects for 3D Secure
@@ -795,9 +795,11 @@ class StripeService
             if (isset($paymentIntentData['payment_method']) && $paymentIntent->status !== 'succeeded') {
                 try {
                     // Try to confirm with off_session
+                    // Add return_url here since it's only allowed when confirming
                     $paymentIntent = $paymentIntent->confirm([
                         'payment_method' => $paymentIntentData['payment_method'],
-                        'off_session' => true
+                        'off_session' => true,
+                        'return_url' => config('app.url') . '/payment/return'
                     ]);
 
                     Log::info('Payment intent confirmed with off_session', [
