@@ -9,6 +9,7 @@ use Stripe\Stripe;
 use Stripe\Customer;
 use Stripe\PaymentIntent;
 use Stripe\PaymentMethod;
+use Stripe\SetupIntent;
 use Stripe\Refund;
 use Stripe\Webhook;
 use Stripe\Balance;
@@ -120,6 +121,7 @@ class StripeService
                 $paymentIntentData['confirm'] = true;
                 $paymentIntentData['capture_method'] = 'automatic';
                 $paymentIntentData['off_session'] = true;
+                $paymentIntentData['setup_future_usage'] = 'off_session'; // Enable off-session payments
                 $paymentIntentData['return_url'] = config('app.url') . '/payment/return';
                 $paymentIntentData['automatic_payment_methods'] = [
                     'enabled' => true,
@@ -512,6 +514,7 @@ class StripeService
                             $paymentIntentData['payment_method'] = $paymentMethodId;
                             $paymentIntentData['confirm'] = true;
                             $paymentIntentData['off_session'] = true;
+                            $paymentIntentData['setup_future_usage'] = 'off_session'; // Enable off-session payments
                             $paymentIntentData['return_url'] = config('app.url') . '/payment/return';
                             $paymentIntentData['automatic_payment_methods'] = [
                                 'enabled' => true,
@@ -537,6 +540,7 @@ class StripeService
                 $paymentIntentData['payment_method'] = $paymentData['payment_method'];
                 $paymentIntentData['confirm'] = true;
                 $paymentIntentData['off_session'] = true;
+                $paymentIntentData['setup_future_usage'] = 'off_session'; // Enable off-session payments
                 $paymentIntentData['return_url'] = config('app.url') . '/payment/return';
                 $paymentIntentData['automatic_payment_methods'] = [
                     'enabled' => true,
@@ -668,6 +672,7 @@ class StripeService
                             $paymentIntentData['payment_method'] = $paymentMethodId;
                             $paymentIntentData['confirm'] = false; // Create without confirming first
                             $paymentIntentData['capture_method'] = $captureMethod;
+                            $paymentIntentData['setup_future_usage'] = 'off_session'; // Enable off-session payments
                             // Note: return_url can only be set when confirm=true, so we'll add it during confirmation
                             $paymentIntentData['automatic_payment_methods'] = [
                                 'enabled' => true,
@@ -693,6 +698,7 @@ class StripeService
                 $paymentIntentData['payment_method'] = $paymentData['payment_method'];
                 $paymentIntentData['confirm'] = false; // Create without confirming first
                 $paymentIntentData['capture_method'] = $captureMethod;
+                $paymentIntentData['setup_future_usage'] = 'off_session'; // Enable off-session payments
                 // Note: return_url can only be set when confirm=true, so we'll add it during confirmation
                 $paymentIntentData['automatic_payment_methods'] = [
                     'enabled' => true,
@@ -833,6 +839,25 @@ class StripeService
                                     : $paymentIntent->payment_method->id;
                             } elseif (isset($paymentIntentData['payment_method'])) {
                                 $paymentMethodId = $paymentIntentData['payment_method'];
+                            }
+
+                            // Try to setup payment method for off-session if we have customer and payment method
+                            if ($paymentMethodId && isset($paymentData['customer_id'])) {
+                                try {
+                                    Log::info('Attempting to setup payment method for off-session usage', [
+                                        'payment_method_id' => $paymentMethodId,
+                                        'customer_id' => $paymentData['customer_id']
+                                    ]);
+                                    $this->setupPaymentMethodForOffSession($paymentMethodId, $paymentData['customer_id']);
+                                    Log::info('Payment method successfully set up for off-session, payment should work on retry');
+                                } catch (\Exception $setupError) {
+                                    Log::warning('Failed to setup payment method for off-session, will require on-session confirmation', [
+                                        'payment_method_id' => $paymentMethodId,
+                                        'customer_id' => $paymentData['customer_id'],
+                                        'error' => $setupError->getMessage()
+                                    ]);
+                                    // Continue - we'll still return the on-session error
+                                }
                             }
 
                             // If payment intent status is requires_payment_method, update it with payment method
@@ -1468,6 +1493,7 @@ class StripeService
 
             if (!empty($paymentMethodId)) {
                 $paymentIntentData['payment_method'] = $paymentMethodId;
+                $paymentIntentData['setup_future_usage'] = 'off_session'; // Enable off-session payments
                 Log::info('Selected payment method for delayed payment', [
                     'customer_id' => $customerId,
                     'payment_method_id' => $paymentMethodId
@@ -2152,6 +2178,46 @@ class StripeService
             Log::error('Stripe API error updating payment intent', [
                 'payment_intent_id' => $paymentIntentId,
                 'payment_method_id' => $paymentMethodId,
+                'error' => $e->getMessage(),
+            ]);
+            throw $e;
+        }
+    }
+
+    /**
+     * Setup payment method for off-session usage
+     * Creates a SetupIntent to configure a payment method for future off-session payments
+     */
+    public function setupPaymentMethodForOffSession(string $paymentMethodId, string $customerId)
+    {
+        try {
+            Log::info('Setting up payment method for off-session usage', [
+                'payment_method_id' => $paymentMethodId,
+                'customer_id' => $customerId
+            ]);
+
+            $setupIntent = SetupIntent::create([
+                'customer' => $customerId,
+                'payment_method' => $paymentMethodId,
+                'usage' => 'off_session',
+                'confirm' => true,
+            ]);
+
+            Log::info('SetupIntent created successfully for off-session usage', [
+                'setup_intent_id' => $setupIntent->id,
+                'status' => $setupIntent->status,
+                'payment_method_id' => $paymentMethodId,
+                'customer_id' => $customerId
+            ]);
+
+            return [
+                'success' => true,
+                'setup_intent' => $setupIntent->toArray(),
+            ];
+        } catch (\Stripe\Exception\ApiErrorException $e) {
+            Log::error('Failed to setup payment method for off-session', [
+                'payment_method_id' => $paymentMethodId,
+                'customer_id' => $customerId,
                 'error' => $e->getMessage(),
             ]);
             throw $e;

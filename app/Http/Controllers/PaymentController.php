@@ -932,6 +932,33 @@ class PaymentController extends Controller
                     'payment_method_id' => $request->payment_method,
                     'payment_method_customer' => $paymentMethodResult['customer'] ?? null
                 ]);
+
+                // Setup payment method for off-session usage
+                try {
+                    $setupResult = $this->stripeService->setupPaymentMethodForOffSession(
+                        $request->payment_method,
+                        $model->stripe_customer_id
+                    );
+
+                    Log::info('Payment method setup for off-session usage completed', [
+                        'user_id' => $request->user_id,
+                        'user_type' => $request->user_type,
+                        'customer_id' => $model->stripe_customer_id,
+                        'payment_method_id' => $request->payment_method,
+                        'setup_intent_id' => $setupResult['setup_intent']['id'] ?? null,
+                        'setup_intent_status' => $setupResult['setup_intent']['status'] ?? null
+                    ]);
+                } catch (\Exception $setupException) {
+                    // Log the error but don't fail the card registration
+                    // The card is still attached, just not configured for off-session yet
+                    Log::warning('Failed to setup payment method for off-session usage, but card is still registered', [
+                        'user_id' => $request->user_id,
+                        'user_type' => $request->user_type,
+                        'customer_id' => $model->stripe_customer_id,
+                        'payment_method_id' => $request->payment_method,
+                        'error' => $setupException->getMessage()
+                    ]);
+                }
             } catch (\Exception $e) {
                 Log::error('Failed to attach payment method to customer', [
                     'user_id' => $request->user_id,
