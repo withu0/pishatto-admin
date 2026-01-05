@@ -84,6 +84,20 @@ class AutomaticPaymentWithPendingService
             );
 
             if (!$paymentIntent['success']) {
+                // Check if this is an on-session error that we should return payment intent details for
+                if (isset($paymentIntent['requires_on_session']) && $paymentIntent['requires_on_session']) {
+                    // Return error response with payment intent details so frontend can redirect
+                    return [
+                        'success' => false,
+                        'error' => $paymentIntent['error'] ?? 'Payment requires on-session authentication',
+                        'requires_on_session' => true,
+                        'client_secret' => $paymentIntent['client_secret'] ?? null,
+                        'payment_intent_id' => $paymentIntent['payment_intent_id'] ?? null,
+                        'payment_intent' => $paymentIntent['payment_intent'] ?? null,
+                        'requires_authentication' => true
+                    ];
+                }
+
                 DB::rollBack();
 
                 // Check if the error is related to missing payment method

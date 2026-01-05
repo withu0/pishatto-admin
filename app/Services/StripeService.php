@@ -1240,26 +1240,75 @@ class StripeService
                     Log::error('Failed to confirm payment intent', [
                         'payment_intent_id' => $paymentIntent->id ?? 'unknown',
                         'error' => $e->getMessage(),
+                        'error_class' => get_class($e),
                         'trace' => $e->getTraceAsString()
                     ]);
 
+                    // Try to get payment intent from exception (Stripe exceptions often contain it)
+                    $errorPaymentIntent = null;
+                    if (method_exists($e, 'getJsonBody')) {
+                        $errorBody = $e->getJsonBody();
+                        if (isset($errorBody['error']['payment_intent'])) {
+                            $errorPaymentIntent = $errorBody['error']['payment_intent'];
+                        }
+                    }
+                    
+                    // Also check if exception has payment_intent property directly
+                    if (!$errorPaymentIntent && property_exists($e, 'payment_intent')) {
+                        $errorPaymentIntent = $e->payment_intent;
+                    }
+
                     // Check if error is related to requiring on-session action
                     $errorMessage = $e->getMessage();
-                    if (strpos($errorMessage, 'on-session action') !== false ||
+                    $isOnSessionError = strpos($errorMessage, 'on-session action') !== false ||
                         strpos($errorMessage, 'on_session') !== false ||
-                        (strpos($errorMessage, 'requires_action') !== false && strpos($errorMessage, 'on-session') !== false)) {
-                        // Payment requires on-session authentication - return client_secret for frontend handling
+                        strpos($errorMessage, 'requires an on-session') !== false ||
+                        (strpos($errorMessage, 'requires_action') !== false && strpos($errorMessage, 'on-session') !== false);
+
+                    if ($isOnSessionError) {
+                        // Payment requires on-session authentication - return payment intent details for frontend handling
+                        $paymentIntentToReturn = $errorPaymentIntent ?? $paymentIntent;
+                        
+                        // If we have payment intent from error, retrieve it to get full details
+                        if ($errorPaymentIntent && is_string($errorPaymentIntent)) {
+                            try {
+                                $paymentIntentToReturn = PaymentIntent::retrieve($errorPaymentIntent);
+                            } catch (\Exception $retrieveError) {
+                                Log::warning('Failed to retrieve payment intent from error', [
+                                    'payment_intent_id' => $errorPaymentIntent,
+                                    'error' => $retrieveError->getMessage()
+                                ]);
+                            }
+                        }
+
+                        $paymentIntentId = is_object($paymentIntentToReturn) ? $paymentIntentToReturn->id : ($paymentIntent->id ?? null);
+                        $clientSecret = is_object($paymentIntentToReturn) ? $paymentIntentToReturn->client_secret : ($paymentIntent->client_secret ?? null);
+                        $status = is_object($paymentIntentToReturn) ? $paymentIntentToReturn->status : ($paymentIntent->status ?? 'requires_action');
+                        $nextAction = is_object($paymentIntentToReturn) && isset($paymentIntentToReturn->next_action) 
+                            ? $paymentIntentToReturn->next_action 
+                            : null;
+
                         Log::info('Payment intent requires on-session authentication', [
-                            'payment_intent_id' => $paymentIntent->id ?? 'unknown',
-                            'client_secret' => $paymentIntent->client_secret ?? null
+                            'payment_intent_id' => $paymentIntentId,
+                            'client_secret' => $clientSecret ? substr($clientSecret, 0, 20) . '...' : null,
+                            'status' => $status,
+                            'has_next_action' => !empty($nextAction)
                         ]);
 
                         return [
-                            'success' => true,
-                            'payment_intent_id' => $paymentIntent->id,
-                            'client_secret' => $paymentIntent->client_secret,
-                            'status' => $paymentIntent->status ?? 'requires_action',
-                            'requires_authentication' => true
+                            'success' => false, // Changed to false so frontend knows it's an error that needs handling
+                            'error' => 'This PaymentIntent requires an on-session action. Please get your customer back on session and re-confirm the PaymentIntent with a payment method when the customer is on session.',
+                            'requires_on_session' => true,
+                            'payment_intent_id' => $paymentIntentId,
+                            'client_secret' => $clientSecret,
+                            'status' => $status,
+                            'requires_authentication' => true,
+                            'payment_intent' => is_object($paymentIntentToReturn) ? [
+                                'id' => $paymentIntentToReturn->id,
+                                'client_secret' => $paymentIntentToReturn->client_secret,
+                                'status' => $paymentIntentToReturn->status,
+                                'next_action' => $nextAction
+                            ] : null
                         ];
                     }
 
