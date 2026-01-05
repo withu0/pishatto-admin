@@ -1871,6 +1871,40 @@ class PaymentController extends Controller
     }
 
     /**
+     * Update payment intent with payment method (for on-session confirmation)
+     */
+    public function updatePaymentIntent(Request $request)
+    {
+        $request->validate([
+            'payment_intent_id' => 'required|string',
+            'payment_method' => 'required|string',
+        ]);
+
+        try {
+            $paymentIntent = $this->stripeService->updatePaymentIntent(
+                $request->payment_intent_id,
+                $request->payment_method
+            );
+
+            return response()->json([
+                'success' => true,
+                'payment_intent' => $paymentIntent,
+            ]);
+        } catch (\Exception $e) {
+            Log::error('Payment intent update failed: ' . $e->getMessage(), [
+                'payment_intent_id' => $request->payment_intent_id,
+                'payment_method' => $request->payment_method,
+                'trace' => $e->getTraceAsString()
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'error' => $e->getMessage(),
+            ], 400);
+        }
+    }
+
+    /**
      * Purchase points with manual capture for insufficient points scenario
      * This creates a pending payment that will be captured after 2 days
      */

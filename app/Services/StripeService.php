@@ -2134,4 +2134,28 @@ class StripeService
         return $cleaned;
     }
 
+    /**
+     * Update payment intent with payment method
+     */
+    public function updatePaymentIntent(string $paymentIntentId, string $paymentMethodId)
+    {
+        try {
+            $paymentIntent = \Stripe\PaymentIntent::update(
+                $paymentIntentId,
+                [
+                    'payment_method' => $paymentMethodId,
+                ]
+            );
+
+            return $paymentIntent;
+        } catch (\Stripe\Exception\ApiErrorException $e) {
+            Log::error('Stripe API error updating payment intent', [
+                'payment_intent_id' => $paymentIntentId,
+                'payment_method_id' => $paymentMethodId,
+                'error' => $e->getMessage(),
+            ]);
+            throw $e;
+        }
+    }
+
 }
