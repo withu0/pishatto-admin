@@ -664,14 +664,14 @@ class StripeService
                             }
 
                             // Set payment method and configuration
+                            // Don't confirm immediately - create first, then confirm separately to better handle errors
                             $paymentIntentData['payment_method'] = $paymentMethodId;
-                            $paymentIntentData['confirm'] = true;
+                            $paymentIntentData['confirm'] = false; // Create without confirming first
                             $paymentIntentData['capture_method'] = $captureMethod;
-                            $paymentIntentData['off_session'] = true;
                             $paymentIntentData['return_url'] = config('app.url') . '/payment/return';
                             $paymentIntentData['automatic_payment_methods'] = [
                                 'enabled' => true,
-                                'allow_redirects' => 'never'
+                                'allow_redirects' => 'always' // Allow redirects for 3D Secure
                             ];
 
                             Log::info('Using customer default payment method', [
@@ -691,13 +691,12 @@ class StripeService
             // Add payment method if provided (for direct payment method usage)
             if (isset($paymentData['payment_method']) && !isset($paymentIntentData['payment_method'])) {
                 $paymentIntentData['payment_method'] = $paymentData['payment_method'];
-                $paymentIntentData['confirm'] = true;
+                $paymentIntentData['confirm'] = false; // Create without confirming first
                 $paymentIntentData['capture_method'] = $captureMethod;
-                $paymentIntentData['off_session'] = true; // Indicates this is an off-session payment
                 $paymentIntentData['return_url'] = config('app.url') . '/payment/return'; // Add return URL for redirect-based payments
                 $paymentIntentData['automatic_payment_methods'] = [
                     'enabled' => true,
-                    'allow_redirects' => 'never' // Disable redirect-based payment methods
+                    'allow_redirects' => 'always' // Allow redirects for 3D Secure
                 ];
             }
 
@@ -706,7 +705,84 @@ class StripeService
                 'payment_intent_data' => $paymentIntentData
             ]);
 
-            $paymentIntent = PaymentIntent::create($paymentIntentData);
+            $paymentIntent = null;
+            
+            try {
+                $paymentIntent = PaymentIntent::create($paymentIntentData);
+            } catch (Exception $createException) {
+                // Check if this is an on-session error during creation
+                $errorMessage = $createException->getMessage();
+                $isOnSessionError = stripos($errorMessage, 'on-session action') !== false ||
+                    stripos($errorMessage, 'on_session') !== false ||
+                    stripos($errorMessage, 'requires an on-session') !== false ||
+                    stripos($errorMessage, 'on-session') !== false;
+
+                if ($isOnSessionError) {
+                    // Try to get payment intent from exception
+                    $paymentIntentId = null;
+                    
+                    if (method_exists($createException, 'getJsonBody')) {
+                        $errorBody = $createException->getJsonBody();
+                        if (isset($errorBody['error']['payment_intent'])) {
+                            $paymentIntentId = is_string($errorBody['error']['payment_intent']) 
+                                ? $errorBody['error']['payment_intent'] 
+                                : ($errorBody['error']['payment_intent']['id'] ?? null);
+                        }
+                    }
+                    
+                    if (property_exists($createException, 'payment_intent')) {
+                        $paymentIntentId = is_string($createException->payment_intent) 
+                            ? $createException->payment_intent 
+                            : ($createException->payment_intent->id ?? null);
+                    }
+
+                    if ($paymentIntentId) {
+                        try {
+                            $paymentIntent = PaymentIntent::retrieve($paymentIntentId);
+                            
+                            Log::info('Retrieved payment intent from create exception for on-session', [
+                                'payment_intent_id' => $paymentIntentId,
+                                'status' => $paymentIntent->status
+                            ]);
+
+                            // Return early with payment intent details for on-session authentication
+                            return [
+                                'success' => false,
+                                'error' => $errorMessage,
+                                'requires_on_session' => true,
+                                'payment_intent_id' => $paymentIntentId,
+                                'client_secret' => $paymentIntent->client_secret,
+                                'status' => $paymentIntent->status,
+                                'requires_authentication' => true,
+                                'payment_intent' => [
+                                    'id' => $paymentIntent->id,
+                                    'client_secret' => $paymentIntent->client_secret,
+                                    'status' => $paymentIntent->status,
+                                    'next_action' => $paymentIntent->next_action ?? null
+                                ]
+                            ];
+                        } catch (\Exception $retrieveError) {
+                            Log::error('Failed to retrieve payment intent from create exception', [
+                                'payment_intent_id' => $paymentIntentId,
+                                'error' => $retrieveError->getMessage()
+                            ]);
+                            // Re-throw the original exception
+                            throw $createException;
+                        }
+                    } else {
+                        // Re-throw if we can't get payment intent
+                        throw $createException;
+                    }
+                } else {
+                    // Re-throw if it's not an on-session error
+                    throw $createException;
+                }
+            }
+            
+            // If payment intent is null at this point, something went wrong
+            if (!$paymentIntent) {
+                throw new Exception('Failed to create payment intent');
+            }
 
             Log::info('Stripe payment intent created', [
                 'payment_intent_id' => $paymentIntent->id,
@@ -714,6 +790,70 @@ class StripeService
                 'confirmation_method' => $paymentIntent->confirmation_method,
                 'capture_method' => $paymentIntent->capture_method
             ]);
+
+            // If we have a payment method, try to confirm the payment intent with off_session
+            if (isset($paymentIntentData['payment_method']) && $paymentIntent->status !== 'succeeded') {
+                try {
+                    // Try to confirm with off_session
+                    $paymentIntent = $paymentIntent->confirm([
+                        'payment_method' => $paymentIntentData['payment_method'],
+                        'off_session' => true
+                    ]);
+
+                    Log::info('Payment intent confirmed with off_session', [
+                        'payment_intent_id' => $paymentIntent->id,
+                        'status' => $paymentIntent->status
+                    ]);
+                } catch (Exception $confirmException) {
+                    // Check if this is an on-session error
+                    $errorMessage = $confirmException->getMessage();
+                    $isOnSessionError = stripos($errorMessage, 'on-session action') !== false ||
+                        stripos($errorMessage, 'on_session') !== false ||
+                        stripos($errorMessage, 'requires an on-session') !== false ||
+                        stripos($errorMessage, 'on-session') !== false;
+
+                    if ($isOnSessionError) {
+                        // Payment intent was created, just needs on-session confirmation
+                        // Retrieve it to get the latest status
+                        try {
+                            $paymentIntent = PaymentIntent::retrieve($paymentIntent->id);
+                            
+                            Log::info('Payment intent requires on-session confirmation', [
+                                'payment_intent_id' => $paymentIntent->id,
+                                'status' => $paymentIntent->status,
+                                'client_secret' => $paymentIntent->client_secret ? substr($paymentIntent->client_secret, 0, 20) . '...' : null
+                            ]);
+
+                            // Return error with payment intent details for frontend to handle
+                            return [
+                                'success' => false,
+                                'error' => $errorMessage,
+                                'requires_on_session' => true,
+                                'payment_intent_id' => $paymentIntent->id,
+                                'client_secret' => $paymentIntent->client_secret,
+                                'status' => $paymentIntent->status,
+                                'requires_authentication' => true,
+                                'payment_intent' => [
+                                    'id' => $paymentIntent->id,
+                                    'client_secret' => $paymentIntent->client_secret,
+                                    'status' => $paymentIntent->status,
+                                    'next_action' => $paymentIntent->next_action ?? null
+                                ]
+                            ];
+                        } catch (\Exception $retrieveError) {
+                            Log::error('Failed to retrieve payment intent after confirm error', [
+                                'payment_intent_id' => $paymentIntent->id ?? 'unknown',
+                                'error' => $retrieveError->getMessage()
+                            ]);
+                            // Re-throw the original exception
+                            throw $confirmException;
+                        }
+                    } else {
+                        // Not an on-session error, re-throw
+                        throw $confirmException;
+                    }
+                }
+            }
 
             // Handle different payment intent statuses
             if ($paymentIntent->status === 'requires_action') {
@@ -808,8 +948,78 @@ class StripeService
         } catch (Exception $e) {
             Log::error('Payment processing failed', [
                 'payment_data' => $paymentData,
-                'error' => $e->getMessage()
+                'error' => $e->getMessage(),
+                'error_class' => get_class($e),
+                'trace' => $e->getTraceAsString()
             ]);
+
+            // Check if this is an on-session error
+            $errorMessage = $e->getMessage();
+            $isOnSessionError = stripos($errorMessage, 'on-session action') !== false ||
+                stripos($errorMessage, 'on_session') !== false ||
+                stripos($errorMessage, 'requires an on-session') !== false ||
+                stripos($errorMessage, 'on-session') !== false;
+
+            if ($isOnSessionError) {
+                // Try to get payment intent from exception
+                $paymentIntentId = null;
+                $clientSecret = null;
+                
+                // Check if exception has payment_intent property
+                if (method_exists($e, 'getJsonBody')) {
+                    $errorBody = $e->getJsonBody();
+                    if (isset($errorBody['error']['payment_intent'])) {
+                        $paymentIntentId = is_string($errorBody['error']['payment_intent']) 
+                            ? $errorBody['error']['payment_intent'] 
+                            : ($errorBody['error']['payment_intent']['id'] ?? null);
+                    }
+                }
+                
+                if (property_exists($e, 'payment_intent')) {
+                    $paymentIntentId = is_string($e->payment_intent) 
+                        ? $e->payment_intent 
+                        : ($e->payment_intent->id ?? null);
+                }
+
+                // If we have payment intent ID, retrieve it
+                if ($paymentIntentId) {
+                    try {
+                        $paymentIntent = PaymentIntent::retrieve($paymentIntentId);
+                        $clientSecret = $paymentIntent->client_secret;
+                        
+                        Log::info('Retrieved payment intent from processPayment error for on-session', [
+                            'payment_intent_id' => $paymentIntentId,
+                            'status' => $paymentIntent->status
+                        ]);
+
+                        return [
+                            'success' => false,
+                            'error' => $errorMessage,
+                            'requires_on_session' => true,
+                            'payment_intent_id' => $paymentIntentId,
+                            'client_secret' => $clientSecret,
+                            'status' => $paymentIntent->status,
+                            'requires_authentication' => true,
+                            'payment_intent' => [
+                                'id' => $paymentIntent->id,
+                                'client_secret' => $paymentIntent->client_secret,
+                                'status' => $paymentIntent->status,
+                                'next_action' => $paymentIntent->next_action ?? null
+                            ]
+                        ];
+                    } catch (\Exception $retrieveError) {
+                        Log::error('Failed to retrieve payment intent in processPayment catch', [
+                            'payment_intent_id' => $paymentIntentId,
+                            'error' => $retrieveError->getMessage()
+                        ]);
+                    }
+                } else {
+                    Log::warning('On-session error detected but no payment intent ID found in exception', [
+                        'error_message' => $errorMessage,
+                        'exception_class' => get_class($e)
+                    ]);
+                }
+            }
 
             return [
                 'success' => false,

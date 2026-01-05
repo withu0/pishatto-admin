@@ -362,8 +362,22 @@ class PaymentController extends Controller
                     'user_type' => $request->user_type,
                     'original_amount' => $request->amount,
                     'amount_with_tax' => $amountWithTax,
-                    'error' => $result['error']
+                    'error' => $result['error'],
+                    'requires_on_session' => $result['requires_on_session'] ?? false
                 ]);
+
+                // Check if this is an on-session error that requires returning payment intent details
+                if (isset($result['requires_on_session']) && $result['requires_on_session']) {
+                    return response()->json([
+                        'success' => false,
+                        'error' => $result['error'],
+                        'requires_on_session' => true,
+                        'client_secret' => $result['client_secret'] ?? null,
+                        'payment_intent_id' => $result['payment_intent_id'] ?? null,
+                        'payment_intent' => $result['payment_intent'] ?? null,
+                        'requires_authentication' => true,
+                    ], 400);
+                }
 
                 return response()->json([
                     'success' => false,
