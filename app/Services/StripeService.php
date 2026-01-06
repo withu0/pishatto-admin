@@ -121,7 +121,8 @@ class StripeService
                 $paymentIntentData['confirm'] = true;
                 $paymentIntentData['capture_method'] = 'automatic';
                 $paymentIntentData['off_session'] = true;
-                $paymentIntentData['setup_future_usage'] = 'off_session'; // Enable off-session payments
+                // Note: setup_future_usage is not needed here because SetupIntent during registration
+                // already configures the payment method for off-session usage
                 $paymentIntentData['return_url'] = config('app.url') . '/payment/return';
                 $paymentIntentData['automatic_payment_methods'] = [
                     'enabled' => true,
@@ -514,7 +515,8 @@ class StripeService
                             $paymentIntentData['payment_method'] = $paymentMethodId;
                             $paymentIntentData['confirm'] = true;
                             $paymentIntentData['off_session'] = true;
-                            $paymentIntentData['setup_future_usage'] = 'off_session'; // Enable off-session payments
+                            // Note: setup_future_usage is not needed here because SetupIntent during registration
+                            // already configures the payment method for off-session usage
                             $paymentIntentData['return_url'] = config('app.url') . '/payment/return';
                             $paymentIntentData['automatic_payment_methods'] = [
                                 'enabled' => true,
@@ -540,7 +542,8 @@ class StripeService
                 $paymentIntentData['payment_method'] = $paymentData['payment_method'];
                 $paymentIntentData['confirm'] = true;
                 $paymentIntentData['off_session'] = true;
-                $paymentIntentData['setup_future_usage'] = 'off_session'; // Enable off-session payments
+                // Note: setup_future_usage is not needed here because SetupIntent during registration
+                // already configures the payment method for off-session usage
                 $paymentIntentData['return_url'] = config('app.url') . '/payment/return';
                 $paymentIntentData['automatic_payment_methods'] = [
                     'enabled' => true,
@@ -672,7 +675,8 @@ class StripeService
                             $paymentIntentData['payment_method'] = $paymentMethodId;
                             $paymentIntentData['confirm'] = false; // Create without confirming first
                             $paymentIntentData['capture_method'] = $captureMethod;
-                            $paymentIntentData['setup_future_usage'] = 'off_session'; // Enable off-session payments
+                            // Note: setup_future_usage is not needed here because SetupIntent during registration
+                            // already configures the payment method for off-session usage
                             // Note: return_url can only be set when confirm=true, so we'll add it during confirmation
                             $paymentIntentData['automatic_payment_methods'] = [
                                 'enabled' => true,
@@ -698,7 +702,8 @@ class StripeService
                 $paymentIntentData['payment_method'] = $paymentData['payment_method'];
                 $paymentIntentData['confirm'] = false; // Create without confirming first
                 $paymentIntentData['capture_method'] = $captureMethod;
-                $paymentIntentData['setup_future_usage'] = 'off_session'; // Enable off-session payments
+                // Note: setup_future_usage is not needed here because SetupIntent during registration
+                // already configures the payment method for off-session usage
                 // Note: return_url can only be set when confirm=true, so we'll add it during confirmation
                 $paymentIntentData['automatic_payment_methods'] = [
                     'enabled' => true,
@@ -800,7 +805,8 @@ class StripeService
             // If we have a payment method, try to confirm the payment intent with off_session
             if (isset($paymentIntentData['payment_method']) && $paymentIntent->status !== 'succeeded') {
                 try {
-                    // Try to confirm with off_session
+                    // Confirm with off_session since SetupIntent during registration
+                    // already configured the payment method for off-session usage
                     // Add return_url here since it's only allowed when confirming
                     $paymentIntent = $paymentIntent->confirm([
                         'payment_method' => $paymentIntentData['payment_method'],
@@ -1493,7 +1499,8 @@ class StripeService
 
             if (!empty($paymentMethodId)) {
                 $paymentIntentData['payment_method'] = $paymentMethodId;
-                $paymentIntentData['setup_future_usage'] = 'off_session'; // Enable off-session payments
+                // Note: setup_future_usage is not needed here because SetupIntent during registration
+                // already configures the payment method for off-session usage
                 Log::info('Selected payment method for delayed payment', [
                     'customer_id' => $customerId,
                     'payment_method_id' => $paymentMethodId
@@ -2201,6 +2208,11 @@ class StripeService
                 'payment_method' => $paymentMethodId,
                 'usage' => 'off_session',
                 'confirm' => true,
+                'return_url' => config('app.url') . '/payment/return',
+                'automatic_payment_methods' => [
+                    'enabled' => true,
+                    'allow_redirects' => 'never'
+                ],
             ]);
 
             Log::info('SetupIntent created successfully for off-session usage', [
