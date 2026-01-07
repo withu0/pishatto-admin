@@ -2165,7 +2165,6 @@ class StripeService
             $setupIntent = SetupIntent::create([
                 'customer' => $customerId,
                 'usage' => 'off_session',
-                'payment_method_types' => ['card'],
                 'automatic_payment_methods' => [
                     'enabled' => true,
                     'allow_redirects' => 'never'
