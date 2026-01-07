@@ -2169,7 +2169,6 @@ class StripeService
                     'enabled' => true,
                     'allow_redirects' => 'never'
                 ],
-                'return_url' => config('app.url') . '/payment/return',
             ]);
 
             Log::info('SetupIntent created successfully for card registration', [
