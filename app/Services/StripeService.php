@@ -2192,8 +2192,50 @@ class StripeService
     }
 
     /**
+     * Create SetupIntent for card registration
+     * This is called BEFORE payment method creation to get client_secret for frontend
+     */
+    public function createSetupIntentForCardRegistration(string $customerId)
+    {
+        try {
+            Log::info('Creating SetupIntent for card registration', [
+                'customer_id' => $customerId
+            ]);
+
+            $setupIntent = SetupIntent::create([
+                'customer' => $customerId,
+                'usage' => 'off_session',
+                'payment_method_types' => ['card'],
+                'automatic_payment_methods' => [
+                    'enabled' => true,
+                    'allow_redirects' => 'never'
+                ],
+                'return_url' => config('app.url') . '/payment/return',
+            ]);
+
+            Log::info('SetupIntent created successfully for card registration', [
+                'setup_intent_id' => $setupIntent->id,
+                'status' => $setupIntent->status,
+                'customer_id' => $customerId
+            ]);
+
+            return [
+                'success' => true,
+                'setup_intent' => $setupIntent->toArray(),
+            ];
+        } catch (\Stripe\Exception\ApiErrorException $e) {
+            Log::error('Failed to create SetupIntent for card registration', [
+                'customer_id' => $customerId,
+                'error' => $e->getMessage(),
+            ]);
+            throw $e;
+        }
+    }
+
+    /**
      * Setup payment method for off-session usage
      * Creates a SetupIntent to configure a payment method for future off-session payments
+     * Used for fixing existing cards that weren't set up properly
      */
     public function setupPaymentMethodForOffSession(string $paymentMethodId, string $customerId)
     {

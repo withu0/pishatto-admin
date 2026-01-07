@@ -818,14 +818,144 @@ class PaymentController extends Controller
     }
 
     /**
+     * Create SetupIntent for card registration
+     * Returns client_secret for frontend to use with confirmCardSetup()
+     */
+    public function createSetupIntent(Request $request)
+    {
+        $request->validate([
+            'user_id' => 'required|integer',
+            'user_type' => 'required|string|in:guest,cast',
+        ]);
+
+        try {
+            // Get or create customer
+            $model = $request->user_type === 'guest'
+                ? \App\Models\Guest::find($request->user_id)
+                : \App\Models\Cast::find($request->user_id);
+
+            if (!$model) {
+                return response()->json([
+                    'success' => false,
+                    'error' => 'ユーザーが見つかりません',
+                ], 404);
+            }
+
+            // If user doesn't have a Stripe customer ID, create one
+            if (!$model->stripe_customer_id) {
+                try {
+                    $customerResult = $this->stripeService->createCustomer([
+                        'email' => $model->email ?? null,
+                        'name' => $model->nickname ?? null,
+                        'description' => "{$request->user_type}_{$request->user_id}",
+                        'metadata' => [
+                            'user_id' => $request->user_id,
+                            'user_type' => $request->user_type,
+                            'nickname' => $model->nickname ?? '',
+                            'phone' => $model->phone ?? '',
+                        ],
+                    ]);
+
+                    // Save customer ID to user model
+                    $model->stripe_customer_id = $customerResult['id'];
+
+                    // Store additional customer metadata
+                    $customerMetadata = [
+                        'customer_id' => $customerResult['id'],
+                        'created_at' => now()->toISOString(),
+                        'user_type' => $request->user_type,
+                        'user_id' => $request->user_id,
+                    ];
+
+                    $model->payment_info = json_encode($customerMetadata);
+
+                    if (!$model->save()) {
+                        Log::error('Failed to save customer ID to database', [
+                            'user_id' => $request->user_id,
+                            'user_type' => $request->user_type,
+                            'customer_id' => $customerResult['id']
+                        ]);
+
+                        return response()->json([
+                            'success' => false,
+                            'error' => 'データベースへの保存に失敗しました',
+                        ], 500);
+                    }
+
+                    Log::info('Customer created and saved to database', [
+                        'user_id' => $request->user_id,
+                        'user_type' => $request->user_type,
+                        'customer_id' => $customerResult['id']
+                    ]);
+                } catch (\Exception $e) {
+                    Log::error('Failed to create customer', [
+                        'user_id' => $request->user_id,
+                        'user_type' => $request->user_type,
+                        'error' => $e->getMessage()
+                    ]);
+
+                    return response()->json([
+                        'success' => false,
+                        'error' => '顧客の作成に失敗しました: ' . $e->getMessage(),
+                    ], 400);
+                }
+            }
+
+            // Create SetupIntent for card registration
+            try {
+                $setupIntentResult = $this->stripeService->createSetupIntentForCardRegistration(
+                    $model->stripe_customer_id
+                );
+
+                Log::info('SetupIntent created for card registration', [
+                    'user_id' => $request->user_id,
+                    'user_type' => $request->user_type,
+                    'customer_id' => $model->stripe_customer_id,
+                    'setup_intent_id' => $setupIntentResult['setup_intent']['id'] ?? null
+                ]);
+
+                return response()->json([
+                    'success' => true,
+                    'client_secret' => $setupIntentResult['setup_intent']['client_secret'],
+                    'setup_intent_id' => $setupIntentResult['setup_intent']['id'],
+                ]);
+            } catch (\Exception $e) {
+                Log::error('Failed to create SetupIntent', [
+                    'user_id' => $request->user_id,
+                    'user_type' => $request->user_type,
+                    'customer_id' => $model->stripe_customer_id,
+                    'error' => $e->getMessage()
+                ]);
+
+                return response()->json([
+                    'success' => false,
+                    'error' => 'SetupIntentの作成に失敗しました: ' . $e->getMessage(),
+                ], 400);
+            }
+        } catch (\Exception $e) {
+            Log::error('Create SetupIntent failed: ' . $e->getMessage(), [
+                'user_id' => $request->user_id ?? 'unknown',
+                'user_type' => $request->user_type ?? 'unknown',
+                'trace' => $e->getTraceAsString()
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'error' => 'SetupIntent作成中にエラーが発生しました',
+            ], 500);
+        }
+    }
+
+    /**
      * Register a card for a user
+     * Accepts setup_intent_id from frontend after confirmCardSetup() is completed
      */
     public function registerCard(Request $request)
     {
         $request->validate([
             'user_id' => 'required|integer',
             'user_type' => 'required|string|in:guest,cast',
-            'payment_method' => 'required|string', // Stripe payment method ID
+            'setup_intent_id' => 'required|string', // Stripe SetupIntent ID
         ]);
 
         // Log Stripe key information for debugging (first 10 chars only for security)
@@ -911,60 +1041,95 @@ class PaymentController extends Controller
                 ]);
             }
 
-            // Attach payment method to customer
+            // Retrieve SetupIntent and extract payment method
             try {
-                Log::info('Attempting to attach PaymentMethod to customer', [
+                Log::info('Retrieving SetupIntent to extract payment method', [
                     'user_id' => $request->user_id,
                     'user_type' => $request->user_type,
                     'customer_id' => $model->stripe_customer_id,
-                    'payment_method_id' => $request->payment_method
+                    'setup_intent_id' => $request->setup_intent_id
                 ]);
 
-                $paymentMethodResult = $this->stripeService->attachPaymentMethod(
-                    $request->payment_method,
-                    $model->stripe_customer_id
-                );
+                $setupIntent = \Stripe\SetupIntent::retrieve($request->setup_intent_id);
 
-                Log::info('PaymentMethod attached successfully', [
-                    'user_id' => $request->user_id,
-                    'user_type' => $request->user_type,
-                    'customer_id' => $model->stripe_customer_id,
-                    'payment_method_id' => $request->payment_method,
-                    'payment_method_customer' => $paymentMethodResult['customer'] ?? null
-                ]);
+                // Verify SetupIntent belongs to this customer
+                if ($setupIntent->customer !== $model->stripe_customer_id) {
+                    Log::error('SetupIntent customer mismatch', [
+                        'setup_intent_customer' => $setupIntent->customer,
+                        'expected_customer' => $model->stripe_customer_id
+                    ]);
 
-                // Setup payment method for off-session usage
+                    return response()->json([
+                        'success' => false,
+                        'error' => 'SetupIntentがこの顧客に属していません',
+                    ], 400);
+                }
+
+                // Check SetupIntent status
+                if ($setupIntent->status !== 'succeeded') {
+                    Log::warning('SetupIntent not succeeded', [
+                        'setup_intent_id' => $request->setup_intent_id,
+                        'status' => $setupIntent->status
+                    ]);
+
+                    return response()->json([
+                        'success' => false,
+                        'error' => 'SetupIntentが完了していません。ステータス: ' . $setupIntent->status,
+                    ], 400);
+                }
+
+                // Extract payment method from SetupIntent
+                $paymentMethodId = $setupIntent->payment_method;
+                
+                if (!$paymentMethodId) {
+                    Log::error('SetupIntent has no payment method', [
+                        'setup_intent_id' => $request->setup_intent_id,
+                        'status' => $setupIntent->status
+                    ]);
+
+                    return response()->json([
+                        'success' => false,
+                        'error' => 'SetupIntentに支払い方法が含まれていません',
+                    ], 400);
+                }
+
+                // Payment method is already attached to customer via SetupIntent
+                // Just verify it's attached
                 try {
-                    $setupResult = $this->stripeService->setupPaymentMethodForOffSession(
-                        $request->payment_method,
-                        $model->stripe_customer_id
-                    );
+                    $paymentMethod = \Stripe\PaymentMethod::retrieve($paymentMethodId);
+                    
+                    if ($paymentMethod->customer !== $model->stripe_customer_id) {
+                        // Attach if not already attached
+                        $paymentMethod->attach(['customer' => $model->stripe_customer_id]);
+                    }
 
-                    Log::info('Payment method setup for off-session usage completed', [
+                    Log::info('Payment method extracted from SetupIntent and verified', [
                         'user_id' => $request->user_id,
                         'user_type' => $request->user_type,
                         'customer_id' => $model->stripe_customer_id,
-                        'payment_method_id' => $request->payment_method,
-                        'setup_intent_id' => $setupResult['setup_intent']['id'] ?? null,
-                        'setup_intent_status' => $setupResult['setup_intent']['status'] ?? null
+                        'payment_method_id' => $paymentMethodId,
+                        'setup_intent_id' => $request->setup_intent_id
                     ]);
-                } catch (\Exception $setupException) {
-                    // Log the error but don't fail the card registration
-                    // The card is still attached, just not configured for off-session yet
-                    Log::warning('Failed to setup payment method for off-session usage, but card is still registered', [
+                } catch (\Exception $e) {
+                    Log::error('Failed to verify payment method from SetupIntent', [
                         'user_id' => $request->user_id,
                         'user_type' => $request->user_type,
                         'customer_id' => $model->stripe_customer_id,
-                        'payment_method_id' => $request->payment_method,
-                        'error' => $setupException->getMessage()
+                        'payment_method_id' => $paymentMethodId,
+                        'error' => $e->getMessage()
                     ]);
+
+                    return response()->json([
+                        'success' => false,
+                        'error' => '支払い方法の確認に失敗しました: ' . $e->getMessage(),
+                    ], 400);
                 }
             } catch (\Exception $e) {
-                Log::error('Failed to attach payment method to customer', [
+                Log::error('Failed to retrieve SetupIntent', [
                     'user_id' => $request->user_id,
                     'user_type' => $request->user_type,
                     'customer_id' => $model->stripe_customer_id,
-                    'payment_method_id' => $request->payment_method,
+                    'setup_intent_id' => $request->setup_intent_id,
                     'error' => $e->getMessage(),
                     'error_code' => $e->getCode(),
                     'trace' => $e->getTraceAsString()
@@ -972,12 +1137,10 @@ class PaymentController extends Controller
 
                 // Provide more specific error message
                 $errorMessage = $e->getMessage();
-                if (strpos($errorMessage, 'No such PaymentMethod') !== false) {
-                    $errorMessage = 'カード情報が見つかりませんでした。カード情報を再度入力してください。';
-                } elseif (strpos($errorMessage, 'PaymentMethod does not exist') !== false) {
-                    $errorMessage = 'カード情報が無効です。もう一度お試しください。';
+                if (strpos($errorMessage, 'No such SetupIntent') !== false) {
+                    $errorMessage = 'SetupIntentが見つかりませんでした。もう一度お試しください。';
                 } else {
-                    $errorMessage = 'カードの追加に失敗しました: ' . $errorMessage;
+                    $errorMessage = 'カードの登録に失敗しました: ' . $errorMessage;
                 }
 
                 return response()->json([
@@ -988,7 +1151,7 @@ class PaymentController extends Controller
 
             // Update payment_info with card information
             $paymentInfo = json_decode($model->payment_info, true) ?: [];
-            $paymentInfo['last_payment_method'] = $request->payment_method;
+            $paymentInfo['last_payment_method'] = $paymentMethodId;
             $paymentInfo['last_card_added'] = now()->toISOString();
             $paymentInfo['card_count'] = ($paymentInfo['card_count'] ?? 0) + 1;
 
@@ -1007,17 +1170,19 @@ class PaymentController extends Controller
                 ], 500);
             }
 
-            Log::info('Payment method successfully attached to customer', [
+            Log::info('Payment method successfully registered from SetupIntent', [
                 'user_id' => $request->user_id,
                 'user_type' => $request->user_type,
                 'customer_id' => $model->stripe_customer_id,
-                'payment_method_id' => $request->payment_method
+                'payment_method_id' => $paymentMethodId,
+                'setup_intent_id' => $request->setup_intent_id
             ]);
 
             return response()->json([
                 'success' => true,
                 'customer_id' => $model->stripe_customer_id,
-                'payment_method' => $paymentMethodResult,
+                'payment_method_id' => $paymentMethodId,
+                'setup_intent_id' => $request->setup_intent_id,
                 'message' => 'カードが正常に登録されました',
             ]);
 
