@@ -670,20 +670,18 @@ class StripeService
                                 $paymentMethod->attach(['customer' => $paymentData['customer_id']]);
                             }
 
-                            // Set payment method and configuration
-                            // Don't confirm immediately - create first, then confirm separately to better handle errors
+                            // Set payment method and configuration for off-session payment
                             $paymentIntentData['payment_method'] = $paymentMethodId;
-                            $paymentIntentData['confirm'] = false; // Create without confirming first
+                            $paymentIntentData['off_session'] = true;
+                            $paymentIntentData['confirm'] = true; // Confirm directly for off-session
                             $paymentIntentData['capture_method'] = $captureMethod;
-                            // Note: setup_future_usage is not needed here because SetupIntent during registration
-                            // already configures the payment method for off-session usage
-                            // Note: return_url can only be set when confirm=true, so we'll add it during confirmation
+                            $paymentIntentData['return_url'] = config('app.url') . '/payment/return';
                             $paymentIntentData['automatic_payment_methods'] = [
                                 'enabled' => true,
-                                'allow_redirects' => 'always' // Allow redirects for 3D Secure
+                                'allow_redirects' => 'never' // Disable redirects for off-session
                             ];
 
-                            Log::info('Using customer default payment method', [
+                            Log::info('Using customer default payment method for off-session payment', [
                                 'customer_id' => $paymentData['customer_id'],
                                 'payment_method_id' => $paymentMethodId
                             ]);
@@ -700,14 +698,13 @@ class StripeService
             // Add payment method if provided (for direct payment method usage)
             if (isset($paymentData['payment_method']) && !isset($paymentIntentData['payment_method'])) {
                 $paymentIntentData['payment_method'] = $paymentData['payment_method'];
-                $paymentIntentData['confirm'] = false; // Create without confirming first
+                $paymentIntentData['off_session'] = true;
+                $paymentIntentData['confirm'] = true; // Confirm directly for off-session
                 $paymentIntentData['capture_method'] = $captureMethod;
-                // Note: setup_future_usage is not needed here because SetupIntent during registration
-                // already configures the payment method for off-session usage
-                // Note: return_url can only be set when confirm=true, so we'll add it during confirmation
+                $paymentIntentData['return_url'] = config('app.url') . '/payment/return';
                 $paymentIntentData['automatic_payment_methods'] = [
                     'enabled' => true,
-                    'allow_redirects' => 'always' // Allow redirects for 3D Secure
+                    'allow_redirects' => 'never' // Disable redirects for off-session
                 ];
             }
 
@@ -720,13 +717,19 @@ class StripeService
 
             try {
                 $paymentIntent = PaymentIntent::create($paymentIntentData);
+
+                Log::info('Stripe payment intent created', [
+                    'payment_intent_id' => $paymentIntent->id,
+                    'status' => $paymentIntent->status,
+                    'confirmation_method' => $paymentIntent->confirmation_method,
+                    'capture_method' => $paymentIntent->capture_method
+                ]);
             } catch (Exception $createException) {
                 // Check if this is an on-session error during creation
                 $errorMessage = $createException->getMessage();
                 $isOnSessionError = stripos($errorMessage, 'on-session action') !== false ||
                     stripos($errorMessage, 'on_session') !== false ||
-                    stripos($errorMessage, 'requires an on-session') !== false ||
-                    stripos($errorMessage, 'on-session') !== false;
+                    stripos($errorMessage, 'requires an on-session') !== false;
 
                 if ($isOnSessionError) {
                     // Try to get payment intent from exception
@@ -795,236 +798,80 @@ class StripeService
                 throw new Exception('Failed to create payment intent');
             }
 
-            Log::info('Stripe payment intent created', [
-                'payment_intent_id' => $paymentIntent->id,
-                'status' => $paymentIntent->status,
-                'confirmation_method' => $paymentIntent->confirmation_method,
-                'capture_method' => $paymentIntent->capture_method
-            ]);
-
-            // If we have a payment method, try to confirm the payment intent with off_session
-            if (isset($paymentIntentData['payment_method']) && $paymentIntent->status !== 'succeeded') {
-                try {
-                    // Confirm with off_session since SetupIntent during registration
-                    // already configured the payment method for off-session usage
-                    // Add return_url here since it's only allowed when confirming
-                    $paymentIntent = $paymentIntent->confirm([
-                        'payment_method' => $paymentIntentData['payment_method'],
-                        'off_session' => true,
-                        'return_url' => config('app.url') . '/payment/return'
-                    ]);
-
-                    Log::info('Payment intent confirmed with off_session', [
-                        'payment_intent_id' => $paymentIntent->id,
-                        'status' => $paymentIntent->status
-                    ]);
-                } catch (Exception $confirmException) {
-                    // Check if this is an on-session error
-                    $errorMessage = $confirmException->getMessage();
-                    $isOnSessionError = stripos($errorMessage, 'on-session action') !== false ||
-                        stripos($errorMessage, 'on_session') !== false ||
-                        stripos($errorMessage, 'requires an on-session') !== false ||
-                        stripos($errorMessage, 'on-session') !== false;
-
-                    if ($isOnSessionError) {
-                        // Payment intent was created, just needs on-session confirmation
-                        // Retrieve it to get the latest status
-                        try {
-                            $paymentIntent = PaymentIntent::retrieve($paymentIntent->id);
-
-                            // Get payment method from error or payment intent
-                            $paymentMethodId = null;
-                            if (isset($paymentIntent->last_payment_error) &&
-                                isset($paymentIntent->last_payment_error->payment_method)) {
-                                $paymentMethodId = is_string($paymentIntent->last_payment_error->payment_method)
-                                    ? $paymentIntent->last_payment_error->payment_method
-                                    : $paymentIntent->last_payment_error->payment_method->id;
-                            } elseif (isset($paymentIntent->payment_method)) {
-                                $paymentMethodId = is_string($paymentIntent->payment_method)
-                                    ? $paymentIntent->payment_method
-                                    : $paymentIntent->payment_method->id;
-                            } elseif (isset($paymentIntentData['payment_method'])) {
-                                $paymentMethodId = $paymentIntentData['payment_method'];
-                            }
-
-                            // Try to setup payment method for off-session if we have customer and payment method
-                            if ($paymentMethodId && isset($paymentData['customer_id'])) {
-                                try {
-                                    Log::info('Attempting to setup payment method for off-session usage', [
-                                        'payment_method_id' => $paymentMethodId,
-                                        'customer_id' => $paymentData['customer_id']
-                                    ]);
-                                    $this->setupPaymentMethodForOffSession($paymentMethodId, $paymentData['customer_id']);
-                                    Log::info('Payment method successfully set up for off-session, payment should work on retry');
-                                } catch (\Exception $setupError) {
-                                    Log::warning('Failed to setup payment method for off-session, will require on-session confirmation', [
-                                        'payment_method_id' => $paymentMethodId,
-                                        'customer_id' => $paymentData['customer_id'],
-                                        'error' => $setupError->getMessage()
-                                    ]);
-                                    // Continue - we'll still return the on-session error
-                                }
-                            }
-
-                            // If payment intent status is requires_payment_method, update it with payment method
-                            if ($paymentIntent->status === 'requires_payment_method' && $paymentMethodId) {
-                                try {
-                                    $paymentIntent = PaymentIntent::update($paymentIntent->id, [
-                                        'payment_method' => $paymentMethodId
-                                    ]);
-                                    Log::info('Updated payment intent with payment method', [
-                                        'payment_intent_id' => $paymentIntent->id,
-                                        'payment_method_id' => $paymentMethodId,
-                                        'new_status' => $paymentIntent->status
-                                    ]);
-                                } catch (\Exception $updateError) {
-                                    Log::warning('Failed to update payment intent with payment method', [
-                                        'payment_intent_id' => $paymentIntent->id,
-                                        'payment_method_id' => $paymentMethodId,
-                                        'error' => $updateError->getMessage()
-                                    ]);
-                                    // Continue anyway - frontend can try to update it
-                                }
-                            }
-
-                            Log::info('Payment intent requires on-session confirmation', [
-                                'payment_intent_id' => $paymentIntent->id,
-                                'status' => $paymentIntent->status,
-                                'client_secret' => $paymentIntent->client_secret ? substr($paymentIntent->client_secret, 0, 20) . '...' : null,
-                                'payment_method_id' => $paymentMethodId,
-                                'has_last_payment_error' => !empty($paymentIntent->last_payment_error)
-                            ]);
-
-                            // Build payment intent response
-                            $paymentIntentResponse = [
-                                'id' => $paymentIntent->id,
-                                'client_secret' => $paymentIntent->client_secret,
-                                'status' => $paymentIntent->status,
-                                'next_action' => $paymentIntent->next_action ?? null
-                            ];
-
-                            // Include payment method info if available
-                            if ($paymentMethodId) {
-                                $paymentIntentResponse['payment_method_id'] = $paymentMethodId;
-                            }
-
-                            if (isset($paymentIntent->last_payment_error)) {
-                                $paymentIntentResponse['last_payment_error'] = [
-                                    'code' => $paymentIntent->last_payment_error->code ?? null,
-                                    'message' => $paymentIntent->last_payment_error->message ?? null,
-                                    'payment_method' => $paymentMethodId
-                                ];
-                            }
-
-                            // Return error with payment intent details for frontend to handle
-                            return [
-                                'success' => false,
-                                'error' => $errorMessage,
-                                'requires_on_session' => true,
-                                'payment_intent_id' => $paymentIntent->id,
-                                'client_secret' => $paymentIntent->client_secret,
-                                'status' => $paymentIntent->status,
-                                'requires_authentication' => true,
-                                'payment_intent' => $paymentIntentResponse
-                            ];
-                        } catch (\Exception $retrieveError) {
-                            Log::error('Failed to retrieve payment intent after confirm error', [
-                                'payment_intent_id' => $paymentIntent->id ?? 'unknown',
-                                'error' => $retrieveError->getMessage()
-                            ]);
-                            // Re-throw the original exception
-                            throw $confirmException;
-                        }
-                    } else {
-                        // Not an on-session error, re-throw
-                        throw $confirmException;
-                    }
-                }
-            }
-
-            // Handle different payment intent statuses
+            // Handle requires_action status (3D Secure or other authentication required)
             if ($paymentIntent->status === 'requires_action') {
-                // 3D Secure authentication required - cannot be handled automatically
-                Log::warning('Payment requires 3D Secure authentication', [
+                Log::warning('Payment requires action (3D Secure authentication)', [
                     'payment_intent_id' => $paymentIntent->id,
                     'status' => $paymentIntent->status,
                     'next_action' => $paymentIntent->next_action
                 ]);
 
-                // Create payment record with failed status for 3DS
-                $payment = \App\Models\Payment::create([
-                    'user_id' => $paymentData['user_id'],
-                    'user_type' => $paymentData['user_type'],
-                    'amount' => $paymentData['amount'],
-                    'payment_method' => $paymentData['payment_method_type'] ?? 'card',
-                    'status' => 'failed',
-                    'description' => $paymentData['description'] ?? 'Payment',
-                    'stripe_payment_intent_id' => $paymentIntent->id,
-                    'stripe_customer_id' => $paymentData['customer_id'] ?? null,
-                    'metadata' => array_merge($paymentData['metadata'] ?? [], [
-                        'requires_3ds' => true,
-                        'failure_reason' => '3D Secure authentication required'
-                    ]),
-                    'paid_at' => null,
-                ]);
-
+                // Return payment intent details for on-session completion
                 return [
                     'success' => false,
-                    'error' => 'Card requires 3D Secure authentication',
-                    'requires_action' => true,
-                    'payment_intent' => $paymentIntent->toArray(),
-                    'payment' => $payment
+                    'error' => 'Card requires authentication. Please complete the authentication process.',
+                    'requires_on_session' => true,
+                    'payment_intent_id' => $paymentIntent->id,
+                    'client_secret' => $paymentIntent->client_secret,
+                    'status' => $paymentIntent->status,
+                    'requires_authentication' => true,
+                    'payment_intent' => [
+                        'id' => $paymentIntent->id,
+                        'client_secret' => $paymentIntent->client_secret,
+                        'status' => $paymentIntent->status,
+                        'next_action' => $paymentIntent->next_action ?? null
+                    ]
                 ];
-
-            } elseif ($paymentIntent->status === 'requires_confirmation' && isset($paymentIntentData['payment_method'])) {
-                try {
-                    $paymentIntent->confirm(['payment_method' => $paymentIntentData['payment_method']]);
-                    Log::info('Payment intent confirmed', [
-                        'payment_intent_id' => $paymentIntent->id,
-                        'status' => $paymentIntent->status
-                    ]);
-                } catch (Exception $e) {
-                    Log::warning('Payment intent confirmation failed', [
-                        'payment_intent_id' => $paymentIntent->id,
-                        'error' => $e->getMessage()
-                    ]);
-                }
-            } elseif ($paymentIntent->status === 'requires_payment_method' && isset($paymentIntentData['payment_method'])) {
-                // If payment intent still requires payment method, try to update it
-                try {
-                    $paymentIntent->payment_method = $paymentIntentData['payment_method'];
-                    $paymentIntent->save();
-                    $paymentIntent->confirm(['payment_method' => $paymentIntentData['payment_method']]);
-                    Log::info('Payment intent updated and confirmed', [
-                        'payment_intent_id' => $paymentIntent->id,
-                        'status' => $paymentIntent->status
-                    ]);
-                } catch (Exception $e) {
-                    Log::warning('Payment intent update failed', [
-                        'payment_intent_id' => $paymentIntent->id,
-                        'error' => $e->getMessage()
-                    ]);
-                }
             }
+
 
             // Validate payment intent status
             $statusInfo = $this->validatePaymentIntentStatus($paymentIntent);
             $isAuthorizedManual = ($captureMethod === 'manual') && in_array($paymentIntent->status, ['requires_capture', 'succeeded']);
             $isPaymentSuccessful = ($captureMethod === 'automatic') ? $statusInfo['is_successful'] : $isAuthorizedManual;
 
-            // Create payment record in database
-            $payment = \App\Models\Payment::create([
-                'user_id' => $paymentData['user_id'],
-                'user_type' => $paymentData['user_type'],
-                'amount' => $paymentData['amount'],
-                'payment_method' => $paymentData['payment_method_type'] ?? 'card',
-                'status' => $isPaymentSuccessful ? (($captureMethod === 'automatic' && $paymentIntent->status === 'succeeded') ? 'paid' : 'pending') : 'failed',
-                'description' => $paymentData['description'] ?? 'Payment',
-                'stripe_payment_intent_id' => $paymentIntent->id,
-                'stripe_customer_id' => $paymentData['customer_id'] ?? null,
-                'metadata' => $paymentData['metadata'] ?? [],
-                'paid_at' => ($captureMethod === 'automatic' && $paymentIntent->status === 'succeeded') ? now() : null,
-            ]);
+            // Update existing payment record or create new one
+            if (isset($paymentData['payment_id'])) {
+                $payment = \App\Models\Payment::find($paymentData['payment_id']);
+                if ($payment) {
+                    $payment->update([
+                        'status' => $isPaymentSuccessful ? (($captureMethod === 'automatic' && $paymentIntent->status === 'succeeded') ? 'paid' : 'pending') : 'failed',
+                        'stripe_payment_intent_id' => $paymentIntent->id,
+                        'paid_at' => ($captureMethod === 'automatic' && $paymentIntent->status === 'succeeded') ? now() : null,
+                    ]);
+                } else {
+                    Log::warning('Payment record not found for update', [
+                        'payment_id' => $paymentData['payment_id']
+                    ]);
+                    // Create new payment record if not found
+                    $payment = \App\Models\Payment::create([
+                        'user_id' => $paymentData['user_id'],
+                        'user_type' => $paymentData['user_type'],
+                        'amount' => $paymentData['amount'],
+                        'payment_method' => $paymentData['payment_method_type'] ?? 'card',
+                        'status' => $isPaymentSuccessful ? (($captureMethod === 'automatic' && $paymentIntent->status === 'succeeded') ? 'paid' : 'pending') : 'failed',
+                        'description' => $paymentData['description'] ?? 'Payment',
+                        'stripe_payment_intent_id' => $paymentIntent->id,
+                        'stripe_customer_id' => $paymentData['customer_id'] ?? null,
+                        'metadata' => $paymentData['metadata'] ?? [],
+                        'paid_at' => ($captureMethod === 'automatic' && $paymentIntent->status === 'succeeded') ? now() : null,
+                    ]);
+                }
+            } else {
+                // Create payment record in database
+                $payment = \App\Models\Payment::create([
+                    'user_id' => $paymentData['user_id'],
+                    'user_type' => $paymentData['user_type'],
+                    'amount' => $paymentData['amount'],
+                    'payment_method' => $paymentData['payment_method_type'] ?? 'card',
+                    'status' => $isPaymentSuccessful ? (($captureMethod === 'automatic' && $paymentIntent->status === 'succeeded') ? 'paid' : 'pending') : 'failed',
+                    'description' => $paymentData['description'] ?? 'Payment',
+                    'stripe_payment_intent_id' => $paymentIntent->id,
+                    'stripe_customer_id' => $paymentData['customer_id'] ?? null,
+                    'metadata' => $paymentData['metadata'] ?? [],
+                    'paid_at' => ($captureMethod === 'automatic' && $paymentIntent->status === 'succeeded') ? now() : null,
+                ]);
+            }
 
             return [
                 'success' => $isPaymentSuccessful,
@@ -1185,32 +1032,50 @@ class StripeService
                     // Update payment status in database
                     $payment = \App\Models\Payment::where('stripe_payment_intent_id', $event->data->object->id)->first();
                     if ($payment && $payment->status !== 'paid') {
+                        // Check metadata to see if points were already credited
+                        $metadata = is_string($payment->metadata) ? json_decode($payment->metadata, true) : ($payment->metadata ?? []);
+                        $pointsCredited = $metadata['points_credited'] ?? false;
+
                         $payment->update([
                             'status' => 'paid',
                             'paid_at' => now(),
                         ]);
 
-                        // Add points to user if not already added
-                        if ($payment->user_type === 'guest') {
-                            $model = \App\Models\Guest::find($payment->user_id);
+                        // Add points to user if not already added (idempotent check)
+                        if (!$pointsCredited) {
+                            if ($payment->user_type === 'guest') {
+                                $model = \App\Models\Guest::find($payment->user_id);
+                            } else {
+                                $model = \App\Models\Cast::find($payment->user_id);
+                            }
+
+                            if ($model) {
+                                $yenPerPoint = (float) config('points.yen_per_point', 1.2);
+                                $pointsToCredit = (int) floor(((float) $payment->amount) / max(0.0001, $yenPerPoint));
+
+                                $currentPoints = $model->points ?? 0;
+                                $newPoints = $currentPoints + $pointsToCredit;
+                                $model->points = $newPoints;
+                                $model->save();
+
+                                // Mark points as credited in payment metadata
+                                $metadata['points_credited'] = true;
+                                $metadata['points_credited_at'] = now()->toISOString();
+                                $metadata['points_credited_by'] = 'webhook';
+                                $payment->metadata = json_encode($metadata);
+                                $payment->save();
+
+                                Log::info('Points added via webhook', [
+                                    'user_id' => $payment->user_id,
+                                    'user_type' => $payment->user_type,
+                                    'points_added' => $pointsToCredit,
+                                    'new_balance' => $newPoints
+                                ]);
+                            }
                         } else {
-                            $model = \App\Models\Cast::find($payment->user_id);
-                        }
-
-                        if ($model) {
-                            $yenPerPoint = (float) config('points.yen_per_point', 1.2);
-                            $pointsToCredit = (int) floor(((float) $payment->amount) / max(0.0001, $yenPerPoint));
-
-                            $currentPoints = $model->points ?? 0;
-                            $newPoints = $currentPoints + $pointsToCredit;
-                            $model->points = $newPoints;
-                            $model->save();
-
-                            Log::info('Points added via webhook', [
-                                'user_id' => $payment->user_id,
-                                'user_type' => $payment->user_type,
-                                'points_added' => $pointsToCredit,
-                                'new_balance' => $newPoints
+                            Log::info('Points already credited for this payment, skipping webhook fulfillment', [
+                                'payment_id' => $payment->id,
+                                'payment_intent_id' => $event->data->object->id
                             ]);
                         }
                     }
@@ -1227,6 +1092,101 @@ class StripeService
                         $payment->update([
                             'status' => 'failed',
                             'failed_at' => now(),
+                        ]);
+                    }
+                    break;
+
+                case 'setup_intent.succeeded':
+                    Log::info('SetupIntent succeeded', [
+                        'setup_intent_id' => $event->data->object->id
+                    ]);
+
+                    try {
+                        // Retrieve SetupIntent with expanded payment_method
+                        $setupIntent = \Stripe\SetupIntent::retrieve($event->data->object->id, [
+                            'expand' => ['payment_method']
+                        ]);
+
+                        $customerId = $setupIntent->customer;
+                        $paymentMethodId = $setupIntent->payment_method;
+
+                        if (!$customerId || !$paymentMethodId) {
+                            Log::warning('SetupIntent missing customer or payment_method', [
+                                'setup_intent_id' => $setupIntent->id,
+                                'has_customer' => !!$customerId,
+                                'has_payment_method' => !!$paymentMethodId
+                            ]);
+                            break;
+                        }
+
+                        // Ensure PaymentMethod is attached to Customer
+                        if (is_string($paymentMethodId)) {
+                            $paymentMethod = \Stripe\PaymentMethod::retrieve($paymentMethodId);
+                        } else {
+                            $paymentMethod = $paymentMethodId;
+                        }
+
+                        if ($paymentMethod->customer !== $customerId) {
+                            $paymentMethod->attach(['customer' => $customerId]);
+                            Log::info('PaymentMethod attached to Customer via webhook', [
+                                'payment_method_id' => $paymentMethod->id,
+                                'customer_id' => $customerId
+                            ]);
+                        }
+
+                        // Find user by customer_id and update payment_info
+                        $guest = \App\Models\Guest::where('stripe_customer_id', $customerId)->first();
+                        $cast = null;
+                        if (!$guest) {
+                            $cast = \App\Models\Cast::where('stripe_customer_id', $customerId)->first();
+                        }
+
+                        $model = $guest ?? $cast;
+                        if ($model) {
+                            $paymentInfo = json_decode($model->payment_info, true) ?: [];
+
+                            // Check if this SetupIntent was already processed (idempotency)
+                            $processedSetupIntents = $paymentInfo['processed_setup_intents'] ?? [];
+                            if (!in_array($setupIntent->id, $processedSetupIntents)) {
+                                $paymentInfo['last_payment_method'] = $paymentMethod->id;
+                                $paymentInfo['last_card_added'] = now()->toISOString();
+                                $paymentInfo['card_count'] = ($paymentInfo['card_count'] ?? 0) + 1;
+                                $paymentInfo['setup_intent_id'] = $setupIntent->id;
+
+                                // Track processed SetupIntents to prevent double counting
+                                if (!is_array($processedSetupIntents)) {
+                                    $processedSetupIntents = [];
+                                }
+                                $processedSetupIntents[] = $setupIntent->id;
+                                $paymentInfo['processed_setup_intents'] = $processedSetupIntents;
+
+                                $model->payment_info = json_encode($paymentInfo);
+                                $model->save();
+                            } else {
+                                Log::info('SetupIntent already processed, skipping webhook fulfillment', [
+                                    'setup_intent_id' => $setupIntent->id,
+                                    'user_id' => $model->id,
+                                    'user_type' => $guest ? 'guest' : 'cast'
+                                ]);
+                            }
+
+                            Log::info('Payment info updated via setup_intent.succeeded webhook', [
+                                'user_id' => $model->id,
+                                'user_type' => $guest ? 'guest' : 'cast',
+                                'customer_id' => $customerId,
+                                'payment_method_id' => $paymentMethod->id,
+                                'setup_intent_id' => $setupIntent->id
+                            ]);
+                        } else {
+                            Log::warning('User not found for SetupIntent customer', [
+                                'customer_id' => $customerId,
+                                'setup_intent_id' => $setupIntent->id
+                            ]);
+                        }
+                    } catch (Exception $e) {
+                        Log::error('Failed to handle setup_intent.succeeded webhook', [
+                            'setup_intent_id' => $event->data->object->id,
+                            'error' => $e->getMessage()
                         ]);
                     }
                     break;

@@ -354,6 +354,29 @@ class PaymentController extends Controller
                 ], 404);
             }
 
+            // Create Payment record with pending status before calling Stripe
+            // This ensures webhook can find and update the payment record
+            $paymentRecord = \App\Models\Payment::create([
+                'user_id' => $request->user_id,
+                'user_type' => $request->user_type,
+                'amount' => $amountWithTax,
+                'payment_method' => $paymentData['payment_method_type'] ?? 'card',
+                'status' => 'pending',
+                'description' => $paymentData['description'] ?? "{$intendedPoints}ポイント購入",
+                'stripe_customer_id' => $model->stripe_customer_id ?? null,
+                'metadata' => $paymentData['metadata'] ?? [],
+                'paid_at' => null,
+            ]);
+
+            Log::info('Payment record created with pending status', [
+                'payment_id' => $paymentRecord->id,
+                'user_id' => $request->user_id,
+                'user_type' => $request->user_type,
+                'amount' => $amountWithTax
+            ]);
+
+            // Pass payment record ID to processPayment so it can update the existing record
+            $paymentData['payment_id'] = $paymentRecord->id;
             $result = $this->stripeService->processPayment($paymentData);
 
             if (!$result['success']) {
@@ -389,11 +412,32 @@ class PaymentController extends Controller
             $yenPerPoint = (float) config('points.yen_per_point', 1.2);
             $pointsToCredit = (int) floor(((float) $request->amount) / max(0.0001, $yenPerPoint));
 
-            // Add points to user after successful payment
-            $currentPoints = $model->points ?? 0;
-            $newPoints = $currentPoints + $pointsToCredit;
-            $model->points = $newPoints;
-            $model->save();
+            // Add points to user after successful payment (idempotent - check metadata first)
+            $paymentMetadata = is_string($result['payment']->metadata)
+                ? json_decode($result['payment']->metadata, true)
+                : ($result['payment']->metadata ?? []);
+            $pointsCredited = $paymentMetadata['points_credited'] ?? false;
+
+            if (!$pointsCredited) {
+                $currentPoints = $model->points ?? 0;
+                $newPoints = $currentPoints + $pointsToCredit;
+                $model->points = $newPoints;
+                $model->save();
+
+                // Mark points as credited in payment metadata to prevent double crediting
+                $paymentMetadata['points_credited'] = true;
+                $paymentMetadata['points_credited_at'] = now()->toISOString();
+                $paymentMetadata['points_credited_by'] = 'immediate_response';
+                $result['payment']->metadata = json_encode($paymentMetadata);
+                $result['payment']->save();
+            } else {
+                Log::info('Points already credited for this payment, skipping immediate fulfillment', [
+                    'payment_id' => $result['payment']->id,
+                    'payment_intent_id' => $result['payment_intent']['id'] ?? 'unknown'
+                ]);
+                // Get current points for response
+                $newPoints = $model->points ?? 0;
+            }
 
             // Update grade based on new balance
             try {
@@ -841,8 +885,33 @@ class PaymentController extends Controller
                 ], 404);
             }
 
-            // If user doesn't have a Stripe customer ID, create one
-            if (!$model->stripe_customer_id) {
+            // If user doesn't have a Stripe customer ID, or if the customer doesn't exist in Stripe, create one
+            $customerId = $model->stripe_customer_id;
+            $needsCustomerCreation = false;
+
+            if (!$customerId) {
+                $needsCustomerCreation = true;
+            } else {
+                // Verify customer exists in Stripe
+                try {
+                    \Stripe\Customer::retrieve($customerId);
+                    Log::info('Customer verified in Stripe', [
+                        'customer_id' => $customerId
+                    ]);
+                } catch (\Exception $e) {
+                    Log::warning('Customer does not exist in Stripe, will create new one', [
+                        'customer_id' => $customerId,
+                        'error' => $e->getMessage()
+                    ]);
+                    // Clear invalid customer ID from database
+                    $model->stripe_customer_id = null;
+                    $model->save();
+                    $needsCustomerCreation = true;
+                    $customerId = null; // Reset so we create a new one
+                }
+            }
+
+            if ($needsCustomerCreation) {
                 try {
                     $customerResult = $this->stripeService->createCustomer([
                         'email' => $model->email ?? null,
@@ -858,6 +927,7 @@ class PaymentController extends Controller
 
                     // Save customer ID to user model
                     $model->stripe_customer_id = $customerResult['id'];
+                    $customerId = $customerResult['id'];
 
                     // Store additional customer metadata
                     $customerMetadata = [
@@ -901,16 +971,53 @@ class PaymentController extends Controller
                 }
             }
 
+            // Ensure we have a valid customer ID at this point
+            if (!$customerId) {
+                Log::error('No valid customer ID available for SetupIntent creation', [
+                    'user_id' => $request->user_id,
+                    'user_type' => $request->user_type,
+                    'model_customer_id' => $model->stripe_customer_id
+                ]);
+
+                return response()->json([
+                    'success' => false,
+                    'error' => '顧客IDが無効です。もう一度お試しください。',
+                ], 400);
+            }
+
+            // Refresh model to ensure we have the latest customer ID
+            $model->refresh();
+            $customerId = $model->stripe_customer_id ?? $customerId;
+
+            // Final verification that customer exists before creating SetupIntent
+            try {
+                $verifyCustomer = \Stripe\Customer::retrieve($customerId);
+                Log::info('Customer verified before SetupIntent creation', [
+                    'customer_id' => $customerId,
+                    'customer_email' => $verifyCustomer->email ?? null
+                ]);
+            } catch (\Exception $e) {
+                Log::error('Customer verification failed before SetupIntent creation', [
+                    'customer_id' => $customerId,
+                    'error' => $e->getMessage()
+                ]);
+
+                return response()->json([
+                    'success' => false,
+                    'error' => '顧客の確認に失敗しました: ' . $e->getMessage(),
+                ], 400);
+            }
+
             // Create SetupIntent for card registration
             try {
                 $setupIntentResult = $this->stripeService->createSetupIntentForCardRegistration(
-                    $model->stripe_customer_id
+                    $customerId
                 );
 
                 Log::info('SetupIntent created for card registration', [
                     'user_id' => $request->user_id,
                     'user_type' => $request->user_type,
-                    'customer_id' => $model->stripe_customer_id,
+                    'customer_id' => $customerId,
                     'setup_intent_id' => $setupIntentResult['setup_intent']['id'] ?? null
                 ]);
 
@@ -920,10 +1027,85 @@ class PaymentController extends Controller
                     'setup_intent_id' => $setupIntentResult['setup_intent']['id'],
                 ]);
             } catch (\Exception $e) {
+                // Check if error is due to customer not existing
+                $errorMessage = $e->getMessage();
+                $isCustomerNotFound = stripos($errorMessage, 'No such customer') !== false ||
+                    stripos($errorMessage, 'No such Customer') !== false;
+
+                if ($isCustomerNotFound) {
+                    Log::warning('Customer not found when creating SetupIntent, creating new customer', [
+                        'user_id' => $request->user_id,
+                        'user_type' => $request->user_type,
+                        'old_customer_id' => $customerId,
+                        'error' => $e->getMessage()
+                    ]);
+
+                    // Clear invalid customer ID and create new customer
+                    $model->stripe_customer_id = null;
+                    $model->save();
+
+                    try {
+                        $customerResult = $this->stripeService->createCustomer([
+                            'email' => $model->email ?? null,
+                            'name' => $model->nickname ?? null,
+                            'description' => "{$request->user_type}_{$request->user_id}",
+                            'metadata' => [
+                                'user_id' => $request->user_id,
+                                'user_type' => $request->user_type,
+                                'nickname' => $model->nickname ?? '',
+                                'phone' => $model->phone ?? '',
+                            ],
+                        ]);
+
+                        // Save new customer ID
+                        $model->stripe_customer_id = $customerResult['id'];
+                        $customerId = $customerResult['id'];
+
+                        // Store additional customer metadata
+                        $customerMetadata = [
+                            'customer_id' => $customerResult['id'],
+                            'created_at' => now()->toISOString(),
+                            'user_type' => $request->user_type,
+                            'user_id' => $request->user_id,
+                        ];
+
+                        $model->payment_info = json_encode($customerMetadata);
+                        $model->save();
+
+                        Log::info('New customer created after SetupIntent failure', [
+                            'user_id' => $request->user_id,
+                            'user_type' => $request->user_type,
+                            'new_customer_id' => $customerId
+                        ]);
+
+                        // Retry SetupIntent creation with new customer
+                        $setupIntentResult = $this->stripeService->createSetupIntentForCardRegistration(
+                            $customerId
+                        );
+
+                        return response()->json([
+                            'success' => true,
+                            'client_secret' => $setupIntentResult['setup_intent']['client_secret'],
+                            'setup_intent_id' => $setupIntentResult['setup_intent']['id'],
+                        ]);
+                    } catch (\Exception $retryException) {
+                        Log::error('Failed to create new customer and SetupIntent after retry', [
+                            'user_id' => $request->user_id,
+                            'user_type' => $request->user_type,
+                            'error' => $retryException->getMessage()
+                        ]);
+
+                        return response()->json([
+                            'success' => false,
+                            'error' => '顧客の作成に失敗しました: ' . $retryException->getMessage(),
+                        ], 400);
+                    }
+                }
+
                 Log::error('Failed to create SetupIntent', [
                     'user_id' => $request->user_id,
                     'user_type' => $request->user_type,
-                    'customer_id' => $model->stripe_customer_id,
+                    'customer_id' => $customerId,
                     'error' => $e->getMessage()
                 ]);
 
@@ -1050,7 +1232,9 @@ class PaymentController extends Controller
                     'setup_intent_id' => $request->setup_intent_id
                 ]);
 
-                $setupIntent = \Stripe\SetupIntent::retrieve($request->setup_intent_id);
+                $setupIntent = \Stripe\SetupIntent::retrieve($request->setup_intent_id, [
+                    'expand' => ['payment_method']
+                ]);
 
                 // Verify SetupIntent belongs to this customer
                 if ($setupIntent->customer !== $model->stripe_customer_id) {
@@ -1080,7 +1264,7 @@ class PaymentController extends Controller
 
                 // Extract payment method from SetupIntent
                 $paymentMethodId = $setupIntent->payment_method;
-                
+
                 if (!$paymentMethodId) {
                     Log::error('SetupIntent has no payment method', [
                         'setup_intent_id' => $request->setup_intent_id,
@@ -1097,7 +1281,7 @@ class PaymentController extends Controller
                 // Just verify it's attached
                 try {
                     $paymentMethod = \Stripe\PaymentMethod::retrieve($paymentMethodId);
-                    
+
                     if ($paymentMethod->customer !== $model->stripe_customer_id) {
                         // Attach if not already attached
                         $paymentMethod->attach(['customer' => $model->stripe_customer_id]);
@@ -1149,13 +1333,31 @@ class PaymentController extends Controller
                 ], 400);
             }
 
-            // Update payment_info with card information
+            // Update payment_info with card information (idempotent - check if SetupIntent already processed)
             $paymentInfo = json_decode($model->payment_info, true) ?: [];
-            $paymentInfo['last_payment_method'] = $paymentMethodId;
-            $paymentInfo['last_card_added'] = now()->toISOString();
-            $paymentInfo['card_count'] = ($paymentInfo['card_count'] ?? 0) + 1;
+            $processedSetupIntents = $paymentInfo['processed_setup_intents'] ?? [];
 
-            $model->payment_info = json_encode($paymentInfo);
+            if (!in_array($request->setup_intent_id, $processedSetupIntents)) {
+                $paymentInfo['last_payment_method'] = $paymentMethodId;
+                $paymentInfo['last_card_added'] = now()->toISOString();
+                $paymentInfo['card_count'] = ($paymentInfo['card_count'] ?? 0) + 1;
+                $paymentInfo['setup_intent_id'] = $request->setup_intent_id;
+
+                // Track processed SetupIntents to prevent double counting
+                if (!is_array($processedSetupIntents)) {
+                    $processedSetupIntents = [];
+                }
+                $processedSetupIntents[] = $request->setup_intent_id;
+                $paymentInfo['processed_setup_intents'] = $processedSetupIntents;
+
+                $model->payment_info = json_encode($paymentInfo);
+            } else {
+                Log::info('SetupIntent already processed via API, skipping duplicate registration', [
+                    'setup_intent_id' => $request->setup_intent_id,
+                    'user_id' => $request->user_id,
+                    'user_type' => $request->user_type
+                ]);
+            }
 
             if (!$model->save()) {
                 Log::error('Failed to update payment info in database', [
