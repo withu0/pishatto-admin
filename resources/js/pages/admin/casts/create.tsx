@@ -9,8 +9,8 @@ import { ArrowLeft, Save } from 'lucide-react';
 import { useState } from 'react';
 
 export default function CastCreate() {
-    const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
     const [uploadedAvatars, setUploadedAvatars] = useState<string[]>([]);
+    const [isUploading, setIsUploading] = useState(false);
 
     const { data, setData, post, processing, errors } = useForm({
         phone: '',
@@ -31,61 +31,59 @@ export default function CastCreate() {
         points: '0',
     });
 
-    const handleSubmit = async(e: React.FormEvent) => {
+    const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
-
-        // Upload avatars first if files are selected
-        if (selectedFiles.length > 0) {
-            try {
-                const formData = new FormData();
-                for (let i = 0; i < selectedFiles.length; i++) {
-                    formData.append('avatars[]', selectedFiles[i]);
-                }
-
-                // Get CSRF token from meta tag
-                const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
-
-                const response = await fetch('/admin/casts/upload-avatar', {
-                    method: 'POST',
-                    headers: {
-                        'X-CSRF-TOKEN': csrfToken || '',
-                        'Accept': 'application/json',
-                    },
-                    body: formData,
-                });
-
-                if (response.ok) {
-                    const result = await response.json();
-                    setUploadedAvatars(result.paths);
-                    setData('avatars', result.paths);
-                } else {
-                    const errorData = await response.json().catch(() => ({}));
-                    console.error('Upload failed:', errorData);
-                    alert('アバター画像のアップロードに失敗しました');
-                    return; // Don't proceed with form submission
-                }
-            } catch (error) {
-                console.error('Upload error:', error);
-                alert('通信エラーが発生しました');
-                return; // Don't proceed with form submission
-            }
-        }
-
-        // Submit the form
+        // Submit the form - avatars are already uploaded
         post('/admin/casts');
     };
 
-    const handleAvatar = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const handleAvatar = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const files = e.target.files;
         if (!files || files.length === 0) return;
 
-        // Store selected files for later upload
         const fileArray = Array.from(files);
-        setSelectedFiles(fileArray);
 
-        // Create preview URLs for display
-        const previewUrls = fileArray.map(file => URL.createObjectURL(file));
-        setUploadedAvatars(previewUrls);
+        // Immediately upload files
+        setIsUploading(true);
+        const formData = new FormData();
+        fileArray.forEach(file => {
+            formData.append('avatars[]', file);
+        });
+
+        try {
+            // Get CSRF token from meta tag
+            const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
+
+            const response = await fetch('/admin/casts/upload-avatar', {
+                method: 'POST',
+                headers: {
+                    'X-CSRF-TOKEN': csrfToken || '',
+                    'Accept': 'application/json',
+                },
+                body: formData,
+            });
+
+            if (response.ok) {
+                const result = await response.json();
+                // Store uploaded paths for display and form submission
+                const uploadedPaths = result.paths;
+                setUploadedAvatars(prev => [...prev, ...uploadedPaths.map((path: string) => `/storage/${path}`)]);
+                // Accumulate all uploaded paths
+                setData('avatars', [...(data.avatars || []), ...uploadedPaths]);
+                alert(`${result.message}`);
+            } else {
+                const errorData = await response.json().catch(() => ({}));
+                console.error('Upload failed:', errorData);
+                alert('アバター画像のアップロードに失敗しました。ファイルサイズや形式を確認してください。');
+            }
+        } catch (error) {
+            console.error('Upload error:', error);
+            alert('アップロード中にエラーが発生しました。');
+        } finally {
+            setIsUploading(false);
+            // Reset file input
+            e.target.value = '';
+        }
     };
 
     return (
@@ -180,16 +178,22 @@ export default function CastCreate() {
                                             multiple
                                             accept="image/*"
                                             onChange={handleAvatar}
+                                            disabled={isUploading}
                                         />
                                         {errors.avatar && (
                                             <p className="text-sm text-red-500">{errors.avatar}</p>
+                                        )}
+                                        {isUploading && (
+                                            <p className="text-sm text-muted-foreground">
+                                                アップロード中...
+                                            </p>
                                         )}
 
                                         {/* Avatar Preview */}
                                         {uploadedAvatars.length > 0 && (
                                             <div className="mt-4">
                                                 <Label className="text-sm font-medium">
-                                                    {selectedFiles.length > 0 ? '選択された画像 (保存時にアップロードされます):' : 'アップロード済み画像:'}
+                                                    アップロード済み画像:
                                                 </Label>
                                                 <div className="flex flex-wrap gap-2 mt-2">
                                                     {uploadedAvatars.map((path, index) => (

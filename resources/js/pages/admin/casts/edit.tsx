@@ -37,8 +37,6 @@ interface Props {
 }
 
 export default function CastEdit({ cast }: Props) {
-    const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
-    const [uploadedAvatars, setUploadedAvatars] = useState<string[]>([]);
     const [isUploading, setIsUploading] = useState(false);
     const [currentAvatarPaths, setCurrentAvatarPaths] = useState<string>(cast.avatar || '');
 
@@ -73,63 +71,53 @@ export default function CastEdit({ cast }: Props) {
     };
 
     const currentAvatars = getCurrentAvatarUrls();
-    const allAvatars = [...currentAvatars, ...uploadedAvatars];
+    const allAvatars = currentAvatars;
 
-    const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-        if (e.target.files) {
+    const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        if (e.target.files && e.target.files.length > 0) {
             const files = Array.from(e.target.files);
-            setSelectedFiles(prev => [...prev, ...files]);
 
-            // Create preview URLs
-            const newPreviewUrls = files.map(file => URL.createObjectURL(file));
-            setUploadedAvatars(prev => [...prev, ...newPreviewUrls]);
-        }
-    };
-
-    const handleAvatarUpload = async () => {
-        if (selectedFiles.length === 0) return;
-
-        setIsUploading(true);
-        const formData = new FormData();
-        selectedFiles.forEach(file => {
-            formData.append('avatars[]', file);
-        });
-
-        try {
-            const response = await fetch('/admin/casts/upload-avatar', {
-                method: 'POST',
-                body: formData,
-                headers: {
-                    'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '',
-                },
+            // Immediately upload files
+            setIsUploading(true);
+            const formData = new FormData();
+            files.forEach(file => {
+                formData.append('avatars[]', file);
             });
 
-            if (response.ok) {
-                const result = await response.json();
-                // Update the avatar field with new paths
-                const newPaths = result.paths;
-                const currentPaths = currentAvatarPaths ? currentAvatarPaths.split(',') : [];
-                const updatedPaths = [...currentPaths, ...newPaths];
-                const newAvatarString = updatedPaths.join(',');
-                setData('avatar', newAvatarString);
-                setCurrentAvatarPaths(newAvatarString);
+            try {
+                const response = await fetch('/admin/casts/upload-avatar', {
+                    method: 'POST',
+                    body: formData,
+                    headers: {
+                        'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '',
+                    },
+                });
 
-                // Clear selected files and previews
-                setSelectedFiles([]);
-                setUploadedAvatars([]);
+                if (response.ok) {
+                    const result = await response.json();
+                    // Update the avatar field with new paths
+                    const newPaths = result.paths;
+                    const currentPaths = currentAvatarPaths ? currentAvatarPaths.split(',') : [];
+                    const updatedPaths = [...currentPaths, ...newPaths];
+                    const newAvatarString = updatedPaths.join(',');
+                    setData('avatar', newAvatarString);
+                    setCurrentAvatarPaths(newAvatarString);
 
-                // Show success message
-                alert(`${result.message}`);
-            } else {
-                const errorData = await response.json();
-                console.error('Upload failed:', errorData);
-                alert('アップロードに失敗しました。ファイルサイズや形式を確認してください。');
+                    // Show success message
+                    alert(`${result.message}`);
+                } else {
+                    const errorData = await response.json();
+                    console.error('Upload failed:', errorData);
+                    alert('アップロードに失敗しました。ファイルサイズや形式を確認してください。');
+                }
+            } catch (error) {
+                console.error('Upload error:', error);
+                alert('アップロード中にエラーが発生しました。');
+            } finally {
+                setIsUploading(false);
+                // Reset file input
+                e.target.value = '';
             }
-        } catch (error) {
-            console.error('Upload error:', error);
-            alert('アップロード中にエラーが発生しました。');
-        } finally {
-            setIsUploading(false);
         }
     };
 
@@ -166,11 +154,6 @@ export default function CastEdit({ cast }: Props) {
                 console.error('Delete error:', error);
                 alert('アバターの削除中にエラーが発生しました。');
             }
-        } else {
-            // Delete uploaded preview
-            const previewIndex = index - currentAvatars.length;
-            setSelectedFiles(prev => prev.filter((_, i) => i !== previewIndex));
-            setUploadedAvatars(prev => prev.filter((_, i) => i !== previewIndex));
         }
     };
 
@@ -265,14 +248,50 @@ export default function CastEdit({ cast }: Props) {
                                             e.preventDefault();
                                             e.currentTarget.classList.remove('border-primary/50', 'bg-primary/5');
                                         }}
-                                        onDrop={(e) => {
+                                        onDrop={async (e) => {
                                             e.preventDefault();
                                             e.currentTarget.classList.remove('border-primary/50', 'bg-primary/5');
                                             const files = Array.from(e.dataTransfer.files);
                                             if (files.length > 0) {
-                                                setSelectedFiles(prev => [...prev, ...files]);
-                                                const newPreviewUrls = files.map(file => URL.createObjectURL(file));
-                                                setUploadedAvatars(prev => [...prev, ...newPreviewUrls]);
+                                                // Immediately upload files
+                                                setIsUploading(true);
+                                                const formData = new FormData();
+                                                files.forEach(file => {
+                                                    formData.append('avatars[]', file);
+                                                });
+
+                                                try {
+                                                    const response = await fetch('/admin/casts/upload-avatar', {
+                                                        method: 'POST',
+                                                        body: formData,
+                                                        headers: {
+                                                            'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '',
+                                                        },
+                                                    });
+
+                                                    if (response.ok) {
+                                                        const result = await response.json();
+                                                        // Update the avatar field with new paths
+                                                        const newPaths = result.paths;
+                                                        const currentPaths = currentAvatarPaths ? currentAvatarPaths.split(',') : [];
+                                                        const updatedPaths = [...currentPaths, ...newPaths];
+                                                        const newAvatarString = updatedPaths.join(',');
+                                                        setData('avatar', newAvatarString);
+                                                        setCurrentAvatarPaths(newAvatarString);
+
+                                                        // Show success message
+                                                        alert(`${result.message}`);
+                                                    } else {
+                                                        const errorData = await response.json();
+                                                        console.error('Upload failed:', errorData);
+                                                        alert('アップロードに失敗しました。ファイルサイズや形式を確認してください。');
+                                                    }
+                                                } catch (error) {
+                                                    console.error('Upload error:', error);
+                                                    alert('アップロード中にエラーが発生しました。');
+                                                } finally {
+                                                    setIsUploading(false);
+                                                }
                                             }
                                         }}
                                     >
@@ -288,6 +307,7 @@ export default function CastEdit({ cast }: Props) {
                                                 accept="image/*"
                                                 hidden
                                                 onChange={handleFileSelect}
+                                                disabled={isUploading}
                                                 className="max-w-xs"
                                             />
                                             <Button
@@ -295,24 +315,15 @@ export default function CastEdit({ cast }: Props) {
                                                 variant="outline"
                                                 size="sm"
                                                 onClick={() => document.getElementById('avatar-upload')?.click()}
+                                                disabled={isUploading}
                                             >
                                                 <Upload className="w-4 h-4 mr-1" />
-                                                ファイルを選択
+                                                {isUploading ? 'アップロード中...' : 'ファイルを選択'}
                                             </Button>
-                                            {selectedFiles.length > 0 && (
-                                                <Button
-                                                    onClick={handleAvatarUpload}
-                                                    disabled={isUploading}
-                                                    size="sm"
-                                                >
-                                                    <Upload className="w-4 h-4 mr-1" />
-                                                    {isUploading ? 'アップロード中...' : 'アップロード'}
-                                                </Button>
-                                            )}
                                         </div>
-                                        {selectedFiles.length > 0 && (
+                                        {isUploading && (
                                             <p className="text-sm text-muted-foreground mt-2">
-                                                {selectedFiles.length}個の画像が選択されました
+                                                アップロード中...
                                             </p>
                                         )}
                                     </div>
