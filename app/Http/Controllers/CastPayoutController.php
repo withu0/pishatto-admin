@@ -22,9 +22,7 @@ class CastPayoutController extends Controller
         return response([
             'success' => true,
             'summary' => [
-                'conversion_rate' => $summary['conversion_rate'],
-                'scheduled_fee_rate' => $summary['scheduled_fee_rate'],
-                'instant_fee_rate' => $summary['instant_fee_rate'],
+                'redemption_rate' => $summary['redemption_rate'],
                 'unsettled_points' => $summary['unsettled_points'],
                 'unsettled_amount_yen' => $summary['unsettled_amount_yen'],
                 'instant_available_points' => $summary['instant_available_points'],

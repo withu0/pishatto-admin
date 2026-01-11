@@ -5,7 +5,9 @@ return [
     |--------------------------------------------------------------------------
     | Conversion settings
     |--------------------------------------------------------------------------
-    | Configure how many yen one point is worth when converting cast earnings.
+    | Configure how many yen one point is worth for guest-side point purchases.
+    | Note: Cast payouts now use grade-based FPT redemption rates defined in
+    | GradeService::CAST_FPT_REDEMPTION_RATES instead of this conversion rate.
     */
     'yen_per_point' => env('CAST_PAYOUT_YEN_PER_POINT', 1.2),
 
@@ -13,27 +15,33 @@ return [
     |--------------------------------------------------------------------------
     | Scheduled payout fee rates (末締め翌月末)
     |--------------------------------------------------------------------------
+    | DEPRECATED: Fee rates are no longer used. Cast payouts now use
+    | grade-based FPT redemption rates defined in GradeService.
+    | Kept for backward compatibility with existing records.
     */
-    'scheduled_fee_rates' => [
-        'platinum' => 0.00,
-        'gold' => 0.01,
-        'silver' => 0.015,
-        'bronze' => 0.02,
-        'default' => 0.025,
-    ],
+    // 'scheduled_fee_rates' => [
+    //     'platinum' => 0.00,
+    //     'gold' => 0.01,
+    //     'silver' => 0.015,
+    //     'bronze' => 0.02,
+    //     'default' => 0.025,
+    // ],
 
     /*
     |--------------------------------------------------------------------------
     | Instant payout fee rates (即時振込)
     |--------------------------------------------------------------------------
+    | DEPRECATED: Fee rates are no longer used. Instant payouts use
+    | grade-based FPT redemption rates with a 5% reduction.
+    | Kept for backward compatibility with existing records.
     */
-    'instant_fee_rates' => [
-        'platinum' => 0.02,
-        'gold' => 0.035,
-        'silver' => 0.05,
-        'bronze' => 0.07,
-        'default' => 0.08,
-    ],
+    // 'instant_fee_rates' => [
+    //     'platinum' => 0.02,
+    //     'gold' => 0.035,
+    //     'silver' => 0.05,
+    //     'bronze' => 0.07,
+    //     'default' => 0.08,
+    // ],
 
     /*
     |--------------------------------------------------------------------------

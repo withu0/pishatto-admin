@@ -19,6 +19,7 @@ interface Payout {
     period_end: string;
     total_points: number;
     conversion_rate: number;
+    redemption_rate?: number;
     gross_amount_yen: number;
     fee_rate: number;
     fee_amount_yen: number;
@@ -330,7 +331,7 @@ export default function AdminCastPayouts({ payouts, filters }: Props) {
                                                     </a>
                                                 </td>
                                                 <td className="p-2">{getTypeBadge(payout.type)}</td>
-                                                <td className="p-2 text-right text-sm">{payout.total_points.toLocaleString()}pt</td>
+                                                <td className="p-2 text-right text-sm">{payout.total_points.toLocaleString()} fpt</td>
                                                 <td className="p-2 text-right text-sm">{formatCurrency(payout.gross_amount_yen)}</td>
                                                 <td className="p-2 text-right text-sm">{formatCurrency(payout.fee_amount_yen)}</td>
                                                 <td className="p-2 text-right text-sm font-medium">{formatCurrency(payout.net_amount_yen)}</td>

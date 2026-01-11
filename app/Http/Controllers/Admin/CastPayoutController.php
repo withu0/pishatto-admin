@@ -89,8 +89,9 @@ class CastPayoutController extends Controller
                 'period_end' => $payout->period_end?->format('Y-m-d'),
                 'total_points' => $payout->total_points,
                 'conversion_rate' => $payout->conversion_rate,
+                'redemption_rate' => $payout->conversion_rate, // conversion_rate now stores redemption rate
                 'gross_amount_yen' => $payout->gross_amount_yen,
-                'fee_rate' => $payout->fee_rate,
+                'fee_rate' => $payout->fee_rate, // Kept for backward compatibility
                 'fee_amount_yen' => $payout->fee_amount_yen,
                 'net_amount_yen' => $payout->net_amount_yen,
                 'transaction_count' => $payout->transaction_count,
@@ -144,8 +145,9 @@ class CastPayoutController extends Controller
             'period_end' => $castPayout->period_end?->format('Y-m-d'),
             'total_points' => $castPayout->total_points,
             'conversion_rate' => $castPayout->conversion_rate,
+            'redemption_rate' => $castPayout->conversion_rate, // conversion_rate now stores redemption rate
             'gross_amount_yen' => $castPayout->gross_amount_yen,
-            'fee_rate' => $castPayout->fee_rate,
+            'fee_rate' => $castPayout->fee_rate, // Kept for backward compatibility
             'fee_amount_yen' => $castPayout->fee_amount_yen,
             'net_amount_yen' => $castPayout->net_amount_yen,
             'transaction_count' => $castPayout->transaction_count,

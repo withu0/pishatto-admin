@@ -76,11 +76,8 @@ class CastPayoutService
                     return 0;
                 }
 
-                $conversionRate = $this->conversionRate();
-                $grossYen = (int) floor($totalPoints * $conversionRate);
-                $feeRate = $this->scheduledFeeRate($cast->grade);
-                $feeAmount = (int) floor($grossYen * $feeRate);
-                $netAmount = max(0, $grossYen - $feeAmount);
+                $redemptionRate = $this->getRedemptionRate($cast);
+                $netAmount = (int) floor($totalPoints * $redemptionRate);
                 $scheduledDate = $this->calculateScheduledPayoutDate($periodEnd);
 
                 $payout = CastPayout::create([
@@ -90,10 +87,10 @@ class CastPayoutService
                     'period_start' => $periodStart->toDateString(),
                     'period_end' => $periodEnd->toDateString(),
                     'total_points' => $totalPoints,
-                    'conversion_rate' => $conversionRate,
-                    'gross_amount_yen' => $grossYen,
-                    'fee_rate' => $feeRate,
-                    'fee_amount_yen' => $feeAmount,
+                    'conversion_rate' => $redemptionRate,
+                    'gross_amount_yen' => $netAmount,
+                    'fee_rate' => 0,
+                    'fee_amount_yen' => 0,
                     'net_amount_yen' => $netAmount,
                     'transaction_count' => $transactions->count(),
                     'scheduled_payout_date' => $scheduledDate->toDateString(),
@@ -171,14 +168,12 @@ class CastPayoutService
             throw new \RuntimeException('Stripe Connectアカウントが設定されていません。振込設定ページでStripe Connectを設定してください。');
         }
 
-        // Calculate fees and net amount
-        $feeRate = $this->instantFeeRate($cast->grade);
-        $feeAmount = (int) ceil($amountYen * $feeRate);
-        $netAmount = max(0, $amountYen - $feeAmount);
+        // Get redemption rate and apply 5% reduction for instant payouts
+        $redemptionRate = $this->getRedemptionRate($cast);
+        $effectiveRate = $redemptionRate * 0.95; // 5% reduction for instant payouts
 
-        return DB::transaction(function () use ($cast, $amountYen, $memo, $feeRate, $feeAmount, $netAmount) {
-            $conversionRate = $this->conversionRate();
-            $requiredPoints = (int) ceil($amountYen / max(0.0001, $conversionRate));
+        return DB::transaction(function () use ($cast, $amountYen, $memo, $redemptionRate, $effectiveRate) {
+            $requiredPoints = (int) ceil($amountYen / max(0.0001, $effectiveRate));
 
             $availableTransactions = PointTransaction::where('cast_id', $cast->id)
                 ->whereNull('cast_payout_id')
@@ -195,6 +190,9 @@ class CastPayoutService
             }
 
             // Now consumed points should equal required points (or be very close due to rounding)
+            // Calculate net amount based on consumed points with effective rate (5% reduction)
+            $netAmount = (int) floor($consumed['total_points'] * $effectiveRate);
+            
             // Store the consumed amount which should match the required amount
             $payout = CastPayout::create([
                 'cast_id' => $cast->id,
@@ -203,10 +201,10 @@ class CastPayoutService
                 'period_start' => now()->startOfMonth()->toDateString(),
                 'period_end' => now()->endOfMonth()->toDateString(),
                 'total_points' => $consumed['total_points'], // Store consumed points (should match required)
-                'conversion_rate' => $conversionRate,
-                'gross_amount_yen' => $amountYen,
-                'fee_rate' => $feeRate,
-                'fee_amount_yen' => $feeAmount,
+                'conversion_rate' => $effectiveRate, // Store effective rate (with 5% reduction)
+                'gross_amount_yen' => $netAmount,
+                'fee_rate' => 0,
+                'fee_amount_yen' => 0,
                 'net_amount_yen' => $netAmount,
                 'transaction_count' => $consumed['transaction_count'],
                 'scheduled_payout_date' => now()->toDateString(),
@@ -361,9 +359,7 @@ class CastPayoutService
      */
     public function buildCastSummary(Cast $cast): array
     {
-        $conversionRate = $this->conversionRate();
-        $scheduledFeeRate = $this->scheduledFeeRate($cast->grade);
-        $instantFeeRate = $this->instantFeeRate($cast->grade);
+        $redemptionRate = $this->getRedemptionRate($cast);
         $unsettledPoints = $this->getUnsettledPoints($cast->id);
         $availableInstantPoints = $this->getInstantAvailablePoints($cast->id);
 
@@ -379,13 +375,11 @@ class CastPayoutService
             ->get();
 
         return [
-            'conversion_rate' => $conversionRate,
-            'scheduled_fee_rate' => $scheduledFeeRate,
-            'instant_fee_rate' => $instantFeeRate,
+            'redemption_rate' => $redemptionRate,
             'unsettled_points' => $unsettledPoints,
-            'unsettled_amount_yen' => (int) floor($unsettledPoints * $conversionRate),
+            'unsettled_amount_yen' => (int) floor($unsettledPoints * $redemptionRate),
             'instant_available_points' => $availableInstantPoints,
-            'instant_available_amount_yen' => (int) floor($availableInstantPoints * $conversionRate),
+            'instant_available_amount_yen' => (int) floor($availableInstantPoints * $redemptionRate * 0.95), // 5% reduction for instant payouts
             'upcoming_payout' => $upcoming,
             'recent_history' => $history,
         ];
@@ -714,8 +708,9 @@ class CastPayoutService
             throw new \InvalidArgumentException("即時振込は最低{$minAmount}円から申請できます。");
         }
 
-        $conversionRate = $this->conversionRate();
-        $requiredPoints = (int) ceil($amountYen / max(0.0001, $conversionRate));
+        $redemptionRate = $this->getRedemptionRate($cast);
+        $effectiveRate = $redemptionRate * 0.95; // 5% reduction for instant payouts
+        $requiredPoints = (int) ceil($amountYen / max(0.0001, $effectiveRate));
 
         $availablePoints = $this->getInstantAvailablePoints($cast->id);
         $minPoints = (int) config('cast_payouts.instant_min_points', 1000);
@@ -756,6 +751,17 @@ class CastPayoutService
         $fallback = (float) config('points.yen_per_point', 1.2);
 
         return $configured > 0 ? $configured : $fallback;
+    }
+
+    /**
+     * Get FPT redemption rate for a cast based on their grade
+     * @param Cast $cast
+     * @return float Redemption rate (yen per fpt)
+     */
+    private function getRedemptionRate(Cast $cast): float
+    {
+        $gradeService = app(GradeService::class);
+        return $gradeService->getRedemptionRate($cast);
     }
 
     private function scheduledFeeRate(?string $grade): float

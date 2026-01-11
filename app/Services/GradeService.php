@@ -161,6 +161,28 @@ class GradeService
         'black' => 'ブラック',
     ];
 
+    // FPT redemption rates (yen per fpt) - 還元率
+    const CAST_FPT_REDEMPTION_RATES = [
+        'beginner' => 0.8,
+        'green' => 0.8,
+        'orange' => 0.8,
+        'bronze' => 0.825,
+        'silver' => 0.85,
+        'gold' => 0.875,
+        'platinum' => 0.9,
+    ];
+
+    // FPT reward rates (percentage form for display)
+    const CAST_REWARD_RATES = [
+        'beginner' => 80.0,
+        'green' => 80.0,
+        'orange' => 80.0,
+        'bronze' => 82.5,
+        'silver' => 85.0,
+        'gold' => 87.5,
+        'platinum' => 90.0,
+    ];
+
     // Cast grade benefits
     const CAST_GRADE_BENEFITS = [
         'beginner' => [
@@ -1119,6 +1141,17 @@ class GradeService
             'yen_amount' => $yenAmount,
             'formatted_yen' => '¥' . number_format($yenAmount, 2),
         ];
+    }
+
+    /**
+     * Get FPT redemption rate for a cast based on their grade
+     * @param Cast $cast
+     * @return float Redemption rate (yen per fpt)
+     */
+    public function getRedemptionRate(Cast $cast): float
+    {
+        $grade = $this->normalizeCastGrade($cast->grade ?? 'beginner');
+        return self::CAST_FPT_REDEMPTION_RATES[$grade] ?? 0.80;
     }
 
     /**

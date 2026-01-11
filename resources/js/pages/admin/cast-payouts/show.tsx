@@ -42,6 +42,7 @@ interface Payout {
     period_end: string;
     total_points: number;
     conversion_rate: number;
+    redemption_rate?: number;
     gross_amount_yen: number;
     fee_rate: number;
     fee_amount_yen: number;
@@ -403,23 +404,27 @@ export default function AdminCastPayoutShow({ payout }: Props) {
                         <CardContent className="space-y-4">
                             <div className="flex justify-between">
                                 <span className="text-muted-foreground">総ポイント</span>
-                                <span className="font-medium">{payout.total_points.toLocaleString()} pt</span>
+                                <span className="font-medium">{payout.total_points.toLocaleString()} fpt</span>
                             </div>
                             <div className="flex justify-between">
-                                <span className="text-muted-foreground">換算レート</span>
-                                <span>{payout.conversion_rate} 円/pt</span>
+                                <span className="text-muted-foreground">還元率</span>
+                                <span>{(payout.redemption_rate ?? payout.conversion_rate) * 100}% ({(payout.redemption_rate ?? payout.conversion_rate).toFixed(3)} 円/fpt)</span>
                             </div>
+                            {payout.fee_rate > 0 && (
+                                <>
+                                    <div className="flex justify-between">
+                                        <span className="text-muted-foreground">手数料率</span>
+                                        <span>{(payout.fee_rate * 100).toFixed(2)}%</span>
+                                    </div>
+                                    <div className="flex justify-between">
+                                        <span className="text-muted-foreground">手数料</span>
+                                        <span>{formatCurrency(payout.fee_amount_yen)}</span>
+                                    </div>
+                                </>
+                            )}
                             <div className="flex justify-between border-t pt-2">
                                 <span className="text-muted-foreground">総額（税込）</span>
                                 <span className="font-medium">{formatCurrency(payout.gross_amount_yen)}</span>
-                            </div>
-                            <div className="flex justify-between">
-                                <span className="text-muted-foreground">手数料率</span>
-                                <span>{(payout.fee_rate * 100).toFixed(2)}%</span>
-                            </div>
-                            <div className="flex justify-between">
-                                <span className="text-muted-foreground">手数料</span>
-                                <span>{formatCurrency(payout.fee_amount_yen)}</span>
                             </div>
                             <div className="flex justify-between border-t pt-2">
                                 <span className="font-semibold">振込額</span>
