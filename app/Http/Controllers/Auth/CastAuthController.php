@@ -409,9 +409,9 @@ class CastAuthController extends Controller
             'line_name' => 'nullable|string|max:255',
             'upload_session_id' => 'nullable|string',
             // Image fields - either files or URLs
-            'front_image' => 'nullable|file|image|max:2048',
-            'profile_image' => 'nullable|file|image|max:2048',
-            'full_body_image' => 'nullable|file|image|max:2048',
+            'front_image' => 'nullable|file|image|max:51200',
+            'profile_image' => 'nullable|file|image|max:51200',
+            'full_body_image' => 'nullable|file|image|max:51200',
             'front_image_url' => 'nullable|string|url',
             'profile_image_url' => 'nullable|string|url',
             'full_body_image_url' => 'nullable|string|url',
@@ -426,14 +426,14 @@ class CastAuthController extends Controller
             // Format errors for better frontend display
             $errors = $validator->errors();
             $errorMessages = [];
-            
+
             if ($errors->has('phone_number')) {
                 $errorMessages['phone_number'] = $errors->first('phone_number');
             }
             if ($errors->has('line_id')) {
                 $errorMessages['line_id'] = $errors->first('line_id');
             }
-            
+
             return response()->json([
                 'success' => false,
                 'message' => $errors->first(),
@@ -530,7 +530,7 @@ class CastAuthController extends Controller
             // Handle database constraint violations
             $errorCode = $e->getCode();
             $errorMessage = $e->getMessage();
-            
+
             Log::error('CastAuthController: Direct registration database error', [
                 'error' => $errorMessage,
                 'code' => $errorCode,
@@ -540,7 +540,7 @@ class CastAuthController extends Controller
             // Check for duplicate entry errors (SQLSTATE 23000 = Integrity constraint violation)
             if ($errorCode == 23000 || strpos($errorMessage, '23000') !== false || strpos($errorMessage, 'Duplicate entry') !== false) {
                 // Check for phone number duplicate - check various constraint name formats
-                if (stripos($errorMessage, 'casts_phone_unique') !== false || 
+                if (stripos($errorMessage, 'casts_phone_unique') !== false ||
                     stripos($errorMessage, 'casts.casts_phone_unique') !== false ||
                     (stripos($errorMessage, 'phone') !== false && stripos($errorMessage, 'Duplicate') !== false)) {
                     return response()->json([
@@ -551,9 +551,9 @@ class CastAuthController extends Controller
                         ]
                     ], 422);
                 }
-                
+
                 // Check for line_id duplicate - check various constraint name formats
-                if (stripos($errorMessage, 'casts_line_id_unique') !== false || 
+                if (stripos($errorMessage, 'casts_line_id_unique') !== false ||
                     stripos($errorMessage, 'casts.casts_line_id_unique') !== false ||
                     (stripos($errorMessage, 'line_id') !== false && stripos($errorMessage, 'Duplicate') !== false)) {
                     return response()->json([
@@ -592,35 +592,35 @@ class CastAuthController extends Controller
             // Extract the file path from the URL
             $parsedUrl = parse_url($imageUrl);
             $path = $parsedUrl['path'] ?? '';
-            
+
             // Remove '/storage/' prefix if present
             if (strpos($path, '/storage/') === 0) {
                 $path = substr($path, 9); // Remove '/storage/' (9 characters)
             }
-            
+
             // Check if the temporary file exists
             if (!Storage::disk('public')->exists($path)) {
                 Log::warning('Temporary image not found', ['path' => $path, 'url' => $imageUrl]);
                 return null;
             }
-            
+
             // Generate new permanent path
             $extension = pathinfo($path, PATHINFO_EXTENSION);
             $fileName = $type . '.' . $extension;
             $newPath = "{$castFolder}/{$fileName}";
-            
+
             // Copy the file to permanent storage
             Storage::disk('public')->copy($path, $newPath);
-            
+
             Log::info('Image copied to permanent storage', [
                 'from' => $path,
                 'to' => $newPath,
                 'type' => $type,
                 'cast_folder' => $castFolder
             ]);
-            
+
             return $newPath;
-            
+
         } catch (\Exception $e) {
             Log::error('Failed to copy temporary image to permanent storage', [
                 'error' => $e->getMessage(),

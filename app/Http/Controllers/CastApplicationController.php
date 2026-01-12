@@ -15,9 +15,9 @@ class CastApplicationController extends Controller
     public function uploadImages(Request $request)
     {
         $request->validate([
-            'front_image' => 'required|file|image|max:2048',
-            'profile_image' => 'required|file|image|max:2048',
-            'full_body_image' => 'required|file|image|max:2048',
+            'front_image' => 'required|file|image|max:51200',
+            'profile_image' => 'required|file|image|max:51200',
+            'full_body_image' => 'required|file|image|max:51200',
         ]);
 
         try {
@@ -66,7 +66,7 @@ class CastApplicationController extends Controller
     public function uploadSingleImage(Request $request)
     {
         $request->validate([
-            'image' => 'required|file|image|max:2048',
+            'image' => 'required|file|image|max:51200',
             'type' => 'required|in:front,profile,fullBody,full_body',
             'session_id' => 'nullable|string'
         ]);
@@ -182,9 +182,9 @@ class CastApplicationController extends Controller
             'line_name' => 'nullable|string|max:255',
             'upload_session_id' => 'nullable|string',
             // Image fields - either files or URLs
-            'front_image' => 'nullable|file|image|max:2048',
-            'profile_image' => 'nullable|file|image|max:2048',
-            'full_body_image' => 'nullable|file|image|max:2048',
+            'front_image' => 'nullable|file|image|max:51200',
+            'profile_image' => 'nullable|file|image|max:51200',
+            'full_body_image' => 'nullable|file|image|max:51200',
             'front_image_url' => 'nullable|string|url',
             'profile_image_url' => 'nullable|string|url',
             'full_body_image_url' => 'nullable|string|url',
@@ -283,35 +283,35 @@ class CastApplicationController extends Controller
             // Extract the file path from the URL
             $parsedUrl = parse_url($imageUrl);
             $path = $parsedUrl['path'] ?? '';
-            
+
             // Remove '/storage/' prefix if present
             if (strpos($path, '/storage/') === 0) {
                 $path = substr($path, 9); // Remove '/storage/' (9 characters)
             }
-            
+
             // Check if the temporary file exists
             if (!Storage::disk('public')->exists($path)) {
                 Log::warning('Temporary image not found', ['path' => $path, 'url' => $imageUrl]);
                 return null;
             }
-            
+
             // Generate new permanent path in organized folder
             $extension = pathinfo($path, PATHINFO_EXTENSION);
             $fileName = $type . '.' . $extension;
             $newPath = "{$applicationFolder}/{$fileName}";
-            
+
             // Copy the file to permanent storage
             Storage::disk('public')->copy($path, $newPath);
-            
+
             Log::info('Image copied to permanent storage', [
                 'from' => $path,
                 'to' => $newPath,
                 'type' => $type,
                 'application_folder' => $applicationFolder
             ]);
-            
+
             return $newPath;
-            
+
         } catch (\Exception $e) {
             Log::error('Failed to copy temporary image to permanent storage', [
                 'error' => $e->getMessage(),
