@@ -748,7 +748,7 @@ class LineAuthController extends Controller
             'age' => 'nullable|string',
             'shiatsu' => 'nullable|string',
             'interests' => 'nullable|array',
-            'profile_photo' => 'nullable|file|image|max:2048'
+            'profile_photo' => 'nullable|file|image|max:51200'
         ]);
 
         try {

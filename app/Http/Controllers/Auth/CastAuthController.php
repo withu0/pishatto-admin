@@ -830,7 +830,7 @@ class CastAuthController extends Controller
     public function uploadAvatar(Request $request)
     {
         $request->validate([
-            'avatar' => 'required|image|mimes:jpeg,png,jpg,gif,webp|max:20480',
+            'avatar' => 'required|image|mimes:jpeg,png,jpg,gif,webp|max:51200',
         ]);
         $file = $request->file('avatar');
         $path = $file->store('avatars', 'public');

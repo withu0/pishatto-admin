@@ -77,6 +77,21 @@ export default function CastEdit({ cast }: Props) {
         if (e.target.files && e.target.files.length > 0) {
             const files = Array.from(e.target.files);
 
+            // Validate file types and sizes
+            const maxSize = 50 * 1024 * 1024; // 50MB in bytes
+            for (const file of files) {
+                if (!file.type.startsWith('image/')) {
+                    alert('画像ファイルを選択してください');
+                    e.target.value = '';
+                    return;
+                }
+                if (file.size > maxSize) {
+                    alert('ファイルサイズは50MB以下にしてください');
+                    e.target.value = '';
+                    return;
+                }
+            }
+
             // Immediately upload files
             setIsUploading(true);
             const formData = new FormData();

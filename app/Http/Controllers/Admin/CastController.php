@@ -180,7 +180,7 @@ class CastController extends Controller
     public function uploadAvatar(Request $request)
     {
         $request->validate([
-            'avatars.*' => 'required|image|mimes:jpeg,png,jpg,gif,webp|max:20480',
+            'avatars.*' => 'required|image|mimes:jpeg,png,jpg,gif,webp|max:51200',
         ]);
 
         $uploadedPaths = [];

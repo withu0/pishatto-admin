@@ -87,7 +87,7 @@ export default function GuestEdit({ guest }: Props) {
 
     const [interestsInput, setInterestsInput] = useState(() => {
         if (!guest.interests || guest.interests.length === 0) return '';
-        
+
         return guest.interests.map(interest => {
             if (typeof interest === 'string') {
                 return interest;
@@ -141,7 +141,7 @@ export default function GuestEdit({ guest }: Props) {
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         setIsSubmitting(true);
-        
+
         // Ensure all required fields are properly formatted
         const submitData = {
             ...formData,
@@ -151,9 +151,9 @@ export default function GuestEdit({ guest }: Props) {
             birth_year: formData.birth_year ? parseInt(formData.birth_year) : null,
             height: formData.height ? parseInt(formData.height) : null,
         };
-        
 
-        
+
+
         try {
             await router.put(`/admin/guests/${guest.id}`, submitData, {
                 onSuccess: () => {
@@ -199,7 +199,24 @@ export default function GuestEdit({ guest }: Props) {
 
     const handleAvatarFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         if (e.target.files && e.target.files[0]) {
-            setSelectedAvatarFile(e.target.files[0]);
+            const file = e.target.files[0];
+
+            // Validate file type
+            if (!file.type.startsWith('image/')) {
+                toast.error('画像ファイルを選択してください');
+                e.target.value = '';
+                return;
+            }
+
+            // Validate file size (max 50MB)
+            const maxSize = 50 * 1024 * 1024; // 50MB in bytes
+            if (file.size > maxSize) {
+                toast.error('ファイルサイズは50MB以下にしてください');
+                e.target.value = '';
+                return;
+            }
+
+            setSelectedAvatarFile(file);
         }
     };
 
@@ -216,7 +233,7 @@ export default function GuestEdit({ guest }: Props) {
         try {
             const form = new FormData();
             form.append('avatar', selectedAvatarFile);
-            
+
             // Use phone if available, otherwise use line_id
             if (formData.phone) {
                 form.append('phone', formData.phone);
@@ -259,7 +276,7 @@ export default function GuestEdit({ guest }: Props) {
                 method: 'DELETE',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(
-                    formData.phone 
+                    formData.phone
                         ? { phone: formData.phone }
                         : { line_id: formData.line_id }
                 )
@@ -617,9 +634,9 @@ export default function GuestEdit({ guest }: Props) {
 
                                     <div className="space-y-2">
                                         <Label htmlFor="grade">グレード</Label>
-                                        <Select 
-                                            value={formData.grade} 
-                                            onValueChange={(value) => handleChange('grade', value)} 
+                                        <Select
+                                            value={formData.grade}
+                                            onValueChange={(value) => handleChange('grade', value)}
                                             disabled={isSubmitting}
                                         >
                                             <SelectTrigger>

@@ -55,7 +55,7 @@ class GuestAuthController extends Controller
             'verification_code' => 'required|string',
             'nickname' => 'required|string|max:50',
             'location' => 'required|string|max:50',
-            'profile_photo' => 'nullable|image|mimes:jpeg,png,jpg,gif|max:20480',
+            'profile_photo' => 'nullable|image|mimes:jpeg,png,jpg,gif|max:51200',
             'interests' => 'nullable|string',
             'age' => 'nullable|string',
             'shiatsu' => 'nullable|string',
@@ -244,7 +244,7 @@ class GuestAuthController extends Controller
             'line_id' => 'nullable|string',
             'nickname' => 'nullable|string|max:50',
             'location' => 'nullable|string|max:50',
-            'profile_photo' => 'nullable|image|mimes:jpeg,png,jpg,gif|max:20480',
+            'profile_photo' => 'nullable|image|mimes:jpeg,png,jpg,gif|max:51200',
             'birth_year' => 'nullable|integer|min:1900|max:' . (date('Y') - 18),
             'height' => 'nullable|integer|min:100|max:250',
             'residence' => 'nullable|string|max:100',
@@ -1708,7 +1708,7 @@ class GuestAuthController extends Controller
     public function uploadAvatar(Request $request)
     {
         $request->validate([
-            'avatar' => 'required|image|mimes:jpeg,png,jpg,gif,webp|max:20480',
+            'avatar' => 'required|image|mimes:jpeg,png,jpg,gif,webp|max:51200',
             'phone' => 'nullable|string',
             'line_id' => 'nullable|string',
         ]);
