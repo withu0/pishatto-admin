@@ -31,6 +31,9 @@ class Reservation extends Model
         'meeting_location',
         'reservation_name',
         'points',
+        'cancelled_at',
+        'scheduled_refund_at',
+        'cancellation_reason',
     ];
 
     protected $casts = [
@@ -38,6 +41,8 @@ class Reservation extends Model
         'created_at' => 'datetime',
         'started_at' => 'datetime',
         'ended_at' => 'datetime',
+        'cancelled_at' => 'datetime',
+        'scheduled_refund_at' => 'datetime',
         'cast_ids' => 'array',
         'duration' => 'decimal:4', // Cast duration as decimal with 4 decimal places
     ];

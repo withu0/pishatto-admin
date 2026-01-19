@@ -1083,6 +1083,25 @@ class PointTransactionService
     }
 
     /**
+     * Calculate the next business day (skipping weekends)
+     * Similar to CastPayoutService::calculateScheduledPayoutDate logic
+     * 
+     * @param \Carbon\Carbon $date
+     * @return \Carbon\Carbon
+     */
+    public function calculateNextBusinessDay(\Carbon\Carbon $date): \Carbon\Carbon
+    {
+        $nextDay = $date->copy()->addDay();
+        
+        // Skip weekends (Saturday = 6, Sunday = 0)
+        while ($nextDay->isWeekend()) {
+            $nextDay->addDay();
+        }
+        
+        return $nextDay;
+    }
+
+    /**
      * Get point transaction history for a user
      */
     public function getTransactionHistory($userId, $userType, $limit = 50)
