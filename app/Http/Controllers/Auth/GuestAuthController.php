@@ -1167,6 +1167,57 @@ class GuestAuthController extends Controller
         return response()->json(['guests' => $result]);
     }
 
+    public function getAllGuests(Request $request)
+    {
+        $query = Guest::query();
+        
+        // Apply filters if provided
+        if ($request->has('residence') && $request->residence !== '全国') {
+            $query->where('residence', 'like', "%{$request->residence}%");
+        }
+        
+        if ($request->has('min_age') && $request->has('max_age')) {
+            $currentYear = date('Y');
+            $maxBirthYear = $currentYear - $request->min_age;
+            $minBirthYear = $currentYear - $request->max_age;
+            $query->whereBetween('birth_year', [$minBirthYear, $maxBirthYear]);
+        }
+        
+        if ($request->has('height_min') && $request->height_min) {
+            $query->where('height', '>=', $request->height_min);
+        }
+        
+        if ($request->has('height_max') && $request->height_max) {
+            $query->where('height', '<=', $request->height_max);
+        }
+        
+        if ($request->has('education') && $request->education) {
+            $query->where('education', 'like', "%{$request->education}%");
+        }
+        
+        if ($request->has('annual_income') && $request->annual_income) {
+            $query->where('annual_income', $request->annual_income);
+        }
+        
+        if ($request->has('occupation') && $request->occupation) {
+            $query->where('occupation', 'like', "%{$request->occupation}%");
+        }
+        
+        if ($request->has('alcohol') && $request->alcohol) {
+            $query->where('alcohol', $request->alcohol);
+        }
+        
+        if ($request->has('tobacco') && $request->tobacco) {
+            $query->where('tobacco', $request->tobacco);
+        }
+        
+        $guests = $query->get(['id', 'nickname', 'avatar', 'birth_year', 'residence', 
+                               'height', 'education', 'annual_income', 'occupation', 
+                               'alcohol', 'tobacco']);
+        
+        return response()->json(['guests' => $guests]);
+    }
+
     public function getProfileById($id)
     {
         $guest = Guest::find($id);

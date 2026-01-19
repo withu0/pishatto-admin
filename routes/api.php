@@ -88,6 +88,7 @@ Route::post('/reservations/{id}/refund', [GuestAuthController::class, 'refundUnu
 Route::post('/sessions/complete', [GuestAuthController::class, 'completeSession']);
 Route::get('/reservations/{id}/point-breakdown', [GuestAuthController::class, 'getPointBreakdown']);
 Route::get('/guests/repeat', [GuestAuthController::class, 'repeatGuests']);
+Route::get('/guests/all', [GuestAuthController::class, 'getAllGuests']);
 Route::get('/guest/profile/id/{id}', [GuestAuthController::class, 'getProfileById']);
 Route::post('/guests/deduct-points', [GuestAuthController::class, 'deductPoints']);
 Route::get('/casts', [CastAuthController::class, 'list']);
