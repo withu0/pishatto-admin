@@ -1211,7 +1211,9 @@ class GuestAuthController extends Controller
             $query->where('tobacco', $request->tobacco);
         }
         
-        $guests = $query->get(['id', 'nickname', 'avatar', 'birth_year', 'residence', 
+        // Order by created_at DESC to show newest guests first
+        $guests = $query->orderBy('created_at', 'desc')
+                        ->get(['id', 'nickname', 'avatar', 'birth_year', 'residence', 
                                'height', 'education', 'annual_income', 'occupation', 
                                'alcohol', 'tobacco']);
         
