@@ -115,11 +115,23 @@ class Guest extends Authenticatable
     }
 
     /**
+     * Check if a path is already a full URL
+     */
+    private function isFullUrl($path)
+    {
+        return !empty($path) && (str_starts_with($path, 'http://') || str_starts_with($path, 'https://'));
+    }
+
+    /**
      * Get the avatar URL with storage path
      */
     public function getAvatarUrlAttribute()
     {
         if ($this->avatar) {
+            // If it's already a full URL, return as-is
+            if ($this->isFullUrl($this->avatar)) {
+                return $this->avatar;
+            }
             return '/storage/' . $this->avatar;
         }
         return null;
@@ -135,6 +147,10 @@ class Guest extends Authenticatable
             $firstAvatar = trim($avatars[0]);
             // Only return URL if we have a non-empty avatar path
             if (!empty($firstAvatar)) {
+                // If it's already a full URL, return as-is
+                if ($this->isFullUrl($firstAvatar)) {
+                    return $firstAvatar;
+                }
                 return '/storage/' . $firstAvatar;
             }
         }
@@ -153,7 +169,12 @@ class Guest extends Authenticatable
                 $trimmed = trim($path);
                 // Only include non-empty paths
                 if (!empty($trimmed)) {
-                    $urls[] = '/storage/' . $trimmed;
+                    // If it's already a full URL, use as-is, otherwise prepend /storage/
+                    if ($this->isFullUrl($trimmed)) {
+                        $urls[] = $trimmed;
+                    } else {
+                        $urls[] = '/storage/' . $trimmed;
+                    }
                 }
             }
             return $urls;
