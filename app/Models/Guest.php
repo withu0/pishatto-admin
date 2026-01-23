@@ -132,7 +132,11 @@ class Guest extends Authenticatable
     {
         if ($this->avatar) {
             $avatars = explode(',', $this->avatar);
-            return '/storage/' . trim($avatars[0]);
+            $firstAvatar = trim($avatars[0]);
+            // Only return URL if we have a non-empty avatar path
+            if (!empty($firstAvatar)) {
+                return '/storage/' . $firstAvatar;
+            }
         }
         return null;
     }
@@ -144,9 +148,15 @@ class Guest extends Authenticatable
     {
         if ($this->avatar) {
             $avatars = explode(',', $this->avatar);
-            return array_map(function($path) {
-                return '/storage/' . trim($path);
-            }, $avatars);
+            $urls = [];
+            foreach ($avatars as $path) {
+                $trimmed = trim($path);
+                // Only include non-empty paths
+                if (!empty($trimmed)) {
+                    $urls[] = '/storage/' . $trimmed;
+                }
+            }
+            return $urls;
         }
         return [];
     }

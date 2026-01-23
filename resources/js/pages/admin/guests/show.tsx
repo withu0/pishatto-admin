@@ -17,6 +17,8 @@ interface Guest {
     shiatsu?: string;
     location?: string;
     avatar?: string;
+    avatar_url?: string;
+    avatar_urls?: string[];
     birth_year?: number;
     height?: number;
     residence?: string;
@@ -203,7 +205,7 @@ export default function GuestShow({ guest }: Props) {
                             <CardHeader>
                                 <CardTitle className="flex items-center gap-4">
                                     <Avatar className="w-16 h-16">
-                                        <AvatarImage src={guest.avatar ? `/storage/${guest.avatar}` : undefined} />
+                                        <AvatarImage src={guest.avatar_url || guest.avatar_urls?.[0]} />
                                         <AvatarFallback className="text-lg">{getDisplayName(guest)[0]}</AvatarFallback>
                                     </Avatar>
                                     <div>

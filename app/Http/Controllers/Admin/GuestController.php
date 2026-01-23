@@ -103,6 +103,10 @@ class GuestController extends Controller
         // Load relationships - only load relationships that actually exist
         $guest->load(['reservations', 'sentGifts.gift', 'favorites', 'pointTransactions', 'feedback']);
 
+        // Add avatar_url to guest
+        $guest->avatar_url = $guest->first_avatar_url;
+        $guest->avatar_urls = $guest->avatar_urls;
+
         return Inertia::render('admin/guests/show', [
             'guest' => $guest
         ]);
@@ -113,6 +117,10 @@ class GuestController extends Controller
      */
     public function edit(Guest $guest): Response
     {
+        // Add avatar_url to guest
+        $guest->avatar_url = $guest->first_avatar_url;
+        $guest->avatar_urls = $guest->avatar_urls;
+
         return Inertia::render('admin/guests/edit', [
             'guest' => $guest
         ]);

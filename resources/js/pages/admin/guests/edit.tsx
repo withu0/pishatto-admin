@@ -21,6 +21,8 @@ interface Guest {
     shiatsu?: string;
     location?: string;
     avatar?: string;
+    avatar_url?: string;
+    avatar_urls?: string[];
     birth_year?: number;
     height?: number;
     residence?: string;
@@ -100,6 +102,7 @@ export default function GuestEdit({ guest }: Props) {
     });
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [currentAvatar, setCurrentAvatar] = useState<string>(guest.avatar || '');
+    const [currentAvatarUrl, setCurrentAvatarUrl] = useState<string>(guest.avatar_url || guest.avatar_urls?.[0] || '');
     const [selectedAvatarFile, setSelectedAvatarFile] = useState<File | null>(null);
     const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
     const [isDeletingAvatar, setIsDeletingAvatar] = useState(false);
@@ -252,6 +255,14 @@ export default function GuestEdit({ guest }: Props) {
             }
             const data = await res.json();
             setCurrentAvatar(data.avatar || '');
+            // Update avatar URL if provided, otherwise construct from avatar path
+            if (data.avatar_url) {
+                setCurrentAvatarUrl(data.avatar_url);
+            } else if (data.avatar) {
+                // Construct URL from avatar path (handle comma-separated)
+                const firstAvatar = data.avatar.split(',')[0].trim();
+                setCurrentAvatarUrl(`/storage/${firstAvatar}`);
+            }
             setSelectedAvatarFile(null);
             toast.success('アバターを更新しました');
         } catch {
@@ -286,6 +297,7 @@ export default function GuestEdit({ guest }: Props) {
                 throw new Error(err.message || '削除に失敗しました');
             }
             setCurrentAvatar('');
+            setCurrentAvatarUrl('');
             setSelectedAvatarFile(null);
             toast.success('アバターを削除しました');
         } catch {
@@ -363,9 +375,9 @@ export default function GuestEdit({ guest }: Props) {
                                                         alt="avatar preview"
                                                         className="w-full h-full object-cover"
                                                     />
-                                                ) : currentAvatar ? (
+                                                ) : currentAvatarUrl ? (
                                                     <img
-                                                        src={`/storage/${currentAvatar}`}
+                                                        src={currentAvatarUrl}
                                                         alt="avatar"
                                                         className="w-full h-full object-cover"
                                                         onError={(e) => {

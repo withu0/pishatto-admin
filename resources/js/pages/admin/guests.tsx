@@ -256,7 +256,9 @@ export default function AdminGuests({ guests, filters }: Props) {
                                                 <td className="px-3 py-2">{guests.from + idx}</td>
                                                 <td className="px-3 py-2 flex items-center gap-2">
                                                     <Avatar>
-                                                        <AvatarImage src={guest.avatar_url || guest.avatar_urls?.[0]} />
+                                                        <AvatarImage 
+                                                            src={guest.avatar_url || guest.avatar_urls?.[0] || undefined}
+                                                        />
                                                         <AvatarFallback>{getDisplayName(guest)[0]}</AvatarFallback>
                                                     </Avatar>
                                                     {getDisplayName(guest)}
