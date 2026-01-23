@@ -1101,14 +1101,28 @@ class GuestAuthController extends Controller
             return response()->json(['message' => 'Reservation not found'], 404);
         }
 
+        // Calculate status based on reservation state
+        $status = 'pending';
+        if ($reservation->cancelled_at) {
+            $status = 'cancelled';
+        } elseif ($reservation->ended_at) {
+            $status = 'completed';
+        } elseif ($reservation->started_at) {
+            $status = 'active';
+        } elseif ($reservation->active) {
+            $status = 'confirmed';
+        }
+
         // Format the response for the details modal
         $details = [
             'id' => $reservation->id,
             'type' => $reservation->type,
-            'status' => $reservation->status,
+            'status' => $status,
             'scheduled_at' => $reservation->scheduled_at,
             'started_at' => $reservation->started_at,
             'ended_at' => $reservation->ended_at,
+            'cancelled_at' => $reservation->cancelled_at,
+            'cancellation_reason' => $reservation->cancellation_reason,
             'duration' => $reservation->duration,
             'points_earned' => $reservation->points_earned,
             'location' => $reservation->location,
