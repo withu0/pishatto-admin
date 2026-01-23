@@ -54,6 +54,9 @@ interface Chat {
         location?: string;
         duration?: number;
         details?: string;
+        cancelled_at?: string;
+        cancellation_reason?: string;
+        active?: boolean;
     };
     created_at: string;
     message_count: number;
@@ -330,20 +333,27 @@ export default function AdminMatchingManage({ chats: initialChats }: Props) {
                                                 </td>
                                                 <td className="px-3 py-2">
                                                     {item.reservation ? (
-                                                        <div className="flex items-center gap-1">
-                                                            {(item.reservation as any).type === 'free' ? (
-                                                                <Badge variant="secondary" className="text-xs">
-                                                                    <span className="mr-1">🆓</span>
-                                                                    フリーコール
-                                                                </Badge>
-                                                            ) : (item.reservation as any).type === 'Pishatto' ? (
-                                                                <Badge variant="default" className="text-xs">
-                                                                    <span className="mr-1">💎</span>
-                                                                    ピシャットコール
-                                                                </Badge>
-                                                            ) : (
-                                                                <Badge variant="outline" className="text-xs">
-                                                                    {(item.reservation as any).type || '通常'}
+                                                        <div className="flex flex-col gap-1">
+                                                            <div className="flex items-center gap-1">
+                                                                {(item.reservation as any).type === 'free' ? (
+                                                                    <Badge variant="secondary" className="text-xs">
+                                                                        <span className="mr-1">🆓</span>
+                                                                        フリーコール
+                                                                    </Badge>
+                                                                ) : (item.reservation as any).type === 'Pishatto' ? (
+                                                                    <Badge variant="default" className="text-xs">
+                                                                        <span className="mr-1">💎</span>
+                                                                        ピシャットコール
+                                                                    </Badge>
+                                                                ) : (
+                                                                    <Badge variant="outline" className="text-xs">
+                                                                        {(item.reservation as any).type || '通常'}
+                                                                    </Badge>
+                                                                )}
+                                                            </div>
+                                                            {item.reservation.cancelled_at && (
+                                                                <Badge variant="destructive" className="text-xs w-fit">
+                                                                    ❌ キャンセル
                                                                 </Badge>
                                                             )}
                                                         </div>
@@ -353,10 +363,22 @@ export default function AdminMatchingManage({ chats: initialChats }: Props) {
                                                 </td>
                                                 <td className="px-3 py-2">
                                                     {item.reservation ? (
-                                                        <div className="text-xs">
+                                                        <div className="text-xs space-y-1">
                                                             <div>{formatDate(item.reservation.scheduled_at)}</div>
                                                             <div className="text-gray-500">{item.reservation.location}</div>
                                                             <div className="text-gray-500">{item.reservation.duration}時間</div>
+                                                            {item.reservation.cancelled_at && (
+                                                                <div className="mt-1">
+                                                                    <Badge variant="destructive" className="text-xs">
+                                                                        ❌ キャンセル済み
+                                                                    </Badge>
+                                                                    {item.reservation.cancellation_reason && (
+                                                                        <div className="text-red-600 text-xs mt-1">
+                                                                            {item.reservation.cancellation_reason}
+                                                                        </div>
+                                                                    )}
+                                                                </div>
+                                                            )}
                                                         </div>
                                                     ) : (
                                                         <Badge variant="outline">予約なし</Badge>
