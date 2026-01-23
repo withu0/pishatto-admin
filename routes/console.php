@@ -33,11 +33,11 @@ Schedule::command('rankings:monthly-earned')
     ->onOneServer();
 
 // Auto-exit over budget reservations every minute
-Schedule::command('reservations:auto-exit')
-    ->everyMinute()
-    ->timezone('Asia/Tokyo')
-    ->withoutOverlapping(2) // Allow 2 minutes overlap protection
-    ->runInBackground(); // Run in background to avoid blocking
+// Schedule::command('reservations:auto-exit')
+//     ->everyMinute()
+//     ->timezone('Asia/Tokyo')
+//     ->withoutOverlapping(2) // Allow 2 minutes overlap protection
+//     ->runInBackground(); // Run in background to avoid blocking
 
 // Auto-cancel reservations where cast didn't start timer (every 15 minutes)
 Schedule::command('reservations:auto-cancel-no-start')
