@@ -7,6 +7,9 @@ use Illuminate\Support\Facades\DB;
 use App\Models\Reservation;
 use App\Models\ReservationApplication;
 use App\Models\CastSession;
+use App\Models\Chat;
+use App\Models\Message;
+use App\Models\Notification;
 use Carbon\Carbon;
 
 class AutoCancelNoStartReservations extends Command
@@ -122,6 +125,9 @@ class AutoCancelNoStartReservations extends Command
                         'reason' => $reason,
                     ]);
 
+                    // Send cancellation messages and notifications
+                    $this->sendCancellationNotifications($reservation, $reason);
+
                     // Broadcast the reservation update event
                     event(new \App\Events\ReservationUpdated($reservation));
                 } else {
@@ -159,5 +165,172 @@ class AutoCancelNoStartReservations extends Command
         }
         
         return $nextDay;
+    }
+
+    /**
+     * Send cancellation messages to chat and notifications to users
+     * 
+     * @param Reservation $reservation
+     * @param string $reason
+     * @return void
+     */
+    private function sendCancellationNotifications(Reservation $reservation, string $reason): void
+    {
+        try {
+            // Format scheduled time for messages
+            $scheduledTime = $reservation->scheduled_at 
+                ? Carbon::parse($reservation->scheduled_at)->setTimezone('Asia/Tokyo')->format('Y年m月d日 H:i')
+                : '未設定';
+
+            // Create cancellation message
+            $cancellationMessage = "【予約キャンセル】\n\n予約がキャンセルされました。\n\n📅 予定時間: {$scheduledTime}\n❌ キャンセル理由: {$reason}\n\nポイントは次営業日の23:59に自動返金されます。";
+
+            // Find all chats for this reservation
+            $chats = Chat::where('reservation_id', $reservation->id)->get();
+
+            if ($chats->isEmpty()) {
+                \Log::warning('No chats found for cancelled reservation', [
+                    'reservation_id' => $reservation->id
+                ]);
+            } else {
+                // For group chats (free reservations), send one message per group
+                // For individual chats (Pishatto), send one message per chat
+                $processedGroups = [];
+
+                foreach ($chats as $chat) {
+                    try {
+                        // Skip if we've already sent a message to this group
+                        if ($chat->group_id && isset($processedGroups[$chat->group_id])) {
+                            continue;
+                        }
+
+                        $message = Message::create([
+                            'chat_id' => $chat->id,
+                            'message' => $cancellationMessage,
+                            'recipient_type' => 'both',
+                            'is_read' => false,
+                            'created_at' => now(),
+                        ]);
+
+                        // Load relationships for broadcasting
+                        $message->load(['guest', 'cast', 'gift']);
+
+                        // Broadcast message based on chat type
+                        if ($chat->group_id) {
+                            // Group chat (free reservation) - send once per group
+                            event(new \App\Events\GroupMessageSent($message, $chat->group_id));
+                            $processedGroups[$chat->group_id] = true;
+                        } else {
+                            // Individual chat (Pishatto reservation)
+                            event(new \App\Events\MessageSent($message));
+                        }
+
+                        \Log::info('Cancellation message sent to chat', [
+                            'reservation_id' => $reservation->id,
+                            'chat_id' => $chat->id,
+                            'group_id' => $chat->group_id,
+                            'message_id' => $message->id
+                        ]);
+                    } catch (\Throwable $e) {
+                        \Log::error('Failed to send cancellation message to chat', [
+                            'reservation_id' => $reservation->id,
+                            'chat_id' => $chat->id,
+                            'error' => $e->getMessage()
+                        ]);
+                    }
+                }
+            }
+
+            // Send notification to guest
+            if ($reservation->guest_id) {
+                try {
+                    $guestNotification = Notification::create([
+                        'user_id' => $reservation->guest_id,
+                        'user_type' => 'guest',
+                        'type' => 'reservation_cancelled',
+                        'reservation_id' => $reservation->id,
+                        'message' => "予約がキャンセルされました。\n\n📅 予定時間: {$scheduledTime}\n❌ 理由: {$reason}",
+                        'read' => false,
+                    ]);
+
+                    event(new \App\Events\NotificationSent($guestNotification));
+
+                    \Log::info('Cancellation notification sent to guest', [
+                        'reservation_id' => $reservation->id,
+                        'guest_id' => $reservation->guest_id,
+                        'notification_id' => $guestNotification->id
+                    ]);
+                } catch (\Throwable $e) {
+                    \Log::error('Failed to send cancellation notification to guest', [
+                        'reservation_id' => $reservation->id,
+                        'guest_id' => $reservation->guest_id,
+                        'error' => $e->getMessage()
+                    ]);
+                }
+            }
+
+            // Send notifications to all casts involved
+            $castIds = [];
+
+            // For Pishatto: get cast_id from reservation
+            if ($reservation->type === 'Pishatto' && $reservation->cast_id) {
+                $castIds[] = $reservation->cast_id;
+            }
+
+            // For free: get all approved casts
+            if ($reservation->type === 'free') {
+                $approvedCasts = ReservationApplication::where('reservation_id', $reservation->id)
+                    ->where('status', 'approved')
+                    ->pluck('cast_id')
+                    ->toArray();
+                $castIds = array_merge($castIds, $approvedCasts);
+            }
+
+            // Also get cast_ids from chats
+            foreach ($chats as $chat) {
+                if ($chat->cast_id && !in_array($chat->cast_id, $castIds)) {
+                    $castIds[] = $chat->cast_id;
+                }
+            }
+
+            // Remove duplicates
+            $castIds = array_unique($castIds);
+
+            // Send notification to each cast
+            foreach ($castIds as $castId) {
+                try {
+                    $castNotification = Notification::create([
+                        'user_id' => $castId,
+                        'user_type' => 'cast',
+                        'type' => 'reservation_cancelled',
+                        'reservation_id' => $reservation->id,
+                        'cast_id' => $castId,
+                        'message' => "予約がキャンセルされました。\n\n📅 予定時間: {$scheduledTime}\n❌ 理由: {$reason}",
+                        'read' => false,
+                    ]);
+
+                    event(new \App\Events\NotificationSent($castNotification));
+
+                    \Log::info('Cancellation notification sent to cast', [
+                        'reservation_id' => $reservation->id,
+                        'cast_id' => $castId,
+                        'notification_id' => $castNotification->id
+                    ]);
+                } catch (\Throwable $e) {
+                    \Log::error('Failed to send cancellation notification to cast', [
+                        'reservation_id' => $reservation->id,
+                        'cast_id' => $castId,
+                        'error' => $e->getMessage()
+                    ]);
+                }
+            }
+
+        } catch (\Throwable $e) {
+            \Log::error('Failed to send cancellation notifications', [
+                'reservation_id' => $reservation->id,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+        }
     }
 }
