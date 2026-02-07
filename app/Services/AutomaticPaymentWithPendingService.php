@@ -6,6 +6,7 @@ use App\Models\Guest;
 use App\Models\Payment;
 use App\Models\PointTransaction;
 use App\Models\Notification;
+use App\Models\Reservation;
 use App\Services\StripeService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -291,6 +292,33 @@ class AutomaticPaymentWithPendingService
     {
         try {
             DB::beginTransaction();
+
+            // If linked reservation was cancelled, do not capture; cancel Stripe and mark payment refunded
+            if ($payment->reservation_id) {
+                $reservation = Reservation::find($payment->reservation_id);
+                if ($reservation && ($reservation->cancelled_at || !$reservation->active)) {
+                    $cancelResult = $this->stripeService->cancelPaymentIntent($payment->stripe_payment_intent_id);
+                    $payment->update([
+                        'status' => 'refunded',
+                        'refunded_at' => now(),
+                        'metadata' => array_merge($payment->metadata ?? [], [
+                            'cancelled_at' => now()->toISOString(),
+                            'cancellation_reason' => 'Reservation already cancelled - skip capture',
+                        ]),
+                    ]);
+                    DB::commit();
+                    Log::info('Skipped capture for cancelled reservation', [
+                        'payment_id' => $payment->id,
+                        'reservation_id' => $payment->reservation_id,
+                        'stripe_cancelled' => $cancelResult['success'] ?? false,
+                    ]);
+                    return [
+                        'success' => true,
+                        'payment_id' => $payment->id,
+                        'skipped_capture' => true,
+                    ];
+                }
+            }
 
             // Capture the payment intent
             $captureResult = $this->stripeService->capturePaymentIntent($payment->stripe_payment_intent_id);

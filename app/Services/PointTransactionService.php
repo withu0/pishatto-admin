@@ -7,7 +7,9 @@ use App\Models\Cast;
 use App\Models\Reservation;
 use App\Models\CastSession;
 use App\Models\PointTransaction;
+use App\Models\Payment;
 use App\Services\GradeService;
+use App\Services\StripeService;
 use App\Events\GroupMessageSent;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -1074,6 +1076,99 @@ class PointTransactionService
         } catch (\Throwable $e) {
             DB::rollBack();
             Log::error('refundUnusedPoints failed', [
+                'reservation_id' => $reservation->id ?? null,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
+            return false;
+        }
+    }
+
+    /**
+     * Handle cancellation when reservation was (partially or fully) card-funded: refund guest-funded
+     * portion only and cancel Stripe PaymentIntent(s) + Payment record(s).
+     */
+    public function handleCancellationForCardFundedReservation(Reservation $reservation): bool
+    {
+        try {
+            DB::beginTransaction();
+
+            $guest = Guest::find($reservation->guest_id);
+            if (!$guest) {
+                DB::rollBack();
+                return false;
+            }
+
+            $pendingPayments = Payment::where('reservation_id', $reservation->id)
+                ->where('status', 'pending')
+                ->whereNotNull('stripe_payment_intent_id')
+                ->get();
+
+            if ($pendingPayments->isEmpty()) {
+                DB::rollBack();
+                return false;
+            }
+
+            // Total reserved = reservation cost (pending tx without payment_id, created by createPendingTransaction)
+            $totalReserved = (int) PointTransaction::where('reservation_id', $reservation->id)
+                ->where('type', 'pending')
+                ->whereNull('payment_id')
+                ->sum('amount');
+
+            // Card-funded points = sum of pending point tx linked to a payment (exact, matches creation)
+            $cardFundedPoints = (int) PointTransaction::where('reservation_id', $reservation->id)
+                ->where('type', 'pending')
+                ->whereNotNull('payment_id')
+                ->whereIn('payment_id', $pendingPayments->pluck('id'))
+                ->sum('amount');
+
+            $guestFundedPoints = max(0, $totalReserved - $cardFundedPoints);
+
+            if ($guestFundedPoints > 0) {
+                $this->createRefundTransaction([
+                    'guest_id' => $guest->id,
+                    'reservation_id' => $reservation->id,
+                    'amount' => $guestFundedPoints,
+                    'description' => "キャンセル予約 - 未使用ポイント返金（ゲスト分） - 予約{$reservation->id}",
+                ]);
+                $guest->grade_points = max(0, (int) $guest->grade_points - $guestFundedPoints);
+                $guest->save();
+            }
+
+            $stripeService = app(StripeService::class);
+            foreach ($pendingPayments as $payment) {
+                $cancelResult = $stripeService->cancelPaymentIntent($payment->stripe_payment_intent_id);
+                if ($cancelResult['success']) {
+                    $payment->update([
+                        'status' => 'refunded',
+                        'refunded_at' => now(),
+                        'metadata' => array_merge($payment->metadata ?? [], [
+                            'cancelled_at' => now()->toISOString(),
+                            'cancellation_reason' => 'Reservation cancelled',
+                        ]),
+                    ]);
+                } else {
+                    Log::warning('Stripe cancel failed for payment on reservation cancel', [
+                        'payment_id' => $payment->id,
+                        'reservation_id' => $reservation->id,
+                        'error' => $cancelResult['error'] ?? null,
+                    ]);
+                    $payment->update([
+                        'status' => 'refunded',
+                        'refunded_at' => now(),
+                        'metadata' => array_merge($payment->metadata ?? [], [
+                            'cancelled_at' => now()->toISOString(),
+                            'cancellation_reason' => 'Reservation cancelled (Stripe cancel failed: ' . ($cancelResult['error'] ?? '') . ')',
+                        ]),
+                    ]);
+                }
+            }
+
+            DB::commit();
+            return true;
+        } catch (\Throwable $e) {
+            DB::rollBack();
+            Log::error('handleCancellationForCardFundedReservation failed', [
                 'reservation_id' => $reservation->id ?? null,
                 'error' => $e->getMessage(),
                 'trace' => $e->getTraceAsString(),

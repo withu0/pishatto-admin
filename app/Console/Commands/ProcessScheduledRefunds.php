@@ -5,6 +5,7 @@ namespace App\Console\Commands;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
 use App\Models\Reservation;
+use App\Models\Payment;
 use App\Services\PointTransactionService;
 
 class ProcessScheduledRefunds extends Command
@@ -61,8 +62,17 @@ class ProcessScheduledRefunds extends Command
                     continue;
                 }
 
-                // Process refund using existing service method
-                $success = $pointService->refundUnusedPoints($reservation);
+                // If reservation has pending card payment, handle card-funded cancellation; else refund all unused points
+                $hasPendingPayment = Payment::where('reservation_id', $reservation->id)
+                    ->where('status', 'pending')
+                    ->whereNotNull('stripe_payment_intent_id')
+                    ->exists();
+
+                if ($hasPendingPayment) {
+                    $success = $pointService->handleCancellationForCardFundedReservation($reservation);
+                } else {
+                    $success = $pointService->refundUnusedPoints($reservation);
+                }
 
                 if ($success) {
                     // Clear scheduled_refund_at to mark as processed

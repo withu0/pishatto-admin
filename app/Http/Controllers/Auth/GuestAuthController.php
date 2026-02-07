@@ -408,11 +408,12 @@ class GuestAuthController extends Controller
 
             // Check if guest has sufficient points
             if ($guest->points < $requiredPoints) {
-                // Try automatic payment with pending transaction
+                // Charge card only for the shortfall (partial points: refund guest part on cancel; full card: no refund)
+                $shortfallPoints = $requiredPoints - (int) $guest->points;
                 $automaticPaymentService = app(\App\Services\AutomaticPaymentWithPendingService::class);
                 $paymentResult = $automaticPaymentService->processAutomaticPaymentWithPending(
                     $guest->id,
-                    $requiredPoints,
+                    $shortfallPoints,
                     $reservation->id,
                     "ピシャット予約 - {$reservation->id}"
                 );
@@ -1595,8 +1596,17 @@ class GuestAuthController extends Controller
                 ], 400);
             }
 
-            // Use the service to refund unused points
-            $success = $this->pointTransactionService->refundUnusedPoints($reservation);
+            // If reservation has pending card payment, handle card-funded cancellation (refund guest part only, cancel Payment)
+            $hasPendingPayment = \App\Models\Payment::where('reservation_id', $reservation->id)
+                ->where('status', 'pending')
+                ->whereNotNull('stripe_payment_intent_id')
+                ->exists();
+
+            if ($hasPendingPayment) {
+                $success = $this->pointTransactionService->handleCancellationForCardFundedReservation($reservation);
+            } else {
+                $success = $this->pointTransactionService->refundUnusedPoints($reservation);
+            }
 
             if (!$success) {
                 DB::rollBack();
@@ -1607,6 +1617,9 @@ class GuestAuthController extends Controller
 
             // Mark reservation as cancelled
             $reservation->active = false;
+            if (\Illuminate\Support\Facades\Schema::hasColumn($reservation->getTable(), 'cancelled_at')) {
+                $reservation->cancelled_at = now();
+            }
             $reservation->save();
 
             DB::commit();
@@ -1615,10 +1628,14 @@ class GuestAuthController extends Controller
             $guest = $reservation->guest;
             $guest->refresh();
 
-            // Find the refund transaction to get the refund amount
+            // Find the refund transaction to get the refund amount (full refund or guest-funded refund)
             $refundTransaction = PointTransaction::where('reservation_id', $reservation->id)
                 ->where('type', 'convert')
-                ->where('description', 'like', '%refunded all points%')
+                ->where(function ($q) {
+                    $q->where('description', 'like', '%refunded all points%')
+                        ->orWhere('description', 'like', '%未使用ポイント返金%');
+                })
+                ->orderBy('id', 'desc')
                 ->first();
 
             $refundAmount = $refundTransaction ? $refundTransaction->amount : 0;
