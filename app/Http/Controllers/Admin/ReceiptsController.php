@@ -173,8 +173,8 @@ class ReceiptsController extends Controller
                 'purpose' => $request->purpose,
                 'transaction_created_at' => $request->transaction_created_at,
                 'issued_at' => now(),
-                'company_name' => $request->company_name ?? '株式会社キネカ',
-                'company_address' => $request->company_address ?? '〒107-0052 東京都港区六本木4丁目8-7六本木三河台ビル',
+                'company_name' => $request->company_name ?? '株式会社ジーンクエスト',
+                'company_address' => $request->company_address ?? '東京都港区一丁目4番5号',
                 'company_phone' => $request->company_phone ?? 'TEL: 03-5860-6178',
                 'registration_number' => $request->registration_number ?? '登録番号:T3010401129426',
                 'html_content' => $this->generateReceiptHtml($receiptNumber, $request->recipient_name, $request->amount, $taxAmount, $totalAmount, $request->purpose),
@@ -317,8 +317,8 @@ class ReceiptsController extends Controller
             </table>
             
             <div style='margin-top: 50px; text-align: center;'>
-                <p style='margin: 5px 0;'><strong>株式会社キネカ</strong></p>
-                <p style='margin: 5px 0; color: #666;'>〒107-0052 東京都港区六本木4丁目8-7六本木三河台ビル</p>
+                <p style='margin: 5px 0;'><strong>株式会社ジーンクエスト</strong></p>
+                <p style='margin: 5px 0; color: #666;'>東京都港区一丁目4番5号</p>
                 <p style='margin: 5px 0; color: #666;'>TEL: 03-5860-6178</p>
                 <p style='margin: 5px 0; color: #666;'>登録番号:T3010401129426</p>
             </div>

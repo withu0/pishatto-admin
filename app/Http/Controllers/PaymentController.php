@@ -602,8 +602,8 @@ class PaymentController extends Controller
                 'transaction_created_at' => $request->transaction_created_at,
                 'issued_at' => now(),
                 // Required company fields (NOT NULL in schema)
-                'company_name' => '株式会社キネカ',
-                'company_address' => '〒107-0052 東京都港区六本木4丁目8-7六本木三河台ビル',
+                'company_name' => '株式会社ジーンクエスト',
+                'company_address' => '東京都港区一丁目4番5号',
                 'company_phone' => 'TEL: 03-5860-6178',
                 'registration_number' => '登録番号:T3010401129426',
                 // Default status
@@ -730,10 +730,8 @@ class PaymentController extends Controller
 
                 <div style='flex: 1; text-align: right;'>
                     <div style='font-size: 12px;'>
-                        <div style='font-weight: bold; margin-bottom: 5px;'>株式会社キネカ</div>
-                        <div>〒107-0052</div>
-                        <div>東京都港区六本木4丁目8-7</div>
-                        <div>六本木三河台ビル</div>
+                        <div style='font-weight: bold; margin-bottom: 5px;'>株式会社ジーンクエスト</div>
+                        <div>東京都港区一丁目4番5号</div>
                         <div>TEL: 03-5860-6178</div>
                         <div>登録番号:T3010401129426</div>
                     </div>

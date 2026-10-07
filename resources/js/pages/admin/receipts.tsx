@@ -373,15 +373,13 @@ export default function AdminReceipts({ receipts: initialReceipts }: { receipts:
                                     <div className="inline-flex items-center justify-center border-[3px] border-red-600 rounded-full text-red-600 w-24 h-24 text-center ml-auto">
                                         <div>
                                             <div className="text-xs leading-tight">株式会社</div>
-                                            <div className="text-sm font-bold leading-tight">Pishatto</div>
+                                            <div className="text-[10px] font-bold leading-tight">ジーンクエスト</div>
                                             <div className="text-xs leading-tight">印</div>
                                         </div>
                                     </div>
                                     <div className="text-sm text-gray-700">
-                                        <div className="font-bold">株式会社Pishatto</div>
-                                        <div>〒107-0052</div>
-                                        <div>東京都港区六本木4丁目8-7</div>
-                                        <div>六本木三河台ビル</div>
+                                        <div className="font-bold">株式会社ジーンクエスト</div>
+                                        <div>東京都港区一丁目4番5号</div>
                                     </div>
                                 </div>
                             </div>
